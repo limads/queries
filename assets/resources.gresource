@@ -1,0 +1,15 @@
+<!-- glib-compile-resources resources.gresource --target=icons.bin -->
+
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <!--<gresource prefix="/org/limads/queries/assets">
+    <file compressed="true" alias="queries-symbolic.svg">icons/scalable/actions/queries-symbolic.svg</file>
+  </gresource>-->
+
+  <gresource prefix="icons/scalable/actions">
+    <file compressed="true" alias="queries-symbolic.svg">icons/scalable/actions/queries-symbolic.svg</file>
+  </gresource>
+
+</gresources>
+
+
