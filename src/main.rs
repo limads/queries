@@ -57,7 +57,7 @@ fn main() {
     // theme.add_resource_path("/assets");
 
     let application = Application::builder()
-        .application_id("org.limads.queries")
+        .application_id("com.github.limads.queries")
         .build();
 
     let style_manager = libadwaita::StyleManager::default().unwrap();
@@ -100,8 +100,11 @@ fn main() {
                 }
             }
         });*/
+
+
         queries_win.window.show();
 
+        // TODO perhaps wrap all the data state into a QueriesClient struct.
         let connections = Connections::new();
         connections.react(&queries_win.content.overview.conn_list);
         queries_win.content.overview.detail_bx.react(&connections);
@@ -121,12 +124,17 @@ fn main() {
 
         let workspace = Workspace::new();
 
-        let scripts = Scripts::new();
+        let opened_scripts = OpenedScripts::new();
         // scripts.react(&queries_win.content.editor);
 
         let opened_scripts = OpenedScripts::new();
         opened_scripts.react(&queries_win.content.editor.save_dialog);
+        opened_scripts.react(&queries_win.content.editor.open_dialog);
         opened_scripts.react(&queries_win.titlebar.main_menu);
+        opened_scripts.react(&queries_win.content.editor.script_list);
+        queries_win.sidebar.file_list.react(&opened_scripts);
+        queries_win.content.editor.react(&opened_scripts);
+        opened_scripts.react(&queries_win.sidebar.file_list);
 
         // connections.react(queries_win.content.overview.conn_list.receiver());
 

@@ -1,4 +1,4 @@
-use super::{Connections, ConnectionInfo, ActiveConnection, OpenedScripts, Scripts};
+use super::{Connections, ConnectionInfo, ActiveConnection, OpenedScripts};
 
 pub struct UserState {
     pub main_handle_pos : i32,

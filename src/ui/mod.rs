@@ -58,7 +58,7 @@ impl QueriesContent {
 
         // stack.add_named(&workspace.nb, Some("workspace"));
 
-        stack.add_named(&editor.views[0], Some("editor")).unwrap().set_icon_name(Some("accessories-text-editor-symbolic"));
+        stack.add_named(&editor.stack, Some("editor")).unwrap().set_icon_name(Some("accessories-text-editor-symbolic"));
         let switcher = libadwaita::ViewSwitcher::builder().stack(&stack).can_focus(false).policy(libadwaita::ViewSwitcherPolicy::Wide).build();
         let overlay = libadwaita::ToastOverlay::builder().margin_bottom(10).opacity(1.0).visible(true).build();
         overlay.set_child(Some(&stack));
@@ -137,6 +137,9 @@ impl QueriesWindow {
         window.set_decorated(true);
         window.add_action(&titlebar.main_menu.action_new);
         window.add_action(&titlebar.main_menu.action_open);
+        window.add_action(&sidebar.file_list.close_action);
+
+        content.editor.open_dialog.react(&titlebar.main_menu);
 
         Self { paned, sidebar, titlebar, content, window }
     }

@@ -41,7 +41,9 @@ impl QueriesOverview {
         bx.append(&conn_list.bx);
         bx.append(&info_bx);
 
-        super::set_margins(&bx, 198, 198);
+        // super::set_margins(&bx, 198, 0);
+        bx.set_halign(Align::Center);
+        bx.set_valign(Align::Center);
 
         Self { conn_list, conn_bx, detail_bx, bx }
     }
@@ -165,7 +167,7 @@ impl ConnectionList {
         // add_row.set_activatable(true);
         // list.append(&add_row);
         let scroll = ScrolledWindow::new();
-        scroll.set_width_request(420);
+        scroll.set_width_request(520);
         scroll.set_valign(Align::Fill);
 
         let provider = CssProvider::new();
@@ -174,11 +176,15 @@ impl ConnectionList {
         list.set_show_separators(true);
         scroll.set_margin_bottom(36);
 
-        let add_btn = Button::builder().icon_name("list-add-symbolic")
+        let add_btn = Button::builder()
+            .icon_name("list-add-symbolic")
+            //.label("Add")
             .halign(Align::Fill).hexpand(true).build();
         // let local_btn = Button::builder().icon_name("folder-symbolic")
         //    .halign(Align::Fill).hexpand(true).build();
-        let remove_btn = Button::builder().icon_name("list-remove-symbolic")
+        let remove_btn = Button::builder()
+            // .label("Remove")
+            .icon_name("list-remove-symbolic")
             .halign(Align::Fill).hexpand(true).build();
         let btn_bx = Box::new(Orientation::Horizontal, 0);
         btn_bx.append(&remove_btn);
