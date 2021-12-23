@@ -68,7 +68,7 @@ fn main() {
             .expect("Could not get default Display");
         let theme = IconTheme::for_display(display)
             .expect("Could not get IconTheme");
-        theme.add_search_path("/home/diego/Software/queries4/assets/icons");
+        theme.add_search_path("/home/diego/Software/queries/assets/icons");
         let window = ApplicationWindow::builder()
             .application(app)
             .title("Queries")
@@ -102,13 +102,31 @@ fn main() {
         });*/
         queries_win.window.show();
 
-        let connections : Connections = Default::default();
+        let connections = Connections::new();
         connections.react(&queries_win.content.overview.conn_list);
+        queries_win.content.overview.detail_bx.react(&connections);
+        queries_win.content.overview.conn_bx.react(&connections);
+        queries_win.content.overview.conn_list.react(&connections);
 
-        let queries_win_c = queries_win.clone();
-        queries_win.titlebar.sidebar_toggle.connect_toggled(move|_|{
-            queries_win_c.overlay.add_toast(&libadwaita::Toast::builder().title("This is a toast").build());
-        });
+        // let queries_win_c = queries_win.clone();
+        // queries_win.titlebar.sidebar_toggle.connect_toggled(move|_|{
+        //    queries_win_c.overlay.add_toast(&libadwaita::Toast::builder().title("This is a toast").build());
+        // });
+
+        let active_conn = ActiveConnection::new();
+        queries_win.content.react(&active_conn);
+        queries_win.content.overview.conn_bx.react(&active_conn);
+        active_conn.react(&queries_win.content.overview.conn_bx);
+        queries_win.sidebar.schema_tree.react(&active_conn);
+
+        let workspace = Workspace::new();
+
+        let scripts = Scripts::new();
+        // scripts.react(&queries_win.content.editor);
+
+        let opened_scripts = OpenedScripts::new();
+        opened_scripts.react(&queries_win.content.editor.save_dialog);
+        opened_scripts.react(&queries_win.titlebar.main_menu);
 
         // connections.react(queries_win.content.overview.conn_list.receiver());
 

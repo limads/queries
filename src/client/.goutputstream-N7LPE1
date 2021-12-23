@@ -7,10 +7,6 @@ use std::boxed;
 use glib::MainContext;
 use std::collections::HashMap;
 use super::listener::SqlListener;
-use crate::server::*;
-use std::time::Duration;
-use std::thread;
-use crate::sql::object::DBInfo;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConnectionInfo {
@@ -158,81 +154,81 @@ impl React<ConnectionList> for Connections {
 }
 
 fn generate_conn_str(
-    host_entry : &Entry,
-    db_entry : &Entry,
-    user_entry : &Entry,
-    password_entry : &PasswordEntry
+    host_entry : Entry,
+    db_entry : Entry,
+    user_entry : Entry,
+    password_entry : PasswordEntry
 ) -> Result<String, String> {
-    let mut host_s = host_entry.text().as_str().to_owned();
-    if host_s.is_empty() {
-        return Err(format!("Missing host"));
-    }
-    let db_s = db_entry.text().as_str().to_owned();
-    if db_s.is_empty() {
-        return Err(format!("Missing database"));
-    }
-    let user_s = user_entry.text().as_str().to_owned();
-    if user_s.is_empty() {
-        return Err(format!("Missing user"));
-    }
-    let password_s = password_entry.text().as_str().to_owned();
-    if password_s.is_empty() {
-        return Err(format!("Missing password"));
-    }
-    let split_port : Vec<String> = host_s.split(":").map(|s| s.to_string() ).collect();
-    let mut port_s = String::from("5432");
-    match split_port.len() {
-        0..=1 => { },
-        2 => {
-            host_s = split_port[0].clone();
-            port_s = split_port[1].clone();
-        },
-        n => {
-            return Err(format!("Host string can contain only a single colon"));
+    let mut conn_info : HashMap<&str, String> = HashMap::new();
+    let fields = ["host", "dbname", "user", "password"];
+    let entries = [host_entry, db_entry, user_entry];
+    for (entry, field) in entries.iter().chain(Some(password_entry).iter()).zip(fields.iter()) {
+        let s = entry.text();
+        let value = s.as_str().to_owned();
+        if !value.is_empty() {
+            if &field[..] == " host" {
+                let spl_port : Vec<&str> = value.split(":").collect();
+                if spl_port.len() >= 2 {
+                    conn_info.insert(
+                        "host", spl_port[0].to_owned().clone()
+                    );
+                    conn_info.insert(
+                        "port", spl_port[1].to_owned().clone());
+                } else {
+                    conn_info.insert("host",
+                        spl_port[0].to_owned().clone());
+                }
+            } else {
+                conn_info.insert(field, value);
+            }
         }
     }
+
     let mut conn_str = "postgresql://".to_owned();
-    conn_str += &user_s;
-    conn_str = conn_str + ":" + &password_s;
-    if host_s == "localhost" || host_s == "127.0.0.1" {
-        conn_str = conn_str + "@" + &host_s;
-    } else {
-        return Err(format!("Remote connections not allowed yet."));
+    if let Some(s) = conn_info.get("user") {
+        conn_str += s;
     }
-    conn_str = conn_str + ":" + &port_s;
-    conn_str = conn_str + "/" + &db_s;
+    if let Some(s) = conn_info.get("password") {
+        conn_str = conn_str + ":" + &s;
+    }
+    if let Some(s) = conn_info.get("host") {
+        if s == "localhost" || s == "127.0.0.1" {
+            conn_str = conn_str + "@" + &s;
+        } else {
+            return Err(format!("Remote connections not allowed yet."));
+        }
+    } else {
+        conn_str = conn_str + &"@localhost";
+    }
+    if let Some(s) = conn_info.get("port") {
+        conn_str = conn_str + ":" + &s;
+    } else {
+        conn_str = conn_str + ":5432";
+    }
+    if let Some(s) = conn_info.get("dbname") {
+        conn_str = conn_str + "/" + &s;
+    } else {
+        // Automatically connect to homonymous database
+        // if let Some(u) = conn_info.get("user") {
+        //    conn_str = conn_str + "/" + &u;
+        // }
+    }
     Ok(conn_str)
-}
-
-pub enum ErrorKind {
-
-    Client,
-
-    Server,
-
-    EstablishConnection
-
 }
 
 pub enum ActiveConnectionAction {
 
-    ConnectRequest(String),
-
-    ConnectAccepted(boxed::Box<dyn Connection>, Option<DBInfo>),
+    Connect,
 
     Disconnect,
 
-    Execute(String),
-
-    Error(String)
+    Execute(String)
 
 }
 
-pub type ActiveConnCallbacks = (Callbacks<Option<DBInfo>>, Callbacks<()>, Callbacks<String>, Callbacks<String>);
-
 pub struct ActiveConnection {
 
-    on_connected : Callbacks<Option<DBInfo>>,
+    on_connected : Callbacks<()>,
 
     on_disconnected : Callbacks<()>,
 
@@ -247,74 +243,39 @@ pub struct ActiveConnection {
 impl ActiveConnection {
 
     pub fn new() -> Self {
-        let (on_connected, on_disconnected, on_error, on_success) : ActiveConnCallbacks = Default::default();
+        let (on_connected, on_disconnected, on_error, on_success) = Default::default();
         let (send, recv) = glib::MainContext::channel::<ActiveConnectionAction>(glib::source::PRIORITY_DEFAULT);
         recv.attach(None, {
-            let mut listener = SqlListener::launch();
-            let send = send.clone();
-            let (on_connected, on_disconnected, on_error, on_success) = (
-                on_connected.clone(),
-                on_disconnected.clone(),
-                on_error.clone(),
-                on_success.clone(),
-            );
+            let listener = SqlListener::launch();
             move |action| {
                 match action {
-                    ActiveConnectionAction::ConnectRequest(conn_str) => {
-                        thread::spawn({
-                            let send = send.clone();
-                            move || {
-                                match PostgresConnection::try_new(conn_str) {
-                                    Ok(mut conn) => {
-                                        let info = conn.info();
-                                        send.send(ActiveConnectionAction::ConnectAccepted(boxed::Box::new(conn), info));
-                                    },
-                                    Err(e) => {
-                                        send.send(ActiveConnectionAction::Error(e));
-                                    }
-                                }
-                            }
-                        });
-                    },
-                    ActiveConnectionAction::ConnectAccepted(conn, info) => {
-                        listener.update_engine(conn);
-                        on_connected.borrow().iter().for_each(|f| f(info.clone()) );
+                    ActiveConnectionAction::Connect => {
+                        // Call listener.update_engine
                     },
                     ActiveConnectionAction::Disconnect => {
-                        on_disconnected.borrow().iter().for_each(|f| f(()) );
+
                     },
                     ActiveConnectionAction::Execute(stmt) => {
-                        match listener.send_command(stmt, HashMap::new(), true) {
-                            Ok(_) => { },
-                            Err(e) => {
-                                on_error.borrow().iter().for_each(|f| f(e.clone()) );
-                            }
-                        }
+                        // listener.send_command(stmt, HashMap::new(), true);
                         // Match statement success => call on_success callbacks
                         // Match statement error => calll on_error callbacks
-                    },
-                    ActiveConnectionAction::Error(e) => {
-                        on_error.borrow().iter().for_each(|f| f(e.clone()) );
                     }
                 }
                 glib::Continue(true)
             }
         });
-
-        // TODO create glib timeout to listen to commands. The send channel will be cloned into this timeout.
-
         Self {
             on_connected,
             on_disconnected,
             on_error,
             on_success,
-            send,
+            send
         }
     }
 
     pub fn connect_db_connected<F>(&self, f : F)
     where
-        F : Fn(Option<DBInfo>) + 'static
+        F : Fn(()) + 'static
     {
         self.on_connected.borrow_mut().push(boxed::Box::new(f));
     }
@@ -341,13 +302,6 @@ impl ActiveConnection {
     }
 }
 
-/*fn call_when_info_arrived(info : Callbacks<Option<DBInfo>>) {
-    glib::timeout_add_local(Duration::from_millis(16), move || {
-
-
-    });
-}*/
-
 impl React<ConnectionBox> for ActiveConnection {
 
     fn react(&self, conn_bx : &ConnectionBox) {
@@ -357,29 +311,12 @@ impl React<ConnectionBox> for ActiveConnection {
             conn_bx.user.entry.clone(),
             conn_bx.password.entry.clone()
         );
-        let send = self.send.clone();
         conn_bx.switch.connect_state_set(move |switch, state| {
+            match crate::client::generate_conn_str(host_entry, db_entry, user_entry, password_entry) {
 
-            if switch.is_active() {
-                if host_entry.text().starts_with("file") {
-                    unimplemented!()
-                }
-
-                match generate_conn_str(&host_entry, &db_entry, &user_entry, &password_entry) {
-                    Ok(conn_str) => {
-                        send.send(ActiveConnectionAction::ConnectRequest(conn_str));
-                    },
-                    Err(e) => {
-                        send.send(ActiveConnectionAction::Error(e));
-                    }
-                }
-            } else {
-                send.send(ActiveConnectionAction::Disconnect);
             }
-
             Inhibit(false)
         });
-
            /*if let Ok(mut t_env) = table_env.try_borrow_mut() {
                 if state {
                     let conn_res  : Result<(), String> = if let Ok(db_path) = conn_popover.db_path.try_borrow() {
@@ -555,3 +492,6 @@ impl React<ConnectionBox> for ActiveConnection {
     conn_popover.set_db_loaded_mode();
     Ok(())
 }*/
+
+
+

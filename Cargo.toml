@@ -7,4 +7,18 @@ edition = "2018"
 gtk4 = "0.3.0"
 sourceview5 = { version = "0.3.0" }
 libadwaita = "0.1.0-beta-1"
+postgres = { version = "0.19.2", features = [ "with-chrono-0_4", "with-serde_json-1" ] }
+sqlparser = "0.13.0"
+regex = { version = "1.4.2" }
+rusqlite = { version="0.24.2", features=["load_extension", "csvtab", "vtab", "functions", "serde_json", "backup", "column_decltype" ] }
+rust_decimal = { version = "1.10.1", features = ["db-postgres"] }
+serde = { version="1.0.130", features=["derive"] }
+serde_json = "1.0.68"
+itertools = "0.10"
+csv = "1.1.3"
+num-traits="0.2.14"
+quick-xml = "0.22.0"
+either = "1.6.1"
+chrono = "0.4.13"
+# gdk-pixbuf="0.14.0"
 # dirs = "4.0"
