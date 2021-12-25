@@ -5,7 +5,7 @@ use std::rc::Rc;
 use std::cell::{RefCell};
 use std::fs::File;
 use std::io::Read;
-use crate::tables::environment::{TableEnvironment, EnvironmentUpdate};
+// use crate::tables::environment::{/*TableEnvironment,*/ EnvironmentUpdate};
 use crate::sql::object::{DBObject, DBType, DBInfo};
 // use sourceview::*;
 // use gtk::prelude::*;

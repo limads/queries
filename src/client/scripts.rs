@@ -7,6 +7,9 @@ use crate::Callbacks;
 use crate::ui::FileList;
 use std::boxed;
 use std::thread;
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::Path;
 
 pub enum ScriptAction {
 
@@ -26,6 +29,10 @@ pub enum ScriptAction {
 
     NewRequest,
 
+    ActiveTextChanged(Option<String>),
+
+    SetSaved(usize, bool),
+
     Select(Option<usize>)
 
 }
@@ -37,6 +44,12 @@ pub struct OpenedScripts {
     on_open : Callbacks<OpenedFile>,
 
     on_save : Callbacks<OpenedFile>,
+
+    on_file_changed : Callbacks<usize>,
+
+    on_file_persisted : Callbacks<usize>,
+
+    on_active_text_changed : Callbacks<Option<String>>,
 
     on_new : Callbacks<OpenedFile>,
 
@@ -53,19 +66,25 @@ impl OpenedScripts {
         let on_open : Callbacks<OpenedFile> = Default::default();
         let on_new : Callbacks<OpenedFile> = Default::default();
         let on_save : Callbacks<OpenedFile> = Default::default();
+        let on_file_changed : Callbacks<usize> = Default::default();
+        let on_file_persisted : Callbacks<usize> = Default::default();
         let on_selected : Callbacks<Option<usize>> = Default::default();
         let on_closed : Callbacks<(usize, usize)> = Default::default();
+        let on_active_text_changed : Callbacks<Option<String>> = Default::default();
         let mut files : Vec<OpenedFile> = Vec::new();
         let mut selected : Option<usize> = None;
         recv.attach(None, {
             let send = send.clone();
-            let (on_open, on_new, on_save, on_selected, on_closed) = (
+            let (on_open, on_new, on_save, on_selected, on_closed, on_file_changed, on_file_persisted) = (
                 on_open.clone(),
                 on_new.clone(),
                 on_save.clone(),
                 on_selected.clone(),
-                on_closed.clone()
+                on_closed.clone(),
+                on_file_changed.clone(),
+                on_file_persisted.clone()
             );
+            let (on_active_text_changed) = (on_active_text_changed.clone());
             move |action| {
                 match action {
                     ScriptAction::NewRequest => {
@@ -99,6 +118,14 @@ impl OpenedScripts {
                             println!("Cannot close (unsaved changes)");
                         }
                     },
+                    ScriptAction::SetSaved(ix, saved) => {
+                        files[ix].saved = saved;
+                        if saved {
+                            on_file_persisted.borrow().iter().for_each(|f| f(ix) );
+                        } else {
+                            on_file_changed.borrow().iter().for_each(|f| f(ix) );
+                        }
+                    },
                     ScriptAction::OpenSuccess(file) => {
                         on_open.borrow().iter().for_each(|f| f(file.clone()) );
                     },
@@ -111,7 +138,7 @@ impl OpenedScripts {
                 Continue(true)
             }
         });
-        Self { on_open, on_save, on_new, send, on_selected, on_closed }
+        Self { on_open, on_save, on_new, send, on_selected, on_closed, on_file_changed, on_file_persisted, on_active_text_changed }
     }
 
     pub fn connect_new<F>(&self, f : F)
@@ -142,7 +169,75 @@ impl OpenedScripts {
         self.on_closed.borrow_mut().push(boxed::Box::new(f));
     }
 
+    pub fn connect_file_changed<F>(&self, f : F)
+    where
+        F : Fn(usize) + 'static
+    {
+        self.on_file_changed.borrow_mut().push(boxed::Box::new(f));
+    }
 
+    pub fn connect_file_persisted<F>(&self, f : F)
+    where
+        F : Fn(usize) + 'static
+    {
+        self.on_file_persisted.borrow_mut().push(boxed::Box::new(f));
+    }
+
+    pub fn connect_on_active_text_changed<F>(&self, f : F)
+    where
+        F : Fn(Option<String>) + 'static
+    {
+        self.on_active_text_changed.borrow_mut().push(boxed::Box::new(f));
+    }
+
+}
+
+// To save file...
+/*if let Some(path) = file.path {
+        if Self::save_file(&path, self.get_text()) {
+            self.file_list.mark_current_saved();
+            println!("Content written into file");
+        } else {
+            println!("Unable to save file");
+        }
+    } else {
+        self.sql_save_dialog.set_filename(&file.name);
+        self.sql_save_dialog.run();
+        self.sql_save_dialog.hide();
+    }
+}
+*/
+
+// TO open file..
+// view.get_buffer().map(|buf| buf.set_text(&content) );
+
+// To get text...
+/*
+pub fn get_text(&self) -> String {
+    if let Some(buffer) = self.view.borrow().get_buffer() {
+        let txt = buffer.get_text(
+            &buffer.get_start_iter(),
+            &buffer.get_end_iter(),
+            true
+        ).unwrap();
+        txt.to_string()
+    } else {
+        panic!("Unable to retrieve text buffer");
+    }
+} */
+
+fn save_file(path : &Path, content : String) -> bool {
+    if let Ok(mut f) = File::create(path) {
+        if f.write_all(content.as_bytes()).is_ok() {
+            println!("Content written to file");
+            true
+        } else {
+            false
+        }
+    } else {
+        println!("Unable to write into file");
+        false
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -232,6 +327,19 @@ impl React<FileList> for OpenedScripts {
                 let ix = param.unwrap().get::<i32>().unwrap();
                 send.send(ScriptAction::CloseRequest(ix as usize));
             }
+        });
+    }
+
+}
+
+impl React<QueriesEditor> for OpenedScripts {
+
+    fn react(&self, editor : &QueriesEditor) {
+        editor.views.iter().enumerate().for_each(|(ix, view)| {
+            let send = self.send.clone();
+            view.buffer().connect_changed(move |_| {
+                send.send(ScriptAction::SetSaved(ix, false));
+            });
         });
     }
 

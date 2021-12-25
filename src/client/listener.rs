@@ -11,12 +11,13 @@ use crate::sql::object::{DBObject, DBInfo};
 use crate::sql::parsing;
 use crate::sql::parsing::AnyStatement;
 use std::ops::Deref;
+use crate::Callbacks;
 
 pub struct SqlListener {
 
     // _handle : JoinHandle<()>,
 
-    ans_receiver : Receiver<Vec<QueryResult>>,
+    // ans_receiver : Option<Receiver<Vec<QueryResult>>>,
 
     // info_receiver : Receiver<Option<DBInfo>>,
 
@@ -31,6 +32,8 @@ pub struct SqlListener {
     pub last_cmd : Arc<Mutex<Vec<String>>>,
 
     listen_channels : Vec<String>,
+
+    // on_result_arrived : Option<for<Vec<QueryResult>>,
 
     //loader : Arc<Mutex<FunctionLoader>>
 }
@@ -100,9 +103,12 @@ impl SqlListener {
         unimplemented!()
     }
 
-    pub fn launch() -> Self {
+    pub fn launch<F>(result_cb : F) -> Self
+    where
+        F : Fn(Vec<QueryResult>) + 'static + Send
+    {
         let (cmd_tx, cmd_rx) = mpsc::channel::<(String, HashMap<String, String>, bool)>();
-        let (ans_tx, ans_rx) = mpsc::channel::<Vec<QueryResult>>();
+        // let (ans_tx, ans_rx) = mpsc::channel::<Vec<QueryResult>>();
         let engine : Arc<Mutex<Option<Box<dyn Connection>>>> = Arc::new(Mutex::new(None));
         let listen_channels = Vec::new();
 
@@ -126,6 +132,8 @@ impl SqlListener {
             }
         });
 
+        // let on_results_arrived : Callbacks<&'a [QueryResult]> = Default::default();
+
         // Statement listening thread.
         thread::spawn({
             let engine = engine.clone();
@@ -139,26 +147,26 @@ impl SqlListener {
                             match **engine.lock().as_mut().unwrap() {
                                 Some(ref mut eng) => {
                                     let result = eng.try_run(cmd, &subs, parse,  /*Some(&loader)*/ );
-                                    match result {
+                                    let res = match result {
                                         Ok(ans) => {
-                                            if let Err(e) = ans_tx.send(ans) {
-                                                println!("{}", e);
-                                            }
+                                            ans
+                                            //{
+                                            // if let Err(e) = ans_tx.send(ans) {
+                                            //    println!("{}", e);
+                                            // }
                                         },
                                         Err(e) => {
-                                            let inv_res = vec![QueryResult::Invalid( e.to_string(), false )];
-                                            if let Err(e) = ans_tx.send(inv_res) {
-                                                println!("{}", e);
-                                            }
+                                            vec![QueryResult::Invalid( e.to_string(), false )]
                                         }
-                                    }
+                                    };
+                                    result_cb(res);
+                                    // if let Err(e) = ans_tx.send(res) {
+                                    //    println!("{}", e);
+                                    // }
                                 },
                                 None => {
 
                                 },
-                                // Err(e) => {
-                                //    panic!("Failed to acquire lock over engine: {}", e);
-                                // }
                             }
                         },
                         Err(e) => {
@@ -196,7 +204,7 @@ impl SqlListener {
         Self {
             // info_sender,
             // info_receiver,
-            ans_receiver : ans_rx,
+            // ans_receiver : Some(ans_rx),
             cmd_sender : cmd_tx,
             engine,
             last_cmd : Arc::new(Mutex::new(Vec::new())),
@@ -216,7 +224,7 @@ impl SqlListener {
 
         if let Ok(mut last_cmd) = self.last_cmd.lock() {
             last_cmd.clear();
-            self.clear_results();
+            // self.clear_results();
             match parse {
                 true => {
                     match crate::sql::parsing::parse_sql(&sql[..], &subs) {
@@ -267,10 +275,10 @@ impl SqlListener {
         Ok(())
     }
 
-    /// Gets all results which might have been queued at the receiver.
+    /*/// Gets all results which might have been queued at the receiver.
     pub fn maybe_get_result(&self) -> Option<Vec<QueryResult>> {
         let mut full_ans = Vec::new();
-        while let Ok(ans) = self.ans_receiver.try_recv() {
+        while let Ok(ans) = self.ans_receiver.as_ref().unwrap().try_recv() {
             full_ans.extend(ans);
         }
         if full_ans.len() > 0 {
@@ -280,11 +288,28 @@ impl SqlListener {
         }
     }
 
-    pub fn clear_results(&self) {
-        while let Ok(mut res) = self.ans_receiver.try_recv() {
+    pub fn wait_for_results(&self) -> Vec<QueryResult> {
+        let mut full_ans = Vec::new();
+        while let Ok(ans) = self.ans_receiver.as_ref().unwrap().recv() {
+            full_ans.extend(ans);
+        }
+        full_ans
+    }
+
+    pub fn take_receiver(&mut self) -> Receiver<Vec<QueryResult>> {
+        self.ans_receiver.take().unwrap()
+    }
+
+    pub fn give_back_receiver(&mut self, recv : Receiver<Vec<QueryResult>>) {
+        assert!(self.ans_receiver.is_none());
+        self.ans_receiver = Some(recv);
+    }*/
+
+    /*pub fn clear_results(&self) {
+        while let Ok(mut res) = self.ans_receiver.as_ref().unwrap().try_recv() {
             let _ = res;
         }
-    }
+    }*/
 
     pub fn last_commands(&self) -> Vec<String> {
         if let Ok(cmds) = self.last_cmd.lock() {

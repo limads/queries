@@ -5,6 +5,9 @@ use crate::ui::PackedImageLabel;
 use crate::ui::MainMenu;
 use crate::React;
 use crate::client::OpenedScripts;
+use sourceview5::View;
+use sourceview5::prelude::*;
+use crate::ui::ExecButton;
 
 #[derive(Debug, Clone)]
 pub struct QueriesEditor {
@@ -26,6 +29,7 @@ impl QueriesEditor {
 
         let views : [sourceview5::View; 16]= Default::default();
         for ix in 0..16 {
+            configure_view(&views[ix]);
             stack.add_named(&views[ix], Some(&format!("editor{}", ix)));
         }
 
@@ -38,16 +42,18 @@ impl QueriesEditor {
 impl React<OpenedScripts> for QueriesEditor {
 
     fn react(&self, opened : &OpenedScripts) {
-
         opened.connect_selected({
             let stack = self.stack.clone();
+            let views = self.views.clone();
             move |opt_ix| {
                 match opt_ix {
                     Some(ix) => {
                         stack.set_visible_child_name(&format!("editor{}", ix));
+                        // opened.set_active_text(retrieve_statements_from_buffer(&views[ix]).unwrap());
                     },
                     None => {
                         stack.set_visible_child_name("list");
+                        // opened.set_active_text(None);
                     }
                 }
             }
@@ -65,9 +71,33 @@ impl React<OpenedScripts> for QueriesEditor {
 
 }
 
-/*
+impl React<ExecButton> for QueriesEditor {
 
-pub fn get_n_untitled(&self) -> usize {
+    fn react(&self, btn : &ExecButton) {
+        let weak_views : [glib::WeakRef<sourceview5::View>; 16] = self.views.clone().map(|view| view.downgrade() );
+        let exec_action = btn.exec_action.clone();
+        btn.btn.connect_clicked(move |btn| {
+            let selected_view = exec_action.state().unwrap().get::<i32>().unwrap();
+            if selected_view >= 0 {
+                if let Some(view) = weak_views[selected_view as usize].upgrade() {
+                    if let Ok(Some(txt)) = retrieve_statements_from_buffer(&view) {
+                        println!("Executing...");
+
+                        // Implemented at React<ExecButton> for ActiveConnection
+                        exec_action.activate(Some(&txt.to_variant()));
+                    } else {
+                        println!("No text to be retrieved");
+                    }
+                }
+            } else {
+                println!("No selected view");
+            }
+        });
+    }
+
+}
+
+/* pub fn get_n_untitled(&self) -> usize {
     self.files.borrow().iter()
         .filter(|f| f.name.starts_with("Untitled") )
         .filter_map(|f| f.name.split(' ').nth(1) )
@@ -78,31 +108,48 @@ pub fn get_n_untitled(&self) -> usize {
 }
 
 pub fn mark_current_saved(&self) {
-        if let Some(row) = self.list_box.get_selected_row() {
-            let lbl = Self::get_label_from_row(&row);
-            let txt = lbl.get_text();
-            if txt.as_str().ends_with("*") {
-                lbl.set_text(&txt[0..(txt.len()-1)]);
-            }
-        } else {
-            println!("No selected row");
+    if let Some(row) = self.list_box.get_selected_row() {
+        let lbl = Self::get_label_from_row(&row);
+        let txt = lbl.get_text();
+        if txt.as_str().ends_with("*") {
+            lbl.set_text(&txt[0..(txt.len()-1)]);
         }
+    } else {
+        println!("No selected row");
     }
+}
 
-    pub fn mark_current_unsaved(&self) {
-        if let Some(row) = self.list_box.get_selected_row() {
-            let lbl = Self::get_label_from_row(&row);
-            let txt = lbl.get_text();
-            if !txt.as_str().ends_with("*") {
-                lbl.set_text(&format!("{}*", txt));
-            } else {
-                // println!("Text already marked as unsaved");
-            }
+pub fn mark_current_unsaved(&self) {
+    if let Some(row) = self.list_box.get_selected_row() {
+        let lbl = Self::get_label_from_row(&row);
+        let txt = lbl.get_text();
+        if !txt.as_str().ends_with("*") {
+            lbl.set_text(&format!("{}*", txt));
         } else {
-            println!("No selected row");
+            // println!("Text already marked as unsaved");
         }
+    } else {
+        println!("No selected row");
     }
+}
 */
+
+pub fn retrieve_statements_from_buffer(view : &sourceview5::View) -> Result<Option<String>, String> {
+    let buffer = view.buffer();
+    let opt_text : Option<String> = match buffer.selection_bounds() {
+        Some((from, to,)) => {
+            from.text(&to).map(|txt| txt.to_string())
+        },
+        None => {
+            Some(buffer.text(
+                &buffer.start_iter(),
+                &buffer.end_iter(),
+                true
+            ).to_string())
+        }
+    };
+    Ok(opt_text)
+}
 
 #[derive(Debug, Clone)]
 pub struct ScriptList {
@@ -239,6 +286,62 @@ impl React<MainMenu> for OpenDialog {
         });
     }
 
+}
+
+fn configure_view(view : &View) {
+    let buffer = view.buffer()
+        .downcast::<sourceview5::Buffer>().unwrap();
+    let manager = sourceview5::StyleSchemeManager::new();
+    // println!("available schemes: {:?}", manager.scheme_ids());
+
+    let scheme = manager.scheme("Adwaita").unwrap();
+    buffer.set_style_scheme(Some(&scheme));
+    buffer.set_highlight_syntax(true);
+
+    let provider = CssProvider::new();
+    provider.load_from_data(b"textview { font-family: \"Ubuntu Mono\"; font-size: 13pt; }");
+    let ctx = view.style_context();
+    ctx.add_provider(&provider, 800);
+
+    let lang_manager = sourceview5::LanguageManager::default().unwrap();
+    let lang = lang_manager.language("sql").unwrap();
+    buffer.set_language(Some(&lang));
+    connect_source_key_press(&view);
+    let buffer = view.buffer();
+    buffer.connect_changed(move |_buf| {
+        // file_list.mark_current_unsaved();
+        // mark_current_unsaved();
+    });
+    view.set_tab_width(4);
+    view.set_indent_width(4);
+    view.set_auto_indent(true);
+    view.set_insert_spaces_instead_of_tabs(true);
+    // view.set_right_margin(80);
+    view.set_highlight_current_line(false);
+    view.set_indent_on_tab(true);
+    view.set_show_line_marks(true);
+    // view.set_right_margin_position(80);
+    // view.set_show_right_margin(false);
+    view.set_show_line_numbers(false);
+}
+
+fn connect_source_key_press(view : &View) {
+
+    // EventControllerKey::new().connect_key_pressed(|ev, key, code, modifier| {
+    //    Inhibit(false)
+    // });
+
+    /*view.connect_key_press_event(move |_view, ev_key| {
+        if ev_key.get_state() == gdk::ModifierType::CONTROL_MASK && ev_key.get_keyval() == keys::constants::Return {
+            // if refresh_btn.is_sensitive() {
+            // exec_action.emit();
+            // refresh_btn.emit_clicked();
+            // }
+            glib::signal::Inhibit(true)
+        } else {
+            glib::signal::Inhibit(false)
+        }
+    });*/
 }
 
 

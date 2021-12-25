@@ -10,7 +10,7 @@ use crate::client::ConnectionInfo;
 use crate::ui::PackedImageEntry;
 use crate::ui::PackedImagePasswordEntry;
 use crate::ui::PackedImageLabel;
-use crate::client::Connections;
+use crate::client::ConnectionSet;
 use std::time::Duration;
 use crate::client::ActiveConnection;
 
@@ -19,7 +19,7 @@ pub struct QueriesOverview {
     pub conn_list : ConnectionList,
     pub conn_bx : ConnectionBox,
     pub detail_bx : DetailBox,
-    pub bx : Box
+    pub bx : Box,
 }
 
 impl QueriesOverview {
@@ -74,9 +74,9 @@ impl DetailBox {
 
 }
 
-impl React<Connections> for DetailBox {
+impl React<ConnectionSet> for DetailBox {
 
-    fn react(&self, conns : &Connections) {
+    fn react(&self, conns : &ConnectionSet) {
         let detail_bx = self.clone();
         conns.connect_selected(move |opt_sel| {
             if let Some((sel_ix, sel_info)) = opt_sel {
@@ -241,9 +241,9 @@ impl ConnectionList {
 
 }
 
-impl React<Connections> for ConnectionList {
+impl React<ConnectionSet> for ConnectionList {
 
-    fn react(&self, conns : &Connections) {
+    fn react(&self, conns : &ConnectionSet) {
         conns.connect_added({
             let list = self.list.clone();
             move |info| {
@@ -400,9 +400,9 @@ impl ConnectionBox {
 
 }
 
-impl React<Connections> for ConnectionBox {
+impl React<ConnectionSet> for ConnectionBox {
 
-    fn react(&self, connections : &Connections) {
+    fn react(&self, connections : &ConnectionSet) {
         connections.connect_selected({
             let conn_bx = self.clone();
             move |opt_sel| {

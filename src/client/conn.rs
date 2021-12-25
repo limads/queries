@@ -11,6 +11,8 @@ use crate::server::*;
 use std::time::Duration;
 use std::thread;
 use crate::sql::object::DBInfo;
+use crate::sql::QueryResult;
+use crate::ui::ExecButton;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConnectionInfo {
@@ -58,7 +60,7 @@ pub enum ConnectionAction {
     Remove(i32)
 }
 
-pub struct Connections {
+pub struct ConnectionSet {
 
     added : Callbacks<ConnectionInfo>,
 
@@ -70,7 +72,7 @@ pub struct Connections {
 
 }
 
-impl Connections {
+impl ConnectionSet {
 
     pub fn new() -> Self {
         let (send, recv) = MainContext::channel::<ConnectionAction>(glib::source::PRIORITY_DEFAULT);
@@ -120,7 +122,7 @@ impl Connections {
 
 }
 
-impl React<ConnectionBox> for Connections {
+impl React<ConnectionBox> for ConnectionSet {
 
     fn react(&self, conn_bx : &ConnectionBox) {
         // conn_bx.switch.connect_activate(move |switch| {
@@ -129,7 +131,7 @@ impl React<ConnectionBox> for Connections {
 
 }
 
-impl React<ConnectionList> for Connections {
+impl React<ConnectionList> for ConnectionSet {
 
     fn react(&self, conn_list : &ConnectionList) {
         conn_list.list.connect_row_selected({
@@ -222,7 +224,9 @@ pub enum ActiveConnectionAction {
 
     Disconnect,
 
-    Execute(String),
+    ExecutionRequest(String),
+
+    ExecutionCompleted(Vec<QueryResult>),
 
     Error(String)
 
@@ -240,6 +244,8 @@ pub struct ActiveConnection {
 
     on_success : Callbacks<String>,
 
+    on_exec_result : Callbacks<Vec<QueryResult>>,
+
     send : glib::Sender<ActiveConnectionAction>
 
 }
@@ -248,15 +254,22 @@ impl ActiveConnection {
 
     pub fn new() -> Self {
         let (on_connected, on_disconnected, on_error, on_success) : ActiveConnCallbacks = Default::default();
+        let on_exec_result : Callbacks<Vec<QueryResult>> = Default::default();
         let (send, recv) = glib::MainContext::channel::<ActiveConnectionAction>(glib::source::PRIORITY_DEFAULT);
-        recv.attach(None, {
-            let mut listener = SqlListener::launch();
+        let mut listener = SqlListener::launch({
             let send = send.clone();
-            let (on_connected, on_disconnected, on_error, on_success) = (
+            move |results| {
+                send.send(ActiveConnectionAction::ExecutionCompleted(results));
+            }
+        });
+        recv.attach(None, {
+            let send = send.clone();
+            let (on_connected, on_disconnected, on_error, on_success, on_exec_result) = (
                 on_connected.clone(),
                 on_disconnected.clone(),
                 on_error.clone(),
                 on_success.clone(),
+                on_exec_result.clone()
             );
             move |action| {
                 match action {
@@ -283,8 +296,8 @@ impl ActiveConnection {
                     ActiveConnectionAction::Disconnect => {
                         on_disconnected.borrow().iter().for_each(|f| f(()) );
                     },
-                    ActiveConnectionAction::Execute(stmt) => {
-                        match listener.send_command(stmt, HashMap::new(), true) {
+                    ActiveConnectionAction::ExecutionRequest(stmts) => {
+                        match listener.send_command(stmts, HashMap::new(), true) {
                             Ok(_) => { },
                             Err(e) => {
                                 on_error.borrow().iter().for_each(|f| f(e.clone()) );
@@ -292,6 +305,9 @@ impl ActiveConnection {
                         }
                         // Match statement success => call on_success callbacks
                         // Match statement error => calll on_error callbacks
+                    },
+                    ActiveConnectionAction::ExecutionCompleted(results) => {
+                        on_exec_result.borrow().iter().for_each(|f| f(results.clone()) );
                     },
                     ActiveConnectionAction::Error(e) => {
                         on_error.borrow().iter().for_each(|f| f(e.clone()) );
@@ -309,6 +325,7 @@ impl ActiveConnection {
             on_error,
             on_success,
             send,
+            on_exec_result
         }
     }
 
@@ -338,6 +355,13 @@ impl ActiveConnection {
         F : Fn(String) + 'static
     {
         self.on_success.borrow_mut().push(boxed::Box::new(f));
+    }
+
+    pub fn connect_exec_result<F>(&self, f : F)
+    where
+        F : Fn(Vec<QueryResult>) + 'static
+    {
+        self.on_exec_result.borrow_mut().push(boxed::Box::new(f));
     }
 }
 
@@ -555,3 +579,16 @@ impl React<ConnectionBox> for ActiveConnection {
     conn_popover.set_db_loaded_mode();
     Ok(())
 }*/
+
+impl React<ExecButton> for ActiveConnection {
+
+    fn react(&self, btn : &ExecButton) {
+        let send = self.send.clone();
+        btn.exec_action.connect_activate(move |action, param| {
+            let stmts = param.unwrap().get::<String>().unwrap();
+            send.send(ActiveConnectionAction::ExecutionRequest(stmts));
+            // println!("Should execute: {}", );
+        });
+    }
+
+}

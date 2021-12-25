@@ -5,7 +5,7 @@ use std::thread;
 use std::process::Command;
 use std::path::Path;
 // use crate::plots::plot_workspace::PlotWorkspace;
-use crate::tables::environment::TableEnvironment;
+// use crate::tables::environment::TableEnvironment;
 // use crate::table_notebook::TableNotebook;
 use std::fs::File;
 use std::io::Write;

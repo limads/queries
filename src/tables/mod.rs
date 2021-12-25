@@ -2,7 +2,7 @@ pub mod table;
 
 // pub mod source;
 
-pub mod environment;
+// pub mod environment;
 
 // pub mod sql;
 

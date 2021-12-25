@@ -3,6 +3,7 @@ use gtk4::*;
 use libadwaita;
 use crate::client::ActiveConnection;
 use crate::React;
+use crate::client::Environment;
 
 mod overview;
 
@@ -36,36 +37,108 @@ mod file_list;
 
 pub use file_list::*;
 
+mod table;
+
+pub use table::*;
+
 #[derive(Debug, Clone)]
 pub struct QueriesContent {
     pub stack : libadwaita::ViewStack,
     pub switcher : libadwaita::ViewSwitcher,
     pub overlay : libadwaita::ToastOverlay,
-    pub overview : QueriesOverview,
-    pub workspace : QueriesWorkspace,
+    pub results : QueriesResults,
     pub editor : QueriesEditor
+}
+
+#[derive(Debug, Clone)]
+pub struct QueriesResults {
+    pub stack : Stack,
+    pub workspace : QueriesWorkspace,
+    pub overview : QueriesOverview
+}
+
+impl QueriesResults {
+
+    pub fn build() -> Self {
+        let stack = Stack::new();
+        let overview = QueriesOverview::build();
+        let workspace = QueriesWorkspace::build();
+        stack.add_named(&overview.bx, Some("overview"));
+        // overview.bx.set_margin_bottom(0);
+        // workspace.bx.set_margin_bottom(0);
+        // stack.bx.set_margin_bottom(0);
+        stack.add_named(&workspace.bx, Some("tables"));
+        stack.set_visible_child_name("overview");
+        // stack.set_visible_child_name("tables");
+
+        /*use crate::ui::table::TableWidget;
+        use crate::tables::{table::Table, column::Column};
+        let tbl = Table::new(None, vec![String::from("Column 1"), String::from("Column 2")], vec![Column::from(vec![10; 10]), Column::from(vec![10; 10])]).unwrap();
+        let tbl_wid = TableWidget::new_from_table(&tbl);
+        let tbl_wid2 = TableWidget::new_from_table(&tbl);
+        println!("Table widget created");
+        let tab_page = workspace.tab_view.append(&tbl_wid.scroll_window).unwrap();
+        let tab_page = workspace.tab_view.append(&tbl_wid2.scroll_window).unwrap();*/
+
+        Self { stack, workspace, overview }
+    }
+
+}
+
+impl React<Environment> for QueriesResults {
+
+    fn react(&self, env : &Environment) {
+        let stack = self.stack.clone();
+        env.connect_table_update(move |tables| {
+            stack.set_visible_child_name("tables");
+        });
+    }
+
+}
+
+impl React<ExecButton> for QueriesResults {
+
+    fn react(&self, exec_btn : &ExecButton) {
+        let stack = self.stack.clone();
+        exec_btn.clear_action.connect_activate(move |_action, param| {
+            stack.set_visible_child_name("overview");
+        });
+    }
+
+}
+
+impl React<QueriesWorkspace> for QueriesResults {
+
+    fn react(&self, ws : &QueriesWorkspace) {
+        let stack = self.stack.clone();
+        ws.tab_view.connect_close_page(move |tab_view, page| {
+            if tab_view.n_pages() == 1 {
+                stack.set_visible_child_name("overview");
+            }
+            false
+        });
+    }
+
 }
 
 impl QueriesContent {
 
     fn build() -> Self {
         let stack = libadwaita::ViewStack::new();
-        let overview = QueriesOverview::build();
-        let workspace = QueriesWorkspace::build();
         let editor = QueriesEditor::build();
-
-        stack.add_named(&overview.bx, Some("overview")).unwrap().set_icon_name(Some("queries-symbolic"));
+        let results = QueriesResults::build();
+        stack.add_named(&results.stack, Some("results")).unwrap().set_icon_name(Some("queries-symbolic"));
 
         // stack.add_named(&workspace.nb, Some("workspace"));
 
         stack.add_named(&editor.stack, Some("editor")).unwrap().set_icon_name(Some("accessories-text-editor-symbolic"));
         let switcher = libadwaita::ViewSwitcher::builder().stack(&stack).can_focus(false).policy(libadwaita::ViewSwitcherPolicy::Wide).build();
-        let overlay = libadwaita::ToastOverlay::builder().margin_bottom(10).opacity(1.0).visible(true).build();
+        let overlay = libadwaita::ToastOverlay::builder() /*.margin_bottom(10).*/ .opacity(1.0).visible(true).build();
         overlay.set_child(Some(&stack));
 
         // stack.set_visible_child_name("overview");
 
-        Self { stack, overview, workspace, editor, switcher, overlay }
+        Self { stack, results, editor, switcher, overlay }
     }
 
     /*fn react(&self, titlebar : &QueriesTitlebar) {
@@ -91,6 +164,42 @@ impl React<ActiveConnection> for QueriesContent {
         let overlay = self.overlay.clone();
         conn.connect_db_error(move |err : String| {
             overlay.add_toast(&libadwaita::Toast::builder().title(&err).build());
+        });
+    }
+
+}
+
+impl React<FileList> for QueriesContent {
+
+    fn react(&self, list : &FileList) {
+        let switcher = self.switcher.clone();
+        list.list.connect_row_selected(move |_, opt_row| {
+            if opt_row.is_some() {
+                switcher.stack().unwrap().set_visible_child_name("editor");
+            }
+        });
+
+    }
+
+}
+
+impl React<ExecButton> for QueriesContent {
+
+    fn react(&self, exec_btn : &ExecButton) {
+        let stack = self.stack.clone();
+        exec_btn.clear_action.connect_activate(move |_action, param| {
+            stack.set_visible_child_name("overview");
+        });
+    }
+
+}
+
+impl React<Environment> for QueriesContent {
+
+    fn react(&self, env : &Environment) {
+        let stack = self.stack.clone();
+        env.connect_table_update(move |tables| {
+            stack.set_visible_child_name("results");
         });
     }
 
@@ -135,11 +244,28 @@ impl QueriesWindow {
         window.set_child(Some(&paned));
         window.set_titlebar(Some(&titlebar.header));
         window.set_decorated(true);
+
+        // Add actions to main menu
         window.add_action(&titlebar.main_menu.action_new);
         window.add_action(&titlebar.main_menu.action_open);
+        window.add_action(&titlebar.main_menu.action_save);
+        window.add_action(&titlebar.main_menu.action_save_as);
+
+        // Add actions to execution menu
+        window.add_action(&titlebar.exec_btn.exec_action);
+        window.add_action(&titlebar.exec_btn.clear_action);
+        window.add_action(&titlebar.exec_btn.schedule_action);
+
         window.add_action(&sidebar.file_list.close_action);
 
         content.editor.open_dialog.react(&titlebar.main_menu);
+
+        content.react(&sidebar.file_list);
+        titlebar.exec_btn.react(&sidebar.file_list);
+        // titlebar.exec_btn.react(&content.editor);
+        content.editor.react(&titlebar.exec_btn);
+        content.results.react(&titlebar.exec_btn);
+        content.results.react(&content.results.workspace);
 
         Self { paned, sidebar, titlebar, content, window }
     }

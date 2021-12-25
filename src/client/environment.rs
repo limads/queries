@@ -1,31 +1,98 @@
+use gtk4::*;
+use gtk4::prelude::*;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 use crate::sql::*;
-// use super::source::*;
 use std::path::Path;
-use super::table::*;
+use crate::tables::*;
 use std::sync::{Arc, Mutex};
-// use crate::functions::loader::*;
 use std::str::FromStr;
 use std::cmp::{Eq, PartialEq};
 use std::hash::Hash;
 use std::fmt;
-// use crate::db::{postgresql, sqlite};
 use itertools::Itertools;
 use std::collections::HashMap;
-// use crate::sql::listener::*;
 use crate::sql::object::*;
+use crate::Callbacks;
+use crate::tables::table::Table;
+use crate::React;
+use crate::client::ActiveConnection;
+use std::boxed;
+use crate::tables::table::TableSettings;
+use crate::tables::table::Columns;
 
-#[cfg(feature="arrowext")]
-use datafusion::execution::context::ExecutionContext;
-
-#[cfg(feature="arrowext")]
-use datafusion::execution::physical_plan::csv::CsvReadOptions;
+// #[cfg(feature="arrowext")]
+// use datafusion::execution::context::ExecutionContext;
+// #[cfg(feature="arrowext")]
+// use datafusion::execution::physical_plan::csv::CsvReadOptions;
 
 pub struct ExecutionError {
     pub msg : String,
     pub is_server : bool
+}
+
+pub enum EnvironmentAction {
+
+    Update(Vec<QueryResult>),
+
+    Clear,
+
+    Select
+
+}
+
+pub struct Environment {
+
+    send : glib::Sender<EnvironmentAction>,
+
+    on_tbl_update : Callbacks<Vec<Table>>
+
+}
+
+impl Environment {
+
+    pub fn new() -> Self {
+        let (send, recv) = glib::MainContext::channel::<EnvironmentAction>(glib::PRIORITY_DEFAULT);
+        let mut tables = Tables::new();
+        let on_tbl_update : Callbacks<Vec<Table>> = Default::default();
+        recv.attach(None, {
+            let on_tbl_update = on_tbl_update.clone();
+            move |action| {
+                match action {
+                    EnvironmentAction::Update(results) => {
+                        tables.update_from_query_results(results);
+                        println!("Query resulted in {} tables", tables.tables.len());
+                        if tables.tables.len() >= 1 {
+                            on_tbl_update.borrow().iter().for_each(|f| f(tables.tables.clone()) );
+                        }
+                    },
+                    _ => { }
+                }
+                Continue(true)
+            }
+        });
+        Self { send, on_tbl_update }
+    }
+
+    pub fn connect_table_update<F>(&self, f : F)
+    where
+        F : Fn(Vec<Table>) + 'static
+    {
+        self.on_tbl_update.borrow_mut().push(boxed::Box::new(f));
+    }
+
+}
+
+impl React<ActiveConnection> for Environment {
+
+    fn react(&self, conn : &ActiveConnection) {
+        let send = self.send.clone();
+        conn.connect_exec_result(move |res : Vec<QueryResult>| {
+            send.send(EnvironmentAction::Update(res));
+        });
+    }
+
 }
 
 #[derive(Clone, Debug)]
@@ -49,7 +116,7 @@ pub enum EnvironmentUpdate {
 
 }
 
-pub struct TableEnvironment {
+pub struct Tables {
 
     // source : EnvironmentSource,
 
@@ -72,10 +139,12 @@ pub struct TableEnvironment {
 
     history : Vec<EnvironmentUpdate>,
 
+
+
     // loader : Arc<Mutex<FunctionLoader>>,
 }
 
-impl TableEnvironment {
+impl Tables {
 
     /*pub fn clear(&mut self) {
         self.tables.clear();
@@ -86,18 +155,124 @@ impl TableEnvironment {
         self.listen_channels.clear();
     }*/
 
-    pub fn new(/*src : EnvironmentSource, loader : Arc<Mutex<FunctionLoader>>*/) -> Self {
+    pub fn new() -> Self {
         Self{
-            // source : src,
-            // listener : SqlListener::launch(),
             tables : Vec::new(),
             last_update : None,
             queries : Vec::new(),
             history : vec![EnvironmentUpdate::Clear],
-            // loader : loader.clone(),
             exec_results : Vec::new(),
-            // subs : HashMap::new(),
         }
+    }
+
+    /// Try to update the tables, potentially returning the first error
+    /// message encountered by the database. Returns None if there
+    /// is no update; Returns the Ok(result) if there is update, potentially
+    /// carrying the first error the database encountered. If the update is valid,
+    /// return the update event that happened (Refresh or NewTables).
+    pub fn update_from_query_results(&mut self, results : Vec<QueryResult>) -> Option<Result<EnvironmentUpdate, ExecutionError>> {
+        self.tables.clear();
+        self.queries.clear();
+        self.exec_results.clear();
+        if results.len() == 0 {
+            self.history.push(EnvironmentUpdate::Clear);
+            return Some(Ok(EnvironmentUpdate::Clear));
+        }
+        let mut new_cols : Vec<Vec<String>> = Vec::new();
+        let mut opt_err = None;
+        let mut any_valid = false;
+        for r in results {
+            match r {
+                QueryResult::Valid(query, tbl) => {
+                    new_cols.push(tbl.names());
+                    self.tables.push(tbl);
+                    self.queries.push(query.trim().to_string());
+                    any_valid = true;
+                },
+                QueryResult::Invalid(msg, is_server) => {
+                    self.tables.clear();
+                    self.history.push(EnvironmentUpdate::Clear);
+                    opt_err = Some(ExecutionError { msg : msg.clone(), is_server });
+                },
+                QueryResult::Statement(_) | QueryResult::Modification(_) | QueryResult::Empty => {
+                    self.tables.clear();
+                    self.exec_results.push(r.clone());
+                    self.history.push(EnvironmentUpdate::Clear);
+                },
+            }
+        }
+
+        if let Some(err) = opt_err {
+            self.history.push(EnvironmentUpdate::Clear);
+            Some(Err(err))
+        } else {
+            if any_valid {
+                let last_state = (self.last_table_columns(), self.last_queries());
+                let last_update = if let (Some(last_cols), Some(last_queries)) = last_state {
+                    let n_col_names_equal = last_cols.iter().flatten()
+                        .zip(new_cols.iter().flatten())
+                        .take_while(|(last, new)| last == new )
+                        .count();
+                    let n_queries_equal = last_queries.iter()
+                        .zip(self.queries.iter())
+                        .take_while(|(last, new)| last == new )
+                        .count();
+                    if n_col_names_equal == 0 && n_queries_equal == 0 {
+                        EnvironmentUpdate::NewTables(new_cols, self.queries.clone())
+                    } else {
+                        if self.queries.len() > n_queries_equal && new_cols.len() > n_col_names_equal {
+                            EnvironmentUpdate::AppendTables(new_cols.clone(), self.queries.clone())
+                        } else {
+                            EnvironmentUpdate::NewTables(new_cols, self.queries.clone())
+                        }
+                    }
+                } else {
+                    EnvironmentUpdate::NewTables(new_cols, self.queries.clone())
+                };
+                self.history.push(last_update.clone());
+                // println!("History: {:?}", self.history);
+                Some(Ok(last_update))
+            } else {
+                Some(Ok(EnvironmentUpdate::Clear))
+            }
+        }
+    }
+
+    pub fn update_from_statement(&mut self, results : Vec<QueryResult>) -> Option<Result<String, ExecutionError>> {
+        self.exec_results.clear();
+        for r in results.iter() {
+            match r {
+                QueryResult::Statement(_) | QueryResult::Modification(_) => {
+                    self.exec_results.push(r.clone());
+                },
+                QueryResult::Invalid(e, is_server) => {
+                    return Some(Err(ExecutionError{ msg : e.clone(), is_server : *is_server}));
+                },
+                _ => { }
+            }
+        }
+        if let Some(r) = results.last() {
+            // println!("Last statement: {:?}", r);
+            match r {
+                QueryResult::Statement(s) => Some(Ok(s.clone())),
+                QueryResult::Invalid(e, is_server) => Some(Err(ExecutionError { msg : e.clone(), is_server : *is_server })),
+                QueryResult::Modification(m) => Some(Ok(m.clone())),
+                QueryResult::Valid(_, _) => None,
+                QueryResult::Empty => Some(Ok(format!("No results to show")))
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn any_modification_result(&self) -> bool {
+        for res in self.exec_results.iter() {
+            match res {
+                QueryResult::Modification(_) => return true,
+                _ => { }
+            }
+        }
+        false
     }
 
     pub fn queries(&self) -> &[String] {
@@ -962,115 +1137,4 @@ impl TableEnvironment {
 
 }
 
-/* Those two functions will be impl React<ActiveConnection> for TableEnvironment
-/// Try to update the tables, potentially returning the first error
-/// message encountered by the database. Returns None if there
-/// is no update; Returns the Ok(result) if there is update, potentially
-/// carrying the first error the database encountered. If the update is valid,
-/// return the update event that happened (Refresh or NewTables).
-pub fn maybe_update_from_query_results(&mut self) -> Option<Result<EnvironmentUpdate, ExecutionError>> {
-    let results = self.listener.maybe_get_result()?;
-    self.tables.clear();
-    self.queries.clear();
-    self.exec_results.clear();
-    if results.len() == 0 {
-        self.history.push(EnvironmentUpdate::Clear);
-        return Some(Ok(EnvironmentUpdate::Clear));
-    }
-    let mut new_cols : Vec<Vec<String>> = Vec::new();
-    let mut opt_err = None;
-    let mut any_valid = false;
-    for r in results {
-        match r {
-            QueryResult::Valid(query, tbl) => {
-                new_cols.push(tbl.names());
-                self.tables.push(tbl);
-                self.queries.push(query.trim().to_string());
-                any_valid = true;
-            },
-            QueryResult::Invalid(msg, is_server) => {
-                self.tables.clear();
-                self.history.push(EnvironmentUpdate::Clear);
-                opt_err = Some(ExecutionError { msg : msg.clone(), is_server });
-            },
-            QueryResult::Statement(_) | QueryResult::Modification(_) | QueryResult::Empty => {
-                self.tables.clear();
-                self.exec_results.push(r.clone());
-                self.history.push(EnvironmentUpdate::Clear);
-            },
-        }
-    }
 
-    if let Some(err) = opt_err {
-        self.history.push(EnvironmentUpdate::Clear);
-        Some(Err(err))
-    } else {
-        if any_valid {
-            let last_state = (self.last_table_columns(), self.last_queries());
-            let last_update = if let (Some(last_cols), Some(last_queries)) = last_state {
-                let n_col_names_equal = last_cols.iter().flatten()
-                    .zip(new_cols.iter().flatten())
-                    .take_while(|(last, new)| last == new )
-                    .count();
-                let n_queries_equal = last_queries.iter()
-                    .zip(self.queries.iter())
-                    .take_while(|(last, new)| last == new )
-                    .count();
-                if n_col_names_equal == 0 && n_queries_equal == 0 {
-                    EnvironmentUpdate::NewTables(new_cols, self.queries.clone())
-                } else {
-                    if self.queries.len() > n_queries_equal && new_cols.len() > n_col_names_equal {
-                        EnvironmentUpdate::AppendTables(new_cols.clone(), self.queries.clone())
-                    } else {
-                        EnvironmentUpdate::NewTables(new_cols, self.queries.clone())
-                    }
-                }
-            } else {
-                EnvironmentUpdate::NewTables(new_cols, self.queries.clone())
-            };
-            self.history.push(last_update.clone());
-            // println!("History: {:?}", self.history);
-            Some(Ok(last_update))
-        } else {
-            Some(Ok(EnvironmentUpdate::Clear))
-        }
-    }
-}
-
-pub fn maybe_update_from_statement(&mut self) -> Option<Result<String, ExecutionError>> {
-    let results = self.listener.maybe_get_result()?;
-    self.exec_results.clear();
-    for r in results.iter() {
-        match r {
-            QueryResult::Statement(_) | QueryResult::Modification(_) => {
-                self.exec_results.push(r.clone());
-            },
-            QueryResult::Invalid(e, is_server) => {
-                return Some(Err(ExecutionError{ msg : e.clone(), is_server : *is_server}));
-            },
-            _ => { }
-        }
-    }
-    if let Some(r) = results.last() {
-        // println!("Last statement: {:?}", r);
-        match r {
-            QueryResult::Statement(s) => Some(Ok(s.clone())),
-            QueryResult::Invalid(e, is_server) => Some(Err(ExecutionError { msg : e.clone(), is_server : *is_server })),
-            QueryResult::Modification(m) => Some(Ok(m.clone())),
-            QueryResult::Valid(_, _) => None,
-            QueryResult::Empty => Some(Ok(format!("No results to show")))
-        }
-    } else {
-        None
-    }
-}
-
-pub fn any_modification_result(&self) -> bool {
-    for res in self.exec_results.iter() {
-        match res {
-            QueryResult::Modification(_) => return true,
-            _ => { }
-        }
-    }
-    false
-}*/

@@ -112,8 +112,34 @@ impl React<OpenedScripts> for FileList {
                 list.remove(&row);
             }
         });
+        opened.connect_file_changed({
+            let list = self.list.clone();
+            move |ix| {
+                let lbl = get_label_child(&list, ix);
+                let txt = lbl.label();
+                if !txt.ends_with("⚬") {
+                    lbl.set_label(&format!("{} ⚬", txt));
+                }
+            }
+        });
+        opened.connect_file_persisted({
+            let list = self.list.clone();
+            move |ix| {
+                let lbl = get_label_child(&list, ix);
+                let txt = lbl.label();
+                if txt.ends_with("⚬") {
+                    let n_chars = txt.as_str().chars().count();
+                    let chars = txt.as_str().chars();
+                    lbl.set_label(&format!("{}", chars.take(n_chars-1).collect::<String>()));
+                }
+            }
+        });
     }
 
 }
 
-
+pub fn get_label_child(list : &ListBox, ix : usize) -> Label {
+    let row = list.row_at_index(ix as i32).unwrap();
+    let bx = row.child().clone().unwrap().downcast::<Box>().unwrap();
+    super::get_child_by_index::<Label>(&bx, 1)
+}

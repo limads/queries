@@ -2,6 +2,9 @@ use gtk4::prelude::*;
 use gtk4::*;
 use super::menu::MainMenu;
 use libadwaita::SplitButton;
+use super::FileList;
+use crate::React;
+use crate::client::OpenedScripts;
 
 #[derive(Debug, Clone)]
 pub struct QueriesTitlebar {
@@ -9,7 +12,7 @@ pub struct QueriesTitlebar {
     pub editor_toggle : ToggleButton,
     pub tbl_toggle : ToggleButton,
     pub menu_button : MenuButton,
-    pub exec_btn : SplitButton,
+    pub exec_btn : ExecButton,
     pub sidebar_toggle : ToggleButton,
     pub main_menu : MainMenu
 }
@@ -33,13 +36,9 @@ impl QueriesTitlebar {
         let left_bx = Box::new(Orientation::Horizontal, 0);
         let sidebar_toggle = ToggleButton::builder().icon_name("sidebar-symbolic").active(false).build();
 
-        let exec_menu = gio::Menu::new();
-        exec_menu.append(Some("Clear"), Some("win.new_file"));
-        exec_menu.append(Some("Schedule"), Some("win.open_file"));
-
-        let exec_btn = SplitButton::builder().icon_name("download-db-symbolic").menu_model(&exec_menu) /*.sensitive(false).*/ .build();
+        let exec_btn = ExecButton::build();
         left_bx.append(&sidebar_toggle);
-        left_bx.append(&exec_btn);
+        left_bx.append(&exec_btn.btn);
         header.pack_start(&left_bx);
 
         //let menu_toggle = ToggleButton::builder().icon_name("open-menu-symbolic").active(true).build();
@@ -56,4 +55,67 @@ impl QueriesTitlebar {
     }
 
 }
+
+#[derive(Debug, Clone)]
+pub struct ExecButton {
+    pub btn : SplitButton,
+    pub exec_action : gio::SimpleAction,
+    pub clear_action : gio::SimpleAction,
+    pub schedule_action : gio::SimpleAction
+}
+
+impl ExecButton {
+
+    fn build() -> Self {
+        let exec_menu = gio::Menu::new();
+        exec_menu.append(Some("Clear"), Some("win.clear"));
+        exec_menu.append(Some("Schedule"), Some("win.schedule"));
+        let btn = SplitButton::builder().icon_name("download-db-symbolic").menu_model(&exec_menu).sensitive(false).build();
+        let exec_action = gio::SimpleAction::new_stateful("win.execute", Some(&String::static_variant_type()), &(-1i32).to_variant());
+        let clear_action = gio::SimpleAction::new("win.clear", None);
+        let schedule_action = gio::SimpleAction::new("win.schedule", None);
+        // btn.activate_action(&exec_action, None);
+        Self { btn, exec_action, clear_action, schedule_action }
+    }
+}
+
+impl React<FileList> for ExecButton {
+
+    fn react(&self, file_list : &FileList) {
+        let btn = self.btn.clone();
+        file_list.list.connect_row_selected(move |_, opt_row| {
+            if opt_row.is_some() {
+                btn.set_sensitive(true);
+            } else {
+                btn.set_sensitive(false);
+            }
+        });
+    }
+
+}
+
+impl React<OpenedScripts> for ExecButton {
+
+    fn react(&self, scripts : &OpenedScripts) {
+        let action = self.exec_action.clone();
+        scripts.connect_selected(move |opt_ix| {
+            if let Some(ix) = opt_ix {
+                action.set_state(&(ix as i32).to_variant());
+            } else {
+                action.set_state(&(-1i32).to_variant());
+            }
+        });
+    }
+
+}
+
+/*impl React<QueriesEditor> for ExecButton {
+
+    fn react(&self, editor : &QueriesEditor) {
+
+    }
+
+}*/
+
+
 

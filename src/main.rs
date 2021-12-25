@@ -101,40 +101,41 @@ fn main() {
             }
         });*/
 
-
-        queries_win.window.show();
+        let client = QueriesClient::new();
 
         // TODO perhaps wrap all the data state into a QueriesClient struct.
-        let connections = Connections::new();
-        connections.react(&queries_win.content.overview.conn_list);
-        queries_win.content.overview.detail_bx.react(&connections);
-        queries_win.content.overview.conn_bx.react(&connections);
-        queries_win.content.overview.conn_list.react(&connections);
+        client.conn_set.react(&queries_win.content.results.overview.conn_list);
+        queries_win.content.results.overview.detail_bx.react(&client.conn_set);
+        queries_win.content.results.overview.conn_bx.react(&client.conn_set);
+        queries_win.content.results.overview.conn_list.react(&client.conn_set);
 
         // let queries_win_c = queries_win.clone();
         // queries_win.titlebar.sidebar_toggle.connect_toggled(move|_|{
         //    queries_win_c.overlay.add_toast(&libadwaita::Toast::builder().title("This is a toast").build());
         // });
 
-        let active_conn = ActiveConnection::new();
-        queries_win.content.react(&active_conn);
-        queries_win.content.overview.conn_bx.react(&active_conn);
-        active_conn.react(&queries_win.content.overview.conn_bx);
-        queries_win.sidebar.schema_tree.react(&active_conn);
+        queries_win.content.react(&client.active_conn);
+        queries_win.content.results.overview.conn_bx.react(&client.active_conn);
+        client.active_conn.react(&queries_win.content.results.overview.conn_bx);
+        queries_win.sidebar.schema_tree.react(&client.active_conn);
+        client.active_conn.react(&queries_win.titlebar.exec_btn);
 
-        let workspace = Workspace::new();
+        client.env.react(&client.active_conn);
+        queries_win.content.results.workspace.react(&client.env);
+        queries_win.content.results.react(&client.env);
 
-        let opened_scripts = OpenedScripts::new();
-        // scripts.react(&queries_win.content.editor);
+        client.scripts.react(&queries_win.content.editor.save_dialog);
+        client.scripts.react(&queries_win.content.editor.open_dialog);
+        client.scripts.react(&queries_win.titlebar.main_menu);
+        client.scripts.react(&queries_win.content.editor.script_list);
+        queries_win.sidebar.file_list.react(&client.scripts);
+        queries_win.content.editor.react(&client.scripts);
+        client.scripts.react(&queries_win.sidebar.file_list);
+        client.scripts.react(&queries_win.content.editor);
+        queries_win.titlebar.exec_btn.react(&client.scripts);
+        queries_win.content.react(&client.env);
 
-        let opened_scripts = OpenedScripts::new();
-        opened_scripts.react(&queries_win.content.editor.save_dialog);
-        opened_scripts.react(&queries_win.content.editor.open_dialog);
-        opened_scripts.react(&queries_win.titlebar.main_menu);
-        opened_scripts.react(&queries_win.content.editor.script_list);
-        queries_win.sidebar.file_list.react(&opened_scripts);
-        queries_win.content.editor.react(&opened_scripts);
-        opened_scripts.react(&queries_win.sidebar.file_list);
+        queries_win.window.show();
 
         // connections.react(queries_win.content.overview.conn_list.receiver());
 
