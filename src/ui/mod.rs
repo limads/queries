@@ -322,6 +322,7 @@ impl QueriesWindow {
         window.add_action(&titlebar.main_menu.action_save);
         window.add_action(&titlebar.main_menu.action_save_as);
         window.add_action(&content.editor.ignore_file_save_action);
+        window.add_action(&titlebar.sidebar_hide_action);
 
         // Add actions to execution menu
         window.add_action(&titlebar.exec_btn.exec_action);
@@ -343,6 +344,43 @@ impl QueriesWindow {
 
         Self { paned, sidebar, titlebar, content, window }
     }
+}
+
+impl React<QueriesTitlebar> for QueriesWindow {
+
+    fn react(&self, titlebar : &QueriesTitlebar) {
+        let hide_action = titlebar.sidebar_hide_action.clone();
+        let paned = self.paned.clone();
+        /*self.paned.connect_position_set_notify(move |paned| {
+            // println!("{}", paned.position());
+            println!("Position set");
+        });
+        self.paned.connect_toggle_handle_focus(move |paned| {
+            println!("Toggle handle focus");
+            true
+        });
+        self.paned.connect_accept_position(move |paned| {
+            println!("Accept position");
+            true
+        });
+        self.paned.connect_resize_start_child_notify(move |paned| {
+            println!("Resized");
+        });*/
+        titlebar.sidebar_toggle.connect_toggled(move |btn| {
+            if btn.is_active() {
+                let sz = hide_action.state().unwrap().get::<i32>().unwrap();
+                if sz > 0 {
+                    paned.set_position(sz);
+                } else {
+                    paned.set_position(100);
+                }
+            } else {
+                hide_action.set_state(&paned.position().to_variant());
+                paned.set_position(0);
+            }
+        });
+    }
+
 }
 
 #[derive(Debug, Clone)]

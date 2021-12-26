@@ -5,6 +5,7 @@ use crate::React;
 use libadwaita;
 use super::table::*;
 use crate::tables::table::Table;
+use crate::ui::PlotView;
 
 #[derive(Debug, Clone)]
 pub struct QueriesWorkspace {
@@ -53,9 +54,22 @@ impl React<Environment> for QueriesWorkspace {
             }
 
             for tbl in tables.iter() {
+
+                if let Some(val) = tbl.single_json_field() {
+                    match PlotView::new_from_json(&val.to_string()) {
+                        Ok(view) => {
+                            let tab_page = tab_view.append(&view.parent).unwrap();
+                            tab_page.set_icon(Some(&gio::ThemedIcon::new("folder-templates-symbolic")));
+                            tab_page.set_title("Plot");
+                            continue;
+                        },
+                        _ => { }
+                    }
+                }
+
                 let tbl_wid = TableWidget::new_from_table(&tbl);
                 let tab_page = tab_view.append(&tbl_wid.scroll_window).unwrap();
-                configure_table_page(&tab_page, &tbl)
+                configure_table_page(&tab_page, &tbl);
             }
         });
     }
@@ -100,20 +114,14 @@ for table in all_tbls.iter() {
             table_bar.clone()
         );
     }
-}
+}*/
 
-pub fn create_json_plot_rep(&self, val : Value, bar : TableBar, layout_window : LayoutWindow) -> bool {
+/*pub fn create_json_plot_rep(&self, val : Value, bar : TableBar, layout_window : LayoutWindow) -> bool {
     match PlotView::new_from_json(&val.to_string()) {
         Ok(view) => {
-
-            // println!("{:?}", view.plot_group);
-
             let vp = Viewport::new(None::<&Adjustment>, None::<&Adjustment>);
             vp.override_background_color(StateFlags::NORMAL, Some(&RGBA::from_str("#fafafa").unwrap()));
             vp.set_shadow_type(ShadowType::None);
-
-            // if let Ok(view) = view.try_borrow() {
-
             vp.add(&view.parent);
             // let bx = Box::new(Orientation::Horizontal, 0);
             // bx.pack_start(&view.parent, true, true, 0);
