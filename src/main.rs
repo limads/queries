@@ -130,10 +130,12 @@ fn main() {
         client.scripts.react(&queries_win.content.editor.script_list);
         queries_win.sidebar.file_list.react(&client.scripts);
         queries_win.content.editor.react(&client.scripts);
+        queries_win.content.react(&client.scripts);
         client.scripts.react(&queries_win.sidebar.file_list);
         client.scripts.react(&queries_win.content.editor);
         queries_win.titlebar.exec_btn.react(&client.scripts);
         queries_win.content.react(&client.env);
+        client.scripts.react(&queries_win);
 
         queries_win.window.show();
 

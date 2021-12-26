@@ -5,6 +5,7 @@ use libadwaita::SplitButton;
 use super::FileList;
 use crate::React;
 use crate::client::OpenedScripts;
+use super::QueriesContent;
 
 #[derive(Debug, Clone)]
 pub struct QueriesTitlebar {
@@ -59,6 +60,9 @@ impl QueriesTitlebar {
 #[derive(Debug, Clone)]
 pub struct ExecButton {
     pub btn : SplitButton,
+
+    // ExecAction carries the index of the opened SQL file as its integer parameter.
+    // It carries the content of the SQL file as its state.
     pub exec_action : gio::SimpleAction,
     pub clear_action : gio::SimpleAction,
     pub schedule_action : gio::SimpleAction
@@ -71,9 +75,9 @@ impl ExecButton {
         exec_menu.append(Some("Clear"), Some("win.clear"));
         exec_menu.append(Some("Schedule"), Some("win.schedule"));
         let btn = SplitButton::builder().icon_name("download-db-symbolic").menu_model(&exec_menu).sensitive(false).build();
-        let exec_action = gio::SimpleAction::new_stateful("win.execute", Some(&String::static_variant_type()), &(-1i32).to_variant());
-        let clear_action = gio::SimpleAction::new("win.clear", None);
-        let schedule_action = gio::SimpleAction::new("win.schedule", None);
+        let exec_action = gio::SimpleAction::new_stateful("execute", Some(&String::static_variant_type()), &(-1i32).to_variant());
+        let clear_action = gio::SimpleAction::new("clear", None);
+        let schedule_action = gio::SimpleAction::new("schedule", None);
         // btn.activate_action(&exec_action, None);
         Self { btn, exec_action, clear_action, schedule_action }
     }
@@ -107,6 +111,26 @@ impl React<OpenedScripts> for ExecButton {
         });
     }
 
+}
+
+impl React<QueriesContent> for ExecButton {
+
+    fn react(&self, content : &QueriesContent) {
+        let actions = [self.exec_action.clone(), self.schedule_action.clone()];
+        content.stack.connect_visible_child_notify(move |stack| {
+            if let Some(name) = stack.visible_child_name() {
+                match name.as_str() {
+                    "editor" => {
+                        actions.iter().for_each(|action| action.set_enabled(true) );
+                    },
+                    "results" => {
+                        actions.iter().for_each(|action| action.set_enabled(false) );
+                    },
+                    _ => { }
+                }
+            }
+        });
+    }
 }
 
 /*impl React<QueriesEditor> for ExecButton {

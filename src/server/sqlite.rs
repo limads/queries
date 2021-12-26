@@ -71,7 +71,7 @@ impl Connection for SqliteConnection {
 
     }
 
-    fn query(&mut self, q : &str, subs : &HashMap<String, String>) -> QueryResult {
+    fn query(&mut self, q : &str, subs : &HashMap<String, String>) -> StatementOutput {
         let query = substitute_if_required(q, subs);
         match self.conn.prepare(&query[..]) {
             Ok(mut prep_stmt) => {
@@ -86,29 +86,29 @@ impl Connection for SqliteConnection {
                                     }
                                 }
                                 if tbl.names().iter().unique().count() == tbl.names().len() {
-                                    QueryResult::Valid(q.to_string(), tbl)
+                                    StatementOutput::Valid(q.to_string(), tbl)
                                 } else {
-                                    QueryResult::Invalid(crate::sql::build_error_with_stmt("Non-unique column names", &query), false)
+                                    StatementOutput::Invalid(crate::sql::build_error_with_stmt("Non-unique column names", &query), false)
                                 }
                             },
                             Err(e) => {
                                 println!("Error building table: {}", e);
-                                QueryResult::Invalid(crate::sql::build_error_with_stmt(&e, &query), false)
+                                StatementOutput::Invalid(crate::sql::build_error_with_stmt(&e, &query), false)
                             }
                         }
                     },
                     Err(e) => {
-                        QueryResult::Invalid(crate::sql::build_error_with_stmt(&format!("{}", e), &query), true)
+                        StatementOutput::Invalid(crate::sql::build_error_with_stmt(&format!("{}", e), &query), true)
                     }
                 }
             },
             Err(e) => {
-                QueryResult::Invalid(crate::sql::build_error_with_stmt(&format!("{}", e), &query), true)
+                StatementOutput::Invalid(crate::sql::build_error_with_stmt(&format!("{}", e), &query), true)
             }
         }
     }
 
-    fn exec(&mut self, stmt : &AnyStatement, subs : &HashMap<String, String>) -> QueryResult {
+    fn exec(&mut self, stmt : &AnyStatement, subs : &HashMap<String, String>) -> StatementOutput {
         let ans = match stmt {
             AnyStatement::Parsed(stmt, s) => {
                 let s = format!("{}", stmt);
@@ -119,7 +119,7 @@ impl Connection for SqliteConnection {
         };
         match ans {
             Ok(n) => crate::sql::build_statement_result(&stmt, n),
-            Err(e) => QueryResult::Invalid(e.to_string(), true)
+            Err(e) => StatementOutput::Invalid(e.to_string(), true)
         }
     }
 
@@ -376,17 +376,17 @@ impl Connection for SqliteConnection {
     /*/// Table is an expesive data structure, so we pass ownership to the function call
     /// because it may be disassembled if the function is found, but we return it back to
     /// the user on an not-found error, since the caller will want to re-use it.
-    fn try_client_function(sub : Substitution, tbl : Table, loader : &FunctionLoader) -> QueryResult {
+    fn try_client_function(sub : Substitution, tbl : Table, loader : &FunctionLoader) -> StatementOutput {
         match loader.try_exec_fn(sub.func_name, sub.func_args, tbl) {
-            Ok(tbl) => QueryResult::Valid(String::new(), tbl),
+            Ok(tbl) => StatementOutput::Valid(String::new(), tbl),
             Err(FunctionErr::UserErr(msg)) | Err(FunctionErr::TableAgg(msg)) => {
-                QueryResult::Invalid(msg)
+                StatementOutput::Invalid(msg)
             },
             Err(FunctionErr::TypeMismatch(ix)) => {
-                QueryResult::Invalid(format!("Type mismatch at column {}", ix))
+                StatementOutput::Invalid(format!("Type mismatch at column {}", ix))
             },
             Err(FunctionErr::NotFound(tbl)) => {
-                QueryResult::Valid(String::new(), tbl)
+                StatementOutput::Valid(String::new(), tbl)
             }
         }
     }*/
@@ -407,13 +407,13 @@ fn get_sqlite_tbl_names(conn : &mut SqliteConnection) -> Option<Vec<String>> {
         .map_err(|e| println!("{}", e) ).ok()?;
     if let Some(q_res) = ans.get(0) {
         match q_res {
-            QueryResult::Valid(_, names) => {
+            StatementOutput::Valid(_, names) => {
                 names.get_column(0).and_then(|c| {
                     let s : Option<Vec<String>> = c.clone().try_into().ok();
                     s
                 })
             },
-            QueryResult::Invalid(msg, _) => { println!("{}", msg); None },
+            StatementOutput::Invalid(msg, _) => { println!("{}", msg); None },
             _ => None
         }
     } else {
@@ -427,7 +427,7 @@ fn get_sqlite_columns(conn : &mut SqliteConnection, tbl_name : &str) -> Option<D
     let ans = conn.try_run(col_query, &HashMap::new(), false).map_err(|e| println!("{}", e) ).ok()?;
     let q_res = ans.get(0)?;
     match q_res {
-        QueryResult::Valid(_, col_info) => {
+        StatementOutput::Valid(_, col_info) => {
             let names = col_info.get_column(1)
                 .and_then(|c| { let s : Option<Vec<String>> = c.clone().try_into().ok(); s })?;
             // println!("{:?}", col_info.get_column(2));
@@ -455,7 +455,7 @@ fn get_sqlite_columns(conn : &mut SqliteConnection, tbl_name : &str) -> Option<D
             let obj = DBObject::Table{ name : tbl_name.to_string(), cols, rels : Vec::new() };
             Some(obj)
         },
-        QueryResult::Invalid(msg, _) => { println!("{}", msg); None },
+        StatementOutput::Invalid(msg, _) => { println!("{}", msg); None },
         _ => None
     }
 }

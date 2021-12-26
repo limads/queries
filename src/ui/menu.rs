@@ -1,6 +1,8 @@
 use gtk4::prelude::*;
 use gtk4::*;
 use std::rc::Rc;
+use crate::React;
+use crate::ui::QueriesContent;
 
 #[derive(Debug, Clone)]
 pub struct MainMenu {
@@ -31,4 +33,22 @@ impl MainMenu {
 
 }
 
+impl React<QueriesContent> for MainMenu {
 
+    fn react(&self, content : &QueriesContent) {
+        let actions = [self.action_save.clone(), self.action_save_as.clone()];
+        content.stack.connect_visible_child_notify(move |stack| {
+            if let Some(name) = stack.visible_child_name() {
+                match name.as_str() {
+                    "editor" => {
+                        actions.iter().for_each(|action| action.set_enabled(true) );
+                    },
+                    "results" => {
+                        actions.iter().for_each(|action| action.set_enabled(false) );
+                    },
+                    _ => { }
+                }
+            }
+        });
+    }
+}

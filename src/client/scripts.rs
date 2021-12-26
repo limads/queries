@@ -10,6 +10,7 @@ use std::thread;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
+use crate::ui::QueriesWindow;
 
 pub enum ScriptAction {
 
@@ -19,7 +20,10 @@ pub enum ScriptAction {
 
     OpenFailure(String),
 
-    CloseRequest(usize),
+    // File position and whether the request is "forced" (i.e. asks for user confirmation).
+    CloseRequest(usize, bool),
+
+    CloseConfirm(usize),
 
     SaveRequest(usize),
 
@@ -30,6 +34,8 @@ pub enum ScriptAction {
     NewRequest,
 
     ActiveTextChanged(Option<String>),
+
+    WindowCloseRequest(ApplicationWindow),
 
     SetSaved(usize, bool),
 
@@ -55,6 +61,8 @@ pub struct OpenedScripts {
 
     on_closed : Callbacks<(usize, usize)>,
 
+    on_close_confirm : Callbacks<(OpenedFile)>,
+
     on_selected : Callbacks<Option<usize>>
 
 }
@@ -71,16 +79,21 @@ impl OpenedScripts {
         let on_selected : Callbacks<Option<usize>> = Default::default();
         let on_closed : Callbacks<(usize, usize)> = Default::default();
         let on_active_text_changed : Callbacks<Option<String>> = Default::default();
+        let on_close_confirm : Callbacks<OpenedFile> = Default::default();
         let mut files : Vec<OpenedFile> = Vec::new();
         let mut selected : Option<usize> = None;
+
+        let mut app_win : Option<ApplicationWindow> = None;
+
         recv.attach(None, {
             let send = send.clone();
-            let (on_open, on_new, on_save, on_selected, on_closed, on_file_changed, on_file_persisted) = (
+            let (on_open, on_new, on_save, on_selected, on_closed, on_close_confirm, on_file_changed, on_file_persisted) = (
                 on_open.clone(),
                 on_new.clone(),
                 on_save.clone(),
                 on_selected.clone(),
                 on_closed.clone(),
+                on_close_confirm.clone(),
                 on_file_changed.clone(),
                 on_file_persisted.clone()
             );
@@ -92,7 +105,7 @@ impl OpenedScripts {
                             return Continue(true);
                         }
                         let n = files.len();
-                        let new_file = OpenedFile { path : None, name : format!("Untitled {}.sql", files.len() + 1), saved : true, content : None };
+                        let new_file = OpenedFile { path : None, name : format!("Untitled {}.sql", files.len() + 1), saved : true, content : None, index : files.len() };
                         files.push(new_file.clone());
                         println!("{:?}", files);
                         on_new.borrow().iter().for_each(|f| f(new_file.clone()) );
@@ -109,13 +122,23 @@ impl OpenedScripts {
                             }
                         });
                     },
-                    ScriptAction::CloseRequest(ix) => {
-                        if files[ix].saved {
+                    ScriptAction::CloseRequest(ix, force) => {
+                        if force {
                             files.remove(ix);
                             let n = files.len();
                             on_closed.borrow().iter().for_each(|f| f((ix, n)) );
+                            println!("File closed");
+                            if let Some(win) = &app_win {
+                                win.destroy();
+                            }
                         } else {
-                            println!("Cannot close (unsaved changes)");
+                            if files[ix].saved {
+                                files.remove(ix);
+                                let n = files.len();
+                                on_closed.borrow().iter().for_each(|f| f((ix, n)) );
+                            } else {
+                                on_close_confirm.borrow().iter().for_each(|f| f(files[ix].clone()) );
+                            }
                         }
                     },
                     ScriptAction::SetSaved(ix, saved) => {
@@ -133,12 +156,20 @@ impl OpenedScripts {
                         selected = opt_ix;
                         on_selected.borrow().iter().for_each(|f| f(opt_ix) );
                     },
+                    ScriptAction::WindowCloseRequest(win) => {
+                        if let Some(file) = files.iter().filter(|file| !file.saved ).next() {
+                            on_close_confirm.borrow().iter().for_each(|f| f(file.clone()) );
+                            app_win = Some(win);
+                        } else {
+                            win.destroy();
+                        }
+                    },
                     _ => { }
                 }
                 Continue(true)
             }
         });
-        Self { on_open, on_save, on_new, send, on_selected, on_closed, on_file_changed, on_file_persisted, on_active_text_changed }
+        Self { on_open, on_save, on_new, send, on_selected, on_closed, on_close_confirm, on_file_changed, on_file_persisted, on_active_text_changed }
     }
 
     pub fn connect_new<F>(&self, f : F)
@@ -167,6 +198,13 @@ impl OpenedScripts {
         F : Fn((usize, usize)) + 'static
     {
         self.on_closed.borrow_mut().push(boxed::Box::new(f));
+    }
+
+    pub fn connect_close_confirm<F>(&self, f : F)
+    where
+        F : Fn(OpenedFile) + 'static
+    {
+        self.on_close_confirm.borrow_mut().push(boxed::Box::new(f));
     }
 
     pub fn connect_file_changed<F>(&self, f : F)
@@ -245,7 +283,8 @@ pub struct OpenedFile {
     pub name : String,
     pub path : Option<String>,
     pub content : Option<String>,
-    pub saved : bool
+    pub saved : bool,
+    pub index : usize
 }
 
 pub struct ScriptHistory {
@@ -325,7 +364,7 @@ impl React<FileList> for OpenedScripts {
             let send = self.send.clone();
             move |action, param| {
                 let ix = param.unwrap().get::<i32>().unwrap();
-                send.send(ScriptAction::CloseRequest(ix as usize));
+                send.send(ScriptAction::CloseRequest(ix as usize, false));
             }
         });
     }
@@ -341,8 +380,33 @@ impl React<QueriesEditor> for OpenedScripts {
                 send.send(ScriptAction::SetSaved(ix, false));
             });
         });
+        editor.ignore_file_save_action.connect_activate({
+            let send = self.send.clone();
+            move |action, param| {
+                if let Some(variant) = param {
+                    let ix = variant.get::<i32>().unwrap();
+                    if ix >= 0 {
+                        send.send(ScriptAction::CloseRequest(ix as usize, true));
+                    } else {
+                        panic!("Ix is nonzero");
+                    }
+                } else {
+                    panic!("Action does not have parameter");
+                }
+            }
+        });
     }
 
 }
 
+impl React<QueriesWindow> for OpenedScripts {
+
+    fn react(&self, win : &QueriesWindow) {
+        let send = self.send.clone();
+        win.window.connect_close_request(move |win| {
+            send.send(ScriptAction::WindowCloseRequest(win.clone()));
+            glib::signal::Inhibit(true)
+        });
+    }
+}
 

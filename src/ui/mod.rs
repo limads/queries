@@ -4,6 +4,8 @@ use libadwaita;
 use crate::client::ActiveConnection;
 use crate::React;
 use crate::client::Environment;
+use crate::sql::StatementOutput;
+use crate::client::OpenedScripts;
 
 mod overview;
 
@@ -47,7 +49,9 @@ pub struct QueriesContent {
     pub switcher : libadwaita::ViewSwitcher,
     pub overlay : libadwaita::ToastOverlay,
     pub results : QueriesResults,
-    pub editor : QueriesEditor
+    pub editor : QueriesEditor,
+    pub results_page : libadwaita::ViewStackPage,
+    pub editor_page : libadwaita::ViewStackPage
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +104,7 @@ impl React<ExecButton> for QueriesResults {
 
     fn react(&self, exec_btn : &ExecButton) {
         let stack = self.stack.clone();
+
         exec_btn.clear_action.connect_activate(move |_action, param| {
             stack.set_visible_child_name("overview");
         });
@@ -107,15 +112,38 @@ impl React<ExecButton> for QueriesResults {
 
 }
 
-impl React<QueriesWorkspace> for QueriesResults {
+impl React<QueriesWorkspace> for QueriesContent {
 
     fn react(&self, ws : &QueriesWorkspace) {
-        let stack = self.stack.clone();
+        let stack = self.results.stack.clone();
+        let results_page = self.results_page.clone();
         ws.tab_view.connect_close_page(move |tab_view, page| {
             if tab_view.n_pages() == 1 {
                 stack.set_visible_child_name("overview");
+                results_page.set_icon_name(Some("db-symbolic"));
             }
             false
+        });
+    }
+
+}
+
+impl React<OpenedScripts> for QueriesContent {
+
+    fn react(&self, scripts : &OpenedScripts) {
+        let overlay = self.overlay.clone();
+        scripts.connect_close_confirm({
+            move |file| {
+                let toast = libadwaita::Toast::builder()
+                    .title(&format!("{} has unsaved changes", file.name))
+                    .button_label("Close anyway")
+                    .action_name("win.ignore_file_save")
+                    .action_target(&(file.index as i32).to_variant())
+                    .priority(libadwaita::ToastPriority::High)
+                    .timeout(0)
+                    .build();
+                overlay.add_toast(&toast);
+            }
         });
     }
 
@@ -127,18 +155,21 @@ impl QueriesContent {
         let stack = libadwaita::ViewStack::new();
         let editor = QueriesEditor::build();
         let results = QueriesResults::build();
-        stack.add_named(&results.stack, Some("results")).unwrap().set_icon_name(Some("queries-symbolic"));
-
+        let results_page = stack.add_named(&results.stack, Some("results")).unwrap();
+        results_page.set_icon_name(Some("db-symbolic"));
+        //page.connect_visible_notify(move |_| {
+        //    println!("Results visible");
+        // } );
         // stack.add_named(&workspace.nb, Some("workspace"));
-
-        stack.add_named(&editor.stack, Some("editor")).unwrap().set_icon_name(Some("accessories-text-editor-symbolic"));
+        let editor_page = stack.add_named(&editor.stack, Some("editor")).unwrap();
+        editor_page.set_icon_name(Some("accessories-text-editor-symbolic"));
         let switcher = libadwaita::ViewSwitcher::builder().stack(&stack).can_focus(false).policy(libadwaita::ViewSwitcherPolicy::Wide).build();
         let overlay = libadwaita::ToastOverlay::builder() /*.margin_bottom(10).*/ .opacity(1.0).visible(true).build();
         overlay.set_child(Some(&stack));
 
         // stack.set_visible_child_name("overview");
 
-        Self { stack, results, editor, switcher, overlay }
+        Self { stack, results, editor, switcher, overlay, results_page, editor_page }
     }
 
     /*fn react(&self, titlebar : &QueriesTitlebar) {
@@ -161,9 +192,45 @@ impl QueriesContent {
 impl React<ActiveConnection> for QueriesContent {
 
     fn react(&self, conn : &ActiveConnection) {
-        let overlay = self.overlay.clone();
-        conn.connect_db_error(move |err : String| {
-            overlay.add_toast(&libadwaita::Toast::builder().title(&err).build());
+        conn.connect_db_error({
+            let overlay = self.overlay.clone();
+            let results_page = self.results_page.clone();
+            let stack = self.results.stack.clone();
+            move |err : String| {
+                overlay.add_toast(&libadwaita::Toast::builder().title(&err).build());
+                results_page.set_icon_name(Some("db-symbolic"));
+                stack.set_visible_child_name("overview");
+            }
+        });
+        conn.connect_exec_result({
+            let overlay = self.overlay.clone();
+            let results_page = self.results_page.clone();
+            move |res : Vec<StatementOutput>| {
+                let mut any_errors = false;
+                let msg = if let Some(err) = crate::sql::condense_errors(&res) {
+                    any_errors = true;
+                    Some(err)
+                } else if let Some(msg) = crate::sql::condense_statement_outputs(&res) {
+                    Some(msg)
+                } else {
+                    None
+                };
+                if let Some(msg) = msg {
+                    overlay.add_toast(&libadwaita::Toast::builder().title(&msg).build());
+                }
+                if !any_errors {
+                    let has_any_tbl = res.iter()
+                        .filter(|res| {
+                            match res {
+                                StatementOutput::Valid(_, _) => true,
+                                _ => false
+                            }
+                        }).next().is_some();
+                    if has_any_tbl {
+                        results_page.set_icon_name(Some("queries-symbolic"));
+                    }
+                }
+            }
         });
     }
 
@@ -250,6 +317,7 @@ impl QueriesWindow {
         window.add_action(&titlebar.main_menu.action_open);
         window.add_action(&titlebar.main_menu.action_save);
         window.add_action(&titlebar.main_menu.action_save_as);
+        window.add_action(&content.editor.ignore_file_save_action);
 
         // Add actions to execution menu
         window.add_action(&titlebar.exec_btn.exec_action);
@@ -265,7 +333,9 @@ impl QueriesWindow {
         // titlebar.exec_btn.react(&content.editor);
         content.editor.react(&titlebar.exec_btn);
         content.results.react(&titlebar.exec_btn);
-        content.results.react(&content.results.workspace);
+        content.react(&content.results.workspace);
+        titlebar.exec_btn.react(&content);
+        titlebar.main_menu.react(&content);
 
         Self { paned, sidebar, titlebar, content, window }
     }

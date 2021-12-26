@@ -1,21 +1,12 @@
-// use ::postgres::{self, Client, tls::NoTls};
-// use std::sync::mpsc::{self, Sender, Receiver};
-// use std::sync::{Arc, Mutex};
-// use std::thread::{self, JoinHandle};
-// use rusqlite;
 use std::fmt::Display;
 use std::fmt;
 use std::error::Error;
 use crate::tables::table::*;
 use std::path::PathBuf;
-// use crate::db::{postgresql, sqlite};
-// use crate::functions::{function::*, loader::*};
-// use rusqlite::functions::*;
 use crate::sql::object::{DBObject, DBType};
 use std::convert::TryInto;
 use std::collections::HashMap;
 use regex::Regex;
-// use crate::command::{self, executor::Executor};
 use std::string::ToString;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -186,7 +177,7 @@ impl DecodingError {
 
 // Carries a result (arranged over columns)
 #[derive(Debug, Clone)]
-pub enum QueryResult {
+pub enum StatementOutput {
 
     // Returns a valid executed query with its table represented over columns.
     Valid(String, Table),
@@ -204,7 +195,38 @@ pub enum QueryResult {
     // Resulting from a local command invocation
     Empty
 
+}
 
+pub fn condense_errors(stmts : &[StatementOutput]) -> Option<String> {
+    let mut errs : Vec<String> = stmts.iter().filter_map(|stmt| {
+        match stmt {
+            StatementOutput::Invalid(msg, _) => {
+                Some(msg.clone())
+            },
+            _ => None
+        }
+    }).collect();
+    match errs.len() {
+        0 => None,
+        1 => Some(errs.remove(0)),
+        n => Some(format!("{} (+{} errors)", errs.remove(0), n))
+    }
+}
+
+pub fn condense_statement_outputs(stmts : &[StatementOutput]) -> Option<String> {
+    let mut msgs : Vec<String> = stmts.iter().filter_map(|stmt| {
+        match stmt {
+            StatementOutput::Statement(msg) => {
+                Some(msg.clone())
+            },
+            _ => None
+        }
+    }).collect();
+    match msgs.len() {
+        0 => None,
+        1 => Some(msgs.remove(0)),
+        n => Some(format!("{} (+{} changes)", msgs.remove(0), n))
+    }
 }
 
 pub fn sql2table(result : Result<Vec<Statement>, String>) -> String {
@@ -229,48 +251,48 @@ pub fn make_query(query : &str) -> String {
     Arrow{ ctx : ExecutionContext }
 }*/
 
-pub fn build_statement_result(any_stmt : &AnyStatement, n : usize) -> QueryResult {
+pub fn build_statement_result(any_stmt : &AnyStatement, n : usize) -> StatementOutput {
     match any_stmt {
         AnyStatement::Parsed(stmt, _) => match stmt {
-            Statement::CreateView{..} => QueryResult::Modification(format!("Create view")),
+            Statement::CreateView{..} => StatementOutput::Modification(format!("Create view")),
             Statement::CreateTable{..} | Statement::CreateVirtualTable{..} => {
-                QueryResult::Modification(format!("Create table"))
+                StatementOutput::Modification(format!("Create table"))
             },
-            Statement::CreateIndex{..} => QueryResult::Modification(format!("Create index")),
-            Statement::CreateSchema{..} => QueryResult::Modification(format!("Create schema")),
-            Statement::AlterTable{..} => QueryResult::Modification(format!("Alter table")),
-            Statement::Drop{..} => QueryResult::Modification(format!("Drop table")),
-            Statement::Copy{..} => QueryResult::Modification(format!("Copy")),
-            _ => QueryResult::Statement(format!("{} row(s) modified", n))
+            Statement::CreateIndex{..} => StatementOutput::Modification(format!("Create index")),
+            Statement::CreateSchema{..} => StatementOutput::Modification(format!("Create schema")),
+            Statement::AlterTable{..} => StatementOutput::Modification(format!("Alter table")),
+            Statement::Drop{..} => StatementOutput::Modification(format!("Drop table")),
+            Statement::Copy{..} => StatementOutput::Modification(format!("Copy")),
+            _ => StatementOutput::Statement(format!("{} row(s) modified", n))
         },
         AnyStatement::Raw(_, s, _) => {
             if s.contains("create table") || s.contains("CREATE TABLE") {
-                return QueryResult::Modification(format!("Create table"));
+                return StatementOutput::Modification(format!("Create table"));
             }
             if s.contains("create virtual table") || s.contains("CREATE VIRTUAL TABLE") {
-                return QueryResult::Modification(format!("Create table"));
+                return StatementOutput::Modification(format!("Create table"));
             }
             if s.contains("create temporary table") || s.contains("CREATE TEMPORARY TABLE") {
-                return QueryResult::Modification(format!("Create table"));
+                return StatementOutput::Modification(format!("Create table"));
             }
             if s.contains("drop table") || s.contains("DROP TABLE") {
-                return QueryResult::Modification(format!("Drop table"));
+                return StatementOutput::Modification(format!("Drop table"));
             }
             if s.contains("alter table") || s.contains("ALTER TABLE") {
-                return QueryResult::Modification(format!("Alter table"));
+                return StatementOutput::Modification(format!("Alter table"));
             }
             if s.contains("create schema") || s.contains("CREATE SCHEMA") {
-                return QueryResult::Modification(format!("Create schema"));
+                return StatementOutput::Modification(format!("Create schema"));
             }
-            QueryResult::Statement(format!("{} row(s) modified", n))
+            StatementOutput::Statement(format!("{} row(s) modified", n))
         },
         AnyStatement::Local(local) => {
             match local {
                 LocalStatement::Copy(_) => {
-                    QueryResult::Modification(format!("Copy"))
+                    StatementOutput::Modification(format!("Copy"))
                 },
                 LocalStatement::Decl(_) | LocalStatement::Exec(_) => {
-                    QueryResult::Empty
+                    StatementOutput::Empty
                 }
             }
         }

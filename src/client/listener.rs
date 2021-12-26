@@ -1,5 +1,5 @@
 use std::thread::{self, JoinHandle};
-use crate::sql::{QueryResult, LocalStatement};
+use crate::sql::{StatementOutput, LocalStatement};
 // use super::SqlEngine;
 use std::sync::{Arc, Mutex, mpsc::{self, channel, Sender, Receiver}};
 use super::*;
@@ -17,7 +17,7 @@ pub struct SqlListener {
 
     // _handle : JoinHandle<()>,
 
-    // ans_receiver : Option<Receiver<Vec<QueryResult>>>,
+    // ans_receiver : Option<Receiver<Vec<StatementOutput>>>,
 
     // info_receiver : Receiver<Option<DBInfo>>,
 
@@ -33,7 +33,7 @@ pub struct SqlListener {
 
     listen_channels : Vec<String>,
 
-    // on_result_arrived : Option<for<Vec<QueryResult>>,
+    // on_result_arrived : Option<for<Vec<StatementOutput>>,
 
     //loader : Arc<Mutex<FunctionLoader>>
 }
@@ -105,10 +105,10 @@ impl SqlListener {
 
     pub fn launch<F>(result_cb : F) -> Self
     where
-        F : Fn(Vec<QueryResult>) + 'static + Send
+        F : Fn(Vec<StatementOutput>) + 'static + Send
     {
         let (cmd_tx, cmd_rx) = mpsc::channel::<(String, HashMap<String, String>, bool)>();
-        // let (ans_tx, ans_rx) = mpsc::channel::<Vec<QueryResult>>();
+        // let (ans_tx, ans_rx) = mpsc::channel::<Vec<StatementOutput>>();
         let engine : Arc<Mutex<Option<Box<dyn Connection>>>> = Arc::new(Mutex::new(None));
         let listen_channels = Vec::new();
 
@@ -132,7 +132,7 @@ impl SqlListener {
             }
         });
 
-        // let on_results_arrived : Callbacks<&'a [QueryResult]> = Default::default();
+        // let on_results_arrived : Callbacks<&'a [StatementOutput]> = Default::default();
 
         // Statement listening thread.
         thread::spawn({
@@ -156,7 +156,7 @@ impl SqlListener {
                                             // }
                                         },
                                         Err(e) => {
-                                            vec![QueryResult::Invalid( e.to_string(), false )]
+                                            vec![StatementOutput::Invalid( e.to_string(), false )]
                                         }
                                     };
                                     result_cb(res);
@@ -276,7 +276,7 @@ impl SqlListener {
     }
 
     /*/// Gets all results which might have been queued at the receiver.
-    pub fn maybe_get_result(&self) -> Option<Vec<QueryResult>> {
+    pub fn maybe_get_result(&self) -> Option<Vec<StatementOutput>> {
         let mut full_ans = Vec::new();
         while let Ok(ans) = self.ans_receiver.as_ref().unwrap().try_recv() {
             full_ans.extend(ans);
@@ -288,7 +288,7 @@ impl SqlListener {
         }
     }
 
-    pub fn wait_for_results(&self) -> Vec<QueryResult> {
+    pub fn wait_for_results(&self) -> Vec<StatementOutput> {
         let mut full_ans = Vec::new();
         while let Ok(ans) = self.ans_receiver.as_ref().unwrap().recv() {
             full_ans.extend(ans);
@@ -296,11 +296,11 @@ impl SqlListener {
         full_ans
     }
 
-    pub fn take_receiver(&mut self) -> Receiver<Vec<QueryResult>> {
+    pub fn take_receiver(&mut self) -> Receiver<Vec<StatementOutput>> {
         self.ans_receiver.take().unwrap()
     }
 
-    pub fn give_back_receiver(&mut self, recv : Receiver<Vec<QueryResult>>) {
+    pub fn give_back_receiver(&mut self, recv : Receiver<Vec<StatementOutput>>) {
         assert!(self.ans_receiver.is_none());
         self.ans_receiver = Some(recv);
     }*/

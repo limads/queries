@@ -34,7 +34,7 @@ pub struct ExecutionError {
 
 pub enum EnvironmentAction {
 
-    Update(Vec<QueryResult>),
+    Update(Vec<StatementOutput>),
 
     Clear,
 
@@ -61,10 +61,18 @@ impl Environment {
             move |action| {
                 match action {
                     EnvironmentAction::Update(results) => {
-                        tables.update_from_query_results(results);
-                        println!("Query resulted in {} tables", tables.tables.len());
-                        if tables.tables.len() >= 1 {
-                            on_tbl_update.borrow().iter().for_each(|f| f(tables.tables.clone()) );
+                        let has_error = results.iter().filter(|res| {
+                            match res {
+                                StatementOutput::Invalid(_, _) => true,
+                                _ => false
+                            }
+                        }).next().is_some();
+                        if !has_error {
+                            tables.update_from_query_results(results);
+                            println!("Query resulted in {} tables", tables.tables.len());
+                            if tables.tables.len() >= 1 {
+                                on_tbl_update.borrow().iter().for_each(|f| f(tables.tables.clone()) );
+                            }
                         }
                     },
                     _ => { }
@@ -88,7 +96,7 @@ impl React<ActiveConnection> for Environment {
 
     fn react(&self, conn : &ActiveConnection) {
         let send = self.send.clone();
-        conn.connect_exec_result(move |res : Vec<QueryResult>| {
+        conn.connect_exec_result(move |res : Vec<StatementOutput>| {
             send.send(EnvironmentAction::Update(res));
         });
     }
@@ -133,7 +141,7 @@ pub struct Tables {
     queries : Vec<String>,
 
     /// Stores message results of non-select statements that returned successfully.
-    exec_results : Vec<QueryResult>,
+    exec_results : Vec<StatementOutput>,
 
     last_update : Option<String>,
 
@@ -170,7 +178,7 @@ impl Tables {
     /// is no update; Returns the Ok(result) if there is update, potentially
     /// carrying the first error the database encountered. If the update is valid,
     /// return the update event that happened (Refresh or NewTables).
-    pub fn update_from_query_results(&mut self, results : Vec<QueryResult>) -> Option<Result<EnvironmentUpdate, ExecutionError>> {
+    pub fn update_from_query_results(&mut self, results : Vec<StatementOutput>) -> Option<Result<EnvironmentUpdate, ExecutionError>> {
         self.tables.clear();
         self.queries.clear();
         self.exec_results.clear();
@@ -183,18 +191,18 @@ impl Tables {
         let mut any_valid = false;
         for r in results {
             match r {
-                QueryResult::Valid(query, tbl) => {
+                StatementOutput::Valid(query, tbl) => {
                     new_cols.push(tbl.names());
                     self.tables.push(tbl);
                     self.queries.push(query.trim().to_string());
                     any_valid = true;
                 },
-                QueryResult::Invalid(msg, is_server) => {
+                StatementOutput::Invalid(msg, is_server) => {
                     self.tables.clear();
                     self.history.push(EnvironmentUpdate::Clear);
                     opt_err = Some(ExecutionError { msg : msg.clone(), is_server });
                 },
-                QueryResult::Statement(_) | QueryResult::Modification(_) | QueryResult::Empty => {
+                StatementOutput::Statement(_) | StatementOutput::Modification(_) | StatementOutput::Empty => {
                     self.tables.clear();
                     self.exec_results.push(r.clone());
                     self.history.push(EnvironmentUpdate::Clear);
@@ -238,14 +246,14 @@ impl Tables {
         }
     }
 
-    pub fn update_from_statement(&mut self, results : Vec<QueryResult>) -> Option<Result<String, ExecutionError>> {
+    pub fn update_from_statement(&mut self, results : Vec<StatementOutput>) -> Option<Result<String, ExecutionError>> {
         self.exec_results.clear();
         for r in results.iter() {
             match r {
-                QueryResult::Statement(_) | QueryResult::Modification(_) => {
+                StatementOutput::Statement(_) | StatementOutput::Modification(_) => {
                     self.exec_results.push(r.clone());
                 },
-                QueryResult::Invalid(e, is_server) => {
+                StatementOutput::Invalid(e, is_server) => {
                     return Some(Err(ExecutionError{ msg : e.clone(), is_server : *is_server}));
                 },
                 _ => { }
@@ -254,11 +262,11 @@ impl Tables {
         if let Some(r) = results.last() {
             // println!("Last statement: {:?}", r);
             match r {
-                QueryResult::Statement(s) => Some(Ok(s.clone())),
-                QueryResult::Invalid(e, is_server) => Some(Err(ExecutionError { msg : e.clone(), is_server : *is_server })),
-                QueryResult::Modification(m) => Some(Ok(m.clone())),
-                QueryResult::Valid(_, _) => None,
-                QueryResult::Empty => Some(Ok(format!("No results to show")))
+                StatementOutput::Statement(s) => Some(Ok(s.clone())),
+                StatementOutput::Invalid(e, is_server) => Some(Err(ExecutionError { msg : e.clone(), is_server : *is_server })),
+                StatementOutput::Modification(m) => Some(Ok(m.clone())),
+                StatementOutput::Valid(_, _) => None,
+                StatementOutput::Empty => Some(Ok(format!("No results to show")))
             }
         } else {
             None
@@ -268,7 +276,7 @@ impl Tables {
     pub fn any_modification_result(&self) -> bool {
         for res in self.exec_results.iter() {
             match res {
-                QueryResult::Modification(_) => return true,
+                StatementOutput::Modification(_) => return true,
                 _ => { }
             }
         }

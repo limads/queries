@@ -11,7 +11,7 @@ use crate::server::*;
 use std::time::Duration;
 use std::thread;
 use crate::sql::object::DBInfo;
-use crate::sql::QueryResult;
+use crate::sql::StatementOutput;
 use crate::ui::ExecButton;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -226,13 +226,13 @@ pub enum ActiveConnectionAction {
 
     ExecutionRequest(String),
 
-    ExecutionCompleted(Vec<QueryResult>),
+    ExecutionCompleted(Vec<StatementOutput>),
 
     Error(String)
 
 }
 
-pub type ActiveConnCallbacks = (Callbacks<Option<DBInfo>>, Callbacks<()>, Callbacks<String>, Callbacks<String>);
+pub type ActiveConnCallbacks = (Callbacks<Option<DBInfo>>, Callbacks<()>, Callbacks<String>);
 
 pub struct ActiveConnection {
 
@@ -242,9 +242,7 @@ pub struct ActiveConnection {
 
     on_error : Callbacks<String>,
 
-    on_success : Callbacks<String>,
-
-    on_exec_result : Callbacks<Vec<QueryResult>>,
+    on_exec_result : Callbacks<Vec<StatementOutput>>,
 
     send : glib::Sender<ActiveConnectionAction>
 
@@ -253,8 +251,8 @@ pub struct ActiveConnection {
 impl ActiveConnection {
 
     pub fn new() -> Self {
-        let (on_connected, on_disconnected, on_error, on_success) : ActiveConnCallbacks = Default::default();
-        let on_exec_result : Callbacks<Vec<QueryResult>> = Default::default();
+        let (on_connected, on_disconnected, on_error) : ActiveConnCallbacks = Default::default();
+        let on_exec_result : Callbacks<Vec<StatementOutput>> = Default::default();
         let (send, recv) = glib::MainContext::channel::<ActiveConnectionAction>(glib::source::PRIORITY_DEFAULT);
         let mut listener = SqlListener::launch({
             let send = send.clone();
@@ -264,12 +262,11 @@ impl ActiveConnection {
         });
         recv.attach(None, {
             let send = send.clone();
-            let (on_connected, on_disconnected, on_error, on_success, on_exec_result) = (
+            let (on_connected, on_disconnected, on_error, on_exec_result) = (
                 on_connected.clone(),
                 on_disconnected.clone(),
                 on_error.clone(),
-                on_success.clone(),
-                on_exec_result.clone()
+                on_exec_result.clone(),
             );
             move |action| {
                 match action {
@@ -303,11 +300,21 @@ impl ActiveConnection {
                                 on_error.borrow().iter().for_each(|f| f(e.clone()) );
                             }
                         }
-                        // Match statement success => call on_success callbacks
-                        // Match statement error => calll on_error callbacks
                     },
                     ActiveConnectionAction::ExecutionCompleted(results) => {
-                        on_exec_result.borrow().iter().for_each(|f| f(results.clone()) );
+                        let fst_error = results.iter()
+                            .filter_map(|res| {
+                                match res {
+                                    StatementOutput::Invalid(e, _) => Some(e.clone()),
+                                    _ => None
+                                }
+                            })
+                            .next();
+                        if let Some(error) = fst_error {
+                            on_error.borrow().iter().for_each(|f| f(error.clone()) );
+                        } else {
+                            on_exec_result.borrow().iter().for_each(|f| f(results.clone()) );
+                        }
                     },
                     ActiveConnectionAction::Error(e) => {
                         on_error.borrow().iter().for_each(|f| f(e.clone()) );
@@ -323,9 +330,8 @@ impl ActiveConnection {
             on_connected,
             on_disconnected,
             on_error,
-            on_success,
             send,
-            on_exec_result
+            on_exec_result,
         }
     }
 
@@ -350,19 +356,19 @@ impl ActiveConnection {
         self.on_error.borrow_mut().push(boxed::Box::new(f));
     }
 
-    pub fn connect_db_success<F>(&self, f : F)
-    where
-        F : Fn(String) + 'static
-    {
-        self.on_success.borrow_mut().push(boxed::Box::new(f));
-    }
-
     pub fn connect_exec_result<F>(&self, f : F)
     where
-        F : Fn(Vec<QueryResult>) + 'static
+        F : Fn(Vec<StatementOutput>) + 'static
     {
         self.on_exec_result.borrow_mut().push(boxed::Box::new(f));
     }
+
+    /*pub fn connect_exec_message<F>(&self, f : F)
+    where
+        F : Fn(String) + 'static
+    {
+        self.on_exec_messaeg.borrow_mut().push(boxed::Box::new(f));
+    }*/
 }
 
 /*fn call_when_info_arrived(info : Callbacks<Option<DBInfo>>) {

@@ -14,6 +14,7 @@ pub struct QueriesEditor {
     pub views : [sourceview5::View; 16],
     pub script_list : ScriptList,
     pub stack : Stack,
+    pub ignore_file_save_action : gio::SimpleAction,
     pub save_dialog : SaveDialog,
     pub open_dialog : OpenDialog
 }
@@ -34,7 +35,9 @@ impl QueriesEditor {
         }
 
         open_dialog.react(&script_list);
-        Self { views, stack, script_list, save_dialog, open_dialog }
+
+        let ignore_file_save_action = gio::SimpleAction::new("ignore_file_save", Some(&i32::static_variant_type()), /*&(-1i32).to_variant()*/ );
+        Self { views, stack, script_list, save_dialog, open_dialog, ignore_file_save_action }
     }
 
 }

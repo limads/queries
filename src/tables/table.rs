@@ -18,8 +18,16 @@ use quick_xml::Reader;
 use quick_xml::Writer;
 use quick_xml::events::{Event, BytesEnd, BytesStart, BytesText, attributes::Attribute };
 
-// use std::either::Either;
+#[derive(Debug, Clone)]
+pub struct TableSource {
 
+    pub name : Option<String>,
+
+    pub relation : Option<String>
+
+}
+
+// use std::either::Either;
 // use std::cell::RefCell;
 
 /// Data-owning structure that encapsulate named columns.
@@ -252,8 +260,8 @@ impl Table {
     }
 
     /// Returns (name, relation) pair
-    pub fn table_info(&self) -> (Option<String>, Option<String>) {
-        (self.name.clone(), self.relation.clone())
+    pub fn source(&self) -> TableSource {
+        TableSource { name : self.name.clone(), relation : self.relation.clone() }
     }
 
     pub fn set_name(&mut self, name : Option<String>) {

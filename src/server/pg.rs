@@ -70,7 +70,7 @@ impl Connection for PostgresConnection {
 
     }
 
-    fn query(&mut self, q : &str, subs : &HashMap<String, String>) -> QueryResult {
+    fn query(&mut self, q : &str, subs : &HashMap<String, String>) -> StatementOutput {
         let query = substitute_if_required(q, subs);
 
         // println!("Final query: {}", query);
@@ -86,23 +86,23 @@ impl Connection for PostgresConnection {
                             }
                         }
                         if tbl.names().iter().unique().count() == tbl.names().len() {
-                            QueryResult::Valid(q.to_string(), tbl)
+                            StatementOutput::Valid(q.to_string(), tbl)
                         } else {
-                            QueryResult::Invalid(crate::sql::build_error_with_stmt("Non-unique column names", &query[..]), false)
+                            StatementOutput::Invalid(crate::sql::build_error_with_stmt("Non-unique column names", &query[..]), false)
                         }
                     },
-                    Err(e) => QueryResult::Invalid(crate::sql::build_error_with_stmt(&e, &query[..]), false)
+                    Err(e) => StatementOutput::Invalid(crate::sql::build_error_with_stmt(&e, &query[..]), false)
                 }
             },
             Err(e) => {
                 let mut e = e.to_string();
                 format_pg_string(&mut e);
-                QueryResult::Invalid(e, true)
+                StatementOutput::Invalid(e, true)
             }
         }
     }
 
-    fn exec(&mut self, stmt : &AnyStatement, subs : &HashMap<String, String>) -> QueryResult {
+    fn exec(&mut self, stmt : &AnyStatement, subs : &HashMap<String, String>) -> StatementOutput {
         // let final_stmt = substitute_if_required(&s, subs);
         let ans = match stmt {
             AnyStatement::Parsed(stmt, s) => {
@@ -124,7 +124,7 @@ impl Connection for PostgresConnection {
             Err(e) => {
                 let mut e = e.to_string();
                 format_pg_string(&mut e);
-                QueryResult::Invalid(e, true)
+                StatementOutput::Invalid(e, true)
             }
         }
     }
@@ -225,7 +225,7 @@ fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Opti
 
     let ans = conn.try_run(fn_query, &HashMap::new(), false).map_err(|e| println!("{}", e) ).ok()?;
     match ans.get(0)? {
-        QueryResult::Valid(_, fn_info) => {
+        StatementOutput::Valid(_, fn_info) => {
             let mut fns = Vec::new();
             let names = Vec::<String>::try_from(fn_info.get_column(2).unwrap().clone()).ok()?;
             let args = (0..names.len()).map(|ix| fn_info.get_column(3).unwrap().at(ix) ).collect::<Vec<_>>();
@@ -248,7 +248,7 @@ fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Opti
             }
             Some(fns)
         },
-        QueryResult::Invalid(msg, _) => { println!("{}", msg); None },
+        StatementOutput::Invalid(msg, _) => { println!("{}", msg); None },
         _ => None
     }
 }
@@ -262,7 +262,7 @@ fn get_postgre_schemata(conn : &mut PostgresConnection) -> Option<HashMap<String
         .map_err(|e| println!("{}", e) ).ok()?;
     let q_res = ans.get(0)?;
     match q_res {
-        QueryResult::Valid(_, table) => {
+        StatementOutput::Valid(_, table) => {
             if table.shape().0 == 0 {
                 let mut empty = HashMap::new();
                 empty.insert(String::from("public"), Vec::new());
@@ -293,7 +293,7 @@ fn get_postgre_schemata(conn : &mut PostgresConnection) -> Option<HashMap<String
                 None
             }
         },
-        QueryResult::Invalid(msg, _) => { println!("{}", msg); None },
+        StatementOutput::Invalid(msg, _) => { println!("{}", msg); None },
         _ => None
     }
 }
@@ -307,7 +307,7 @@ fn get_postgres_views(conn : &mut PostgresConnection, schema : &str) -> Option<V
     order by schema_name, view_name;"#, schema);
     let ans = conn.try_run(view_query, &HashMap::new(), false).map_err(|e| println!("{}", e) ).ok()?;
     match ans.get(0)? {
-        QueryResult::Valid(_, view_info) => {
+        StatementOutput::Valid(_, view_info) => {
             let mut views = Vec::new();
             let info = Vec::<String>::try_from(view_info.get_column(1).unwrap().clone()).ok()?;
             for name in info.iter() {
@@ -316,7 +316,7 @@ fn get_postgres_views(conn : &mut PostgresConnection, schema : &str) -> Option<V
             }
             Some(views)
         },
-        QueryResult::Invalid(msg, _) => { println!("{}", msg); None },
+        StatementOutput::Invalid(msg, _) => { println!("{}", msg); None },
         _ => None
     }
 }
@@ -342,12 +342,12 @@ fn get_postgres_pks(conn : &mut PostgresConnection, schema_name : &str, tbl_name
     let ans = conn.try_run(pk_query, &HashMap::new(), false).map_err(|e| println!("{}", e) ).ok()?;
     if let Some(q_res) = ans.get(0) {
         match q_res {
-            QueryResult::Valid(_, col_info) => {
+            StatementOutput::Valid(_, col_info) => {
                 let cols = col_info.get_column(3)
                     .and_then(|c| { let s : Option<Vec<String>> = c.clone().try_into().ok(); s })?;
                 Some(cols)
             },
-            QueryResult::Invalid(msg, _) => { println!("{}", msg); None },
+            StatementOutput::Invalid(msg, _) => { println!("{}", msg); None },
             _ => None
         }
     } else {
@@ -381,7 +381,7 @@ fn get_postgres_relations(conn : &mut PostgresConnection, schema_name : &str, tb
     let ans = conn.try_run(rel_query, &HashMap::new(), false).map_err(|e| println!("{}", e) ).ok()?;
     if let Some(q_res) = ans.get(0) {
         match q_res {
-            QueryResult::Valid(_, col_info) => {
+            StatementOutput::Valid(_, col_info) => {
                 let tgt_schemas = col_info.get_column(4)
                     .and_then(|c| { let s : Option<Vec<String>> = c.clone().try_into().ok(); s })?;
                 let tgt_tbls = col_info.get_column(5)
@@ -402,7 +402,7 @@ fn get_postgres_relations(conn : &mut PostgresConnection, schema_name : &str, tb
                 println!("Relation vector: {:?}", rels);
                 Some(rels)
             },
-            QueryResult::Invalid(msg, _) => { println!("{}", msg); None },
+            StatementOutput::Invalid(msg, _) => { println!("{}", msg); None },
             _ => None
         }
     } else {
@@ -418,7 +418,7 @@ fn get_postgre_columns(conn : &mut PostgresConnection, schema_name : &str, tbl_n
         .map_err(|e| println!("{}", e) ).ok()?;
     if let Some(q_res) = ans.get(0) {
         match q_res {
-            QueryResult::Valid(_, col_info) => {
+            StatementOutput::Valid(_, col_info) => {
                 let names = col_info.get_column(0)
                     .and_then(|c| { let s : Option<Vec<String>> = c.clone().try_into().ok(); s })?;
                 let col_types = col_info.get_column(1)
@@ -430,7 +430,7 @@ fn get_postgre_columns(conn : &mut PostgresConnection, schema_name : &str, tbl_n
                 let obj = DBObject::Table{ name : tbl_name.to_string(), cols, rels };
                 Some(obj)
             },
-            QueryResult::Invalid(msg, _) => { println!("{}", msg); None },
+            StatementOutput::Invalid(msg, _) => { println!("{}", msg); None },
             _ => None
         }
     } else {
@@ -871,7 +871,7 @@ fn run_local_statement(
     local : &LocalStatement,
     conn : &mut Client,
     exec : &Arc<Mutex<(Executor, String)>>,
-    results : &mut Vec<QueryResult>
+    results : &mut Vec<StatementOutput>
 ) -> Result<(), String> {
     match local {
         LocalStatement::Copy(c) => {
@@ -879,17 +879,17 @@ fn run_local_statement(
             match copy(conn, &c, &*exec) {
                 Ok(n) => match (c.target, n) {
                     (CopyTarget::From, 0) => {
-                        results.push(QueryResult::Invalid(format!("No rows copied to server"), false));
+                        results.push(StatementOutput::Invalid(format!("No rows copied to server"), false));
                     },
                     (CopyTarget::From, n) => {
-                        results.push(QueryResult::Statement(format!("Copied {} row(s)", n)));
+                        results.push(StatementOutput::Statement(format!("Copied {} row(s)", n)));
                     },
                     (CopyTarget::To, _) => {
-                        results.push(QueryResult::Statement(format!("Copy to client successful")));
+                        results.push(StatementOutput::Statement(format!("Copy to client successful")));
                     }
                 },
                 Err(e) => {
-                    results.push(QueryResult::Invalid(e, false));
+                    results.push(StatementOutput::Invalid(e, false));
                 }
             }
         },
@@ -898,14 +898,14 @@ fn run_local_statement(
             for name in decl.names.iter() {
                 if exec.0.has_var(name) {
                     let msg = format!("Variable {} already declared", name);
-                    results.push(QueryResult::Invalid(msg.clone(), false));
+                    results.push(StatementOutput::Invalid(msg.clone(), false));
                     return Err(msg);
                 }
             }
             for name in &decl.names {
                 exec.0.set_var(&name[..], String::new());
             }
-            results.push(QueryResult::Empty);
+            results.push(StatementOutput::Empty);
         },
         LocalStatement::Exec(run) => {
 
@@ -930,7 +930,7 @@ fn run_local_statement(
             };
 
             if let Err(e) = using_ans {
-                results.push(QueryResult::Invalid(e.clone(), false));
+                results.push(StatementOutput::Invalid(e.clone(), false));
                 return Err(e);
             }
 
@@ -951,7 +951,7 @@ fn run_local_statement(
             let opt_into : Option<String> = match into_ans {
                 Ok(into) => into,
                 Err(e) => {
-                    results.push(QueryResult::Invalid(e.clone(), false));
+                    results.push(StatementOutput::Invalid(e.clone(), false));
                     return Err(e);
                 }
             };
@@ -967,28 +967,28 @@ fn run_local_statement(
                             }
                         } else {
                             let msg = format!("Command {} did not yield any output for variable {}", run.call, into);
-                            results.push(QueryResult::Invalid(msg.clone(), false));
+                            results.push(StatementOutput::Invalid(msg.clone(), false));
                             return Err(msg);
                         }
                     } else {
                         if out.len() > 0 {
                             match Table::new_from_text(out.clone()) {
                                 Ok(tbl) => {
-                                    results.push(QueryResult::Valid(out, tbl));
+                                    results.push(StatementOutput::Valid(out, tbl));
                                 },
                                 Err(e) => {
                                     let msg = format!("Unable to parse table from output: {}", e);
-                                    results.push(QueryResult::Invalid(msg.clone(), false));
+                                    results.push(StatementOutput::Invalid(msg.clone(), false));
                                     return Err(msg);
                                 }
                             }
                         } else {
-                            results.push(QueryResult::Empty);
+                            results.push(StatementOutput::Empty);
                         }
                     }
                 },
                 Err(e) => {
-                    results.push(QueryResult::Invalid(e.clone(), false));
+                    results.push(StatementOutput::Invalid(e.clone(), false));
                     return Err(e);
                 }
             }

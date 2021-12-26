@@ -21,9 +21,9 @@ where
     Self : Send
 {
 
-    fn query(&mut self, q : &str, subs : &HashMap<String, String>) -> QueryResult;
+    fn query(&mut self, q : &str, subs : &HashMap<String, String>) -> StatementOutput;
 
-    fn exec(&mut self, stmt : &AnyStatement, subs : &HashMap<String, String>) -> QueryResult;
+    fn exec(&mut self, stmt : &AnyStatement, subs : &HashMap<String, String>) -> StatementOutput;
 
     fn listen_at_channel(&mut self, channel : String);
 
@@ -37,7 +37,7 @@ where
         query_seq : String,
         subs : &HashMap<String, String>,
         parse : bool
-    ) -> Result<Vec<QueryResult>, String> {
+    ) -> Result<Vec<StatementOutput>, String> {
 
         // Substitute $() (variable) and ${} (command) macros before parsing the SQL.
         // let (query_seq, copies) = Self::substitute_copies(query_seq)?;
@@ -60,7 +60,7 @@ where
         &mut self,
         stmts : Vec<AnyStatement>,
         subs : &HashMap<String, String>
-    ) -> Result<Vec<QueryResult>, String> {
+    ) -> Result<Vec<StatementOutput>, String> {
         // let stmts = crate::sql::parsing::filter_repeated_queries(stmts);
         let mut results = Vec::new();
         if stmts.len() == 0 {
@@ -103,7 +103,7 @@ where
         &mut self,
         query_seq : String,
         subs : &HashMap<String, String>
-    ) -> Result<Vec<QueryResult>, String> {
+    ) -> Result<Vec<StatementOutput>, String> {
         let stmts = crate::sql::parsing::split_unparsed_statements(query_seq)
             // .map(|stmts| filter_repeated_queries(stmts) )
             .map_err(|e| format!("{}", e) )?;

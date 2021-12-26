@@ -27,6 +27,7 @@ impl QueriesOverview {
     pub fn build() -> Self {
         let conn_list = ConnectionList::build();
         let conn_bx = ConnectionBox::build();
+        conn_list.react(&conn_bx);
         let detail_bx = DetailBox::build();
 
         let info_bx = Box::new(Orientation::Vertical, 0);
@@ -278,6 +279,54 @@ impl React<ActiveConnection> for ConnectionList {
         });
     }
 
+}
+
+impl React<ConnectionBox> for ConnectionList {
+
+    fn react(&self, bx : &ConnectionBox) {
+
+        for (ix, entry) in [&bx.host.entry, &bx.db.entry, &bx.user.entry].iter().enumerate() {
+            entry.connect_changed({
+                let list = self.list.clone();
+                move |entry| {
+                    change_text_at_conn_row(&list, ix, &entry)
+                }
+            });
+        }
+
+        /*bx.host.entry.connect_changed({
+            let list = self.list.clone();
+            move |entry| {
+                change_text_at_conn_row(&list, 0, &entry)
+            }
+        });
+
+        bx.db.entry.connect_changed({
+            let list = self.list.clone();
+            move |entry| {
+                change_text_at_conn_row(&list, 1, &entry)
+            }
+        });
+
+        bx.user.entry.connect_changed({
+            let list = self.list.clone();
+            move |entry| {
+                change_text_at_conn_row(&list, 2, &entry)
+            }
+        });*/
+    }
+
+}
+
+fn change_text_at_conn_row(list : &ListBox, label_ix : usize, entry : &Entry) {
+    if let Some(row) = list.selected_row() {
+        let vp = row.child().unwrap().downcast::<Viewport>().unwrap();
+        let bx = vp.child().unwrap().downcast::<Box>().unwrap();
+        let child_bx = super::get_child_by_index(&bx, label_ix);
+        let lbl = PackedImageLabel::extract(&child_bx).unwrap();
+        let txt = entry.buffer().text();
+        lbl.lbl.set_text(&txt.as_str());
+    }
 }
 
 #[derive(Debug, Clone)]
