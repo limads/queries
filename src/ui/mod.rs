@@ -43,6 +43,10 @@ mod table;
 
 pub use table::*;
 
+mod plotarea;
+
+pub use plotarea::*;
+
 #[derive(Debug, Clone)]
 pub struct QueriesContent {
     pub stack : libadwaita::ViewStack,

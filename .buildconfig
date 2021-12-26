@@ -9,3 +9,8 @@ app-id=
 postbuild=
 prebuild=
 default=true
+
+[default.environment]
+LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/diego/Downloads/gtk-4.5.0/libadwaita/_build/src
+C_INCLUDE_PATH=/home/diego/Downloads/gtk-4.5.0:/home/diego/Downloads/gtk-4.5.0/_build:/home/diego/Downloads/gtk-4.5.0/_build/subprojects/pango:/home/diego/Downloads/gtk-4.5.0/subprojects/pango
+PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/home/diego/Downloads/gtk-4.5.0/_build/meson-private:/home/diego/Downloads/gtk-4.5.0/libadwaita/_build/meson-private
