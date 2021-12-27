@@ -61,7 +61,14 @@ impl React<OpenedScripts> for QueriesEditor {
                 }
             }
         });
-
+        opened.connect_opened({
+            let views = self.views.clone();
+            move |file| {
+                if let Some(content) = file.content {
+                    views[file.index].buffer().set_text(&content);
+                }
+            }
+        });
         opened.connect_closed({
             let stack = self.stack.clone();
             move |(_, n_left)| {

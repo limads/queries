@@ -56,7 +56,7 @@ use parsing::*;
 
 use copy::*;
 
-use notify::*;
+use self::notify::*;
 
 // use listener::*;
 

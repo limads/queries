@@ -138,6 +138,7 @@ fn main() {
         client.scripts.react(&queries_win);
 
         queries_win.react(&queries_win.titlebar);
+        queries_win.react(&client.scripts);
         queries_win.window.show();
 
         // connections.react(queries_win.content.overview.conn_list.receiver());

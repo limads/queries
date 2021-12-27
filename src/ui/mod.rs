@@ -383,6 +383,17 @@ impl React<QueriesTitlebar> for QueriesWindow {
 
 }
 
+impl React<OpenedScripts> for QueriesWindow {
+
+    fn react(&self, scripts : &OpenedScripts) {
+        let win = self.window.clone();
+        scripts.connect_window_close(move |_| {
+            win.destroy();
+        });
+    }
+
+}
+
 #[derive(Debug, Clone)]
 pub struct PackedImageLabel  {
     pub bx : Box,

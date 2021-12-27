@@ -11,6 +11,10 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 use crate::ui::QueriesWindow;
+use notify::{self, Watcher};
+use std::sync::mpsc;
+use std::time::Duration;
+use std::thread::JoinHandle;
 
 pub enum ScriptAction {
 
@@ -18,7 +22,7 @@ pub enum ScriptAction {
 
     OpenSuccess(OpenedFile),
 
-    OpenFailure(String),
+    // OpenFailure(String),
 
     // File position and whether the request is "forced" (i.e. asks for user confirmation).
     CloseRequest(usize, bool),
@@ -35,7 +39,7 @@ pub enum ScriptAction {
 
     ActiveTextChanged(Option<String>),
 
-    WindowCloseRequest(ApplicationWindow),
+    WindowCloseRequest,
 
     SetSaved(usize, bool),
 
@@ -59,9 +63,11 @@ pub struct OpenedScripts {
 
     on_new : Callbacks<OpenedFile>,
 
-    on_closed : Callbacks<(usize, usize)>,
+    on_file_closed : Callbacks<(usize, usize)>,
 
     on_close_confirm : Callbacks<(OpenedFile)>,
+
+    on_window_close : Callbacks<()>,
 
     on_selected : Callbacks<Option<usize>>
 
@@ -77,27 +83,28 @@ impl OpenedScripts {
         let on_file_changed : Callbacks<usize> = Default::default();
         let on_file_persisted : Callbacks<usize> = Default::default();
         let on_selected : Callbacks<Option<usize>> = Default::default();
-        let on_closed : Callbacks<(usize, usize)> = Default::default();
+        let on_file_closed : Callbacks<(usize, usize)> = Default::default();
         let on_active_text_changed : Callbacks<Option<String>> = Default::default();
         let on_close_confirm : Callbacks<OpenedFile> = Default::default();
+        let on_window_close : Callbacks<()> = Default::default();
         let mut files : Vec<OpenedFile> = Vec::new();
         let mut selected : Option<usize> = None;
-
-        let mut app_win : Option<ApplicationWindow> = None;
-
+        let mut win_close_request = false;
         recv.attach(None, {
             let send = send.clone();
-            let (on_open, on_new, on_save, on_selected, on_closed, on_close_confirm, on_file_changed, on_file_persisted) = (
+            let (on_open, on_new, on_save, on_selected, on_file_closed, on_close_confirm, on_file_changed, on_file_persisted) = (
                 on_open.clone(),
                 on_new.clone(),
                 on_save.clone(),
                 on_selected.clone(),
-                on_closed.clone(),
+                on_file_closed.clone(),
                 on_close_confirm.clone(),
                 on_file_changed.clone(),
                 on_file_persisted.clone()
             );
-            let (on_active_text_changed) = (on_active_text_changed.clone());
+            let (on_active_text_changed, on_window_close) = (on_active_text_changed.clone(), on_window_close.clone());
+
+            let mut file_open_handle : Option<JoinHandle<()>> = None;
             move |action| {
                 match action {
                     ScriptAction::NewRequest => {
@@ -114,28 +121,59 @@ impl OpenedScripts {
                         if files.len() == 16 {
                             return Continue(true);
                         }
-                        thread::spawn({
+                        let handle = thread::spawn({
                             let send = send.clone();
+                            let n_files = files.len();
+
+                            // We could have a problem if the user attempts to open
+                            // two files in extremely quick succession, and/or for any reason opening the first
+                            // file takes too long (e.g. a busy hard drive). If a second file is opened
+                            // before the first file opening thread ends, the two files would receive the
+                            // same index, since the file index is moved when the thead is spawned.
+                            // The ocurrence should be rare enough to justify blocking the main thread here.
+                            if let Some(handle) = file_open_handle.take() {
+                                handle.join();
+                            }
+
                             move || {
-                                // Open file and write content to OpenedFile.
-                                // Send OpenSuccess event
+                                if let Ok(mut f) = File::open(&path) {
+                                    let mut content = String::new();
+                                    f.read_to_string(&mut content);
+                                    let new_file = OpenedFile {
+                                        path : Some(path.clone()),
+                                        name : path.clone(),
+                                        saved : true,
+                                        content : Some(content),
+                                        index : n_files
+                                    };
+                                    send.send(ScriptAction::OpenSuccess(new_file));
+                                } else {
+                                    // Log failure
+                                }
                             }
                         });
+                        file_open_handle = Some(handle);
                     },
                     ScriptAction::CloseRequest(ix, force) => {
+
+                        // This force=true branch will be hit by a request from the toast button
+                        // clicked when the user wants to ignore an unsaved file. If win_close_request=true,
+                        // the action originated from a application window close. If win_close_request=false,
+                        // the action originated from a file list item close.
                         if force {
                             files.remove(ix);
                             let n = files.len();
-                            on_closed.borrow().iter().for_each(|f| f((ix, n)) );
+                            on_file_closed.borrow().iter().for_each(|f| f((ix, n)) );
                             println!("File closed");
-                            if let Some(win) = &app_win {
-                                win.destroy();
+                            if win_close_request {
+                                on_window_close.borrow().iter().for_each(|f| f(()) );
+                                win_close_request = false;
                             }
                         } else {
                             if files[ix].saved {
                                 files.remove(ix);
                                 let n = files.len();
-                                on_closed.borrow().iter().for_each(|f| f((ix, n)) );
+                                on_file_closed.borrow().iter().for_each(|f| f((ix, n)) );
                             } else {
                                 on_close_confirm.borrow().iter().for_each(|f| f(files[ix].clone()) );
                             }
@@ -150,18 +188,19 @@ impl OpenedScripts {
                         }
                     },
                     ScriptAction::OpenSuccess(file) => {
+                        files.push(file.clone());
                         on_open.borrow().iter().for_each(|f| f(file.clone()) );
                     },
                     ScriptAction::Select(opt_ix) => {
                         selected = opt_ix;
                         on_selected.borrow().iter().for_each(|f| f(opt_ix) );
                     },
-                    ScriptAction::WindowCloseRequest(win) => {
+                    ScriptAction::WindowCloseRequest => {
                         if let Some(file) = files.iter().filter(|file| !file.saved ).next() {
                             on_close_confirm.borrow().iter().for_each(|f| f(file.clone()) );
-                            app_win = Some(win);
+                            win_close_request = true;
                         } else {
-                            win.destroy();
+                            on_window_close.borrow().iter().for_each(|f| f(()) );
                         }
                     },
                     _ => { }
@@ -169,7 +208,42 @@ impl OpenedScripts {
                 Continue(true)
             }
         });
-        Self { on_open, on_save, on_new, send, on_selected, on_closed, on_close_confirm, on_file_changed, on_file_persisted, on_active_text_changed }
+
+        // File change watch thread
+        /*let (tx, rx) = channel();
+        let mut watcher = notify::watcher(tx, Duration::from_secs(5)).unwrap();
+        thread::spawn({
+            let sender = sender.clone();
+            move|| {
+                loop {
+                    match rx.recv() {
+                        Ok(event) => {
+                            /*match event.op {
+                                Ok(notify::op::Op::WRITE)
+                                Ok(notify::op::Op::CREATE)
+                                Ok(notify::op::Op::RENAME)
+                                Ok(notify::op::Op::CHMOD)
+                                Ok(notify::op::Op::REMOVE)
+                            }*/
+                        },
+                       Err(_) => { },
+                    }
+                }
+            }
+        });*/
+        Self {
+            on_open,
+            on_save,
+            on_new,
+            send,
+            on_selected,
+            on_file_closed,
+            on_close_confirm,
+            on_file_changed,
+            on_file_persisted,
+            on_active_text_changed,
+            on_window_close
+        }
     }
 
     pub fn connect_new<F>(&self, f : F)
@@ -197,7 +271,7 @@ impl OpenedScripts {
     where
         F : Fn((usize, usize)) + 'static
     {
-        self.on_closed.borrow_mut().push(boxed::Box::new(f));
+        self.on_file_closed.borrow_mut().push(boxed::Box::new(f));
     }
 
     pub fn connect_close_confirm<F>(&self, f : F)
@@ -226,6 +300,13 @@ impl OpenedScripts {
         F : Fn(Option<String>) + 'static
     {
         self.on_active_text_changed.borrow_mut().push(boxed::Box::new(f));
+    }
+
+    pub fn connect_window_close<F>(&self, f : F)
+    where
+        F : Fn(()) + 'static
+    {
+        self.on_window_close.borrow_mut().push(boxed::Box::new(f));
     }
 
 }
@@ -403,8 +484,12 @@ impl React<QueriesWindow> for OpenedScripts {
 
     fn react(&self, win : &QueriesWindow) {
         let send = self.send.clone();
+
+        // When the usesr attempts to close the window, we inhibit the action so
+        // that OpenedScripts can verify if there are any unsaved files. The window
+        // will actually be closed on impl React<OpenedScripts> for QueriesWindow.
         win.window.connect_close_request(move |win| {
-            send.send(ScriptAction::WindowCloseRequest(win.clone()));
+            send.send(ScriptAction::WindowCloseRequest);
             glib::signal::Inhibit(true)
         });
     }

@@ -81,6 +81,7 @@ fn add_file(list : &ListBox, path : &str) {
 
     lbl.bx.append(&ev_btn);
 
+    lbl.lbl.set_use_markup(true);
     row.set_selectable(true);
     row.set_activatable(false);
     row.set_child(Some(&lbl.bx));
@@ -117,8 +118,8 @@ impl React<OpenedScripts> for FileList {
             move |ix| {
                 let lbl = get_label_child(&list, ix);
                 let txt = lbl.label();
-                if !txt.ends_with("⚬") {
-                    lbl.set_label(&format!("{} ⚬", txt));
+                if !txt.starts_with(ITALIC_SPAN_END) && !txt.ends_with(ITALIC_SPAN_END) {
+                    lbl.set_label(&format!("{}{}{}", ITALIC_SPAN_START, txt, ITALIC_SPAN_END));
                 }
             }
         });
@@ -127,16 +128,20 @@ impl React<OpenedScripts> for FileList {
             move |ix| {
                 let lbl = get_label_child(&list, ix);
                 let txt = lbl.label();
-                if txt.ends_with("⚬") {
+                if txt.starts_with(ITALIC_SPAN_START) && txt.ends_with(ITALIC_SPAN_END) {
                     let n_chars = txt.as_str().chars().count();
                     let chars = txt.as_str().chars();
-                    lbl.set_label(&format!("{}", chars.take(n_chars-1).collect::<String>()));
+                    lbl.set_label(&format!("{}", chars.skip(26).take(n_chars-7).collect::<String>()));
                 }
             }
         });
     }
 
 }
+
+const ITALIC_SPAN_START : &'static str = "<span font_style=\"italic\">";
+
+const ITALIC_SPAN_END : &'static str = "</span>";
 
 pub fn get_label_child(list : &ListBox, ix : usize) -> Label {
     let row = list.row_at_index(ix as i32).unwrap();

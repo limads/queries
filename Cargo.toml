@@ -23,6 +23,7 @@ quick-xml = "0.22.0"
 either = "1.6.1"
 chrono = "0.4.13"
 plots = { path = "../plots" }
+notify = "4.0.17"
 
 # gdk-pixbuf="0.14.0"
 # dirs = "4.0"
