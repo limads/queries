@@ -104,8 +104,8 @@ impl React<OpenedScripts> for ExecButton {
 
     fn react(&self, scripts : &OpenedScripts) {
         let action = self.exec_action.clone();
-        scripts.connect_selected(move |opt_ix| {
-            if let Some(ix) = opt_ix {
+        scripts.connect_selected(move |opt_file| {
+            if let Some(ix) = opt_file.map(|f| f.index ) {
                 action.set_state(&(ix as i32).to_variant());
             } else {
                 action.set_state(&(-1i32).to_variant());
@@ -115,8 +115,7 @@ impl React<OpenedScripts> for ExecButton {
 
 }
 
-impl React<QueriesContent> for ExecButton {
-
+/*impl React<QueriesContent> for ExecButton {
     fn react(&self, content : &QueriesContent) {
         let actions = [self.exec_action.clone(), self.schedule_action.clone()];
         content.stack.connect_visible_child_notify(move |stack| {
@@ -133,7 +132,7 @@ impl React<QueriesContent> for ExecButton {
             }
         });
     }
-}
+}*/
 
 /*impl React<QueriesEditor> for ExecButton {
 

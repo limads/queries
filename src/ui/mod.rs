@@ -108,9 +108,9 @@ impl React<ExecButton> for QueriesResults {
 
     fn react(&self, exec_btn : &ExecButton) {
         let stack = self.stack.clone();
-
         exec_btn.clear_action.connect_activate(move |_action, param| {
             stack.set_visible_child_name("overview");
+            // TODO disable export action.
         });
     }
 
@@ -135,8 +135,8 @@ impl React<QueriesWorkspace> for QueriesContent {
 impl React<OpenedScripts> for QueriesContent {
 
     fn react(&self, scripts : &OpenedScripts) {
-        let overlay = self.overlay.clone();
         scripts.connect_close_confirm({
+            let overlay = self.overlay.clone();
             move |file| {
                 let toast = libadwaita::Toast::builder()
                     .title(&format!("{} has unsaved changes", file.name))
@@ -147,6 +147,12 @@ impl React<OpenedScripts> for QueriesContent {
                     .timeout(0)
                     .build();
                 overlay.add_toast(&toast);
+            }
+        });
+        scripts.connect_open_error({
+            let overlay = self.overlay.clone();
+            move |msg| {
+                overlay.add_toast(&libadwaita::Toast::builder().title(&msg[..]).build());
             }
         });
     }
@@ -291,6 +297,9 @@ impl QueriesWindow {
         let sidebar = QueriesSidebar::build();
         let titlebar = QueriesTitlebar::build();
         let content = QueriesContent::build();
+        content.editor.save_dialog.dialog.set_transient_for(Some(&window));
+        content.editor.open_dialog.dialog.set_transient_for(Some(&window));
+        content.editor.export_dialog.dialog.set_transient_for(Some(&window));
 
         titlebar.header.set_title_widget(Some(&content.switcher));
 
@@ -321,6 +330,7 @@ impl QueriesWindow {
         window.add_action(&titlebar.main_menu.action_open);
         window.add_action(&titlebar.main_menu.action_save);
         window.add_action(&titlebar.main_menu.action_save_as);
+        window.add_action(&titlebar.main_menu.action_export);
         window.add_action(&content.editor.ignore_file_save_action);
         window.add_action(&titlebar.sidebar_hide_action);
 
@@ -328,10 +338,10 @@ impl QueriesWindow {
         window.add_action(&titlebar.exec_btn.exec_action);
         window.add_action(&titlebar.exec_btn.clear_action);
         window.add_action(&titlebar.exec_btn.schedule_action);
-
         window.add_action(&sidebar.file_list.close_action);
 
         content.editor.open_dialog.react(&titlebar.main_menu);
+        content.editor.export_dialog.react(&titlebar.main_menu);
 
         content.react(&sidebar.file_list);
         titlebar.exec_btn.react(&sidebar.file_list);
@@ -339,7 +349,7 @@ impl QueriesWindow {
         content.editor.react(&titlebar.exec_btn);
         content.results.react(&titlebar.exec_btn);
         content.react(&content.results.workspace);
-        titlebar.exec_btn.react(&content);
+        //titlebar.exec_btn.react(&content);
         titlebar.main_menu.react(&content);
 
         Self { paned, sidebar, titlebar, content, window }

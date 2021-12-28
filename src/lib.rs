@@ -1,3 +1,5 @@
+#![allow(warnings)]
+
 use std::boxed;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -15,6 +17,8 @@ pub mod tables;
 pub mod command;
 
 pub type Callbacks<T> = Rc<RefCell<Vec<boxed::Box<dyn Fn(T) + 'static>>>>;
+
+pub type ValuedCallbacks<A, R> = Rc<RefCell<Vec<boxed::Box<dyn Fn(A)->R + 'static>>>>;
 
 /// Generic trait to represent interactions between Views (widgets or sets of grouped widgets affected by data change),
 /// Models (data structures that encapsulate data-modifying algorithms) and controls (widgets

@@ -8,7 +8,6 @@ use glib::MainContext;
 use std::collections::HashMap;
 use super::listener::SqlListener;
 use crate::server::*;
-use std::time::Duration;
 use std::thread;
 use crate::sql::object::DBInfo;
 use crate::sql::StatementOutput;
@@ -72,11 +71,13 @@ pub struct ConnectionSet {
 
 }
 
+pub type ConnSetTypes = (Callbacks<Option<(i32, ConnectionInfo)>>, Callbacks<ConnectionInfo>, Callbacks<i32>);
+
 impl ConnectionSet {
 
     pub fn new() -> Self {
         let (send, recv) = MainContext::channel::<ConnectionAction>(glib::source::PRIORITY_DEFAULT);
-        let (selected, added, removed) : (Callbacks<Option<(i32, ConnectionInfo)>>, Callbacks<ConnectionInfo>, Callbacks<i32>) = Default::default();
+        let (selected, added, removed) : ConnSetTypes = Default::default();
         recv.attach(None, {
             let mut conns : (Vec<ConnectionInfo>, Option<i32>) = (Vec::new(), None);
             let (selected, added, removed) = (selected.clone(), added.clone(), removed.clone());
@@ -92,7 +93,7 @@ impl ConnectionSet {
                         added.borrow().iter().for_each(|f| f(Default::default()) );
                     },
                     ConnectionAction::Remove(ix) => {
-                        let rem_conn = conns.0.remove(ix as usize);
+                        let _rem_conn = conns.0.remove(ix as usize);
                         removed.borrow().iter().for_each(|f| f(ix) );
                         selected.borrow().iter().for_each(|f| f(None) );
                     },
@@ -124,7 +125,7 @@ impl ConnectionSet {
 
 impl React<ConnectionBox> for ConnectionSet {
 
-    fn react(&self, conn_bx : &ConnectionBox) {
+    fn react(&self, _conn_bx : &ConnectionBox) {
         // conn_bx.switch.connect_activate(move |switch| {
         // });
     }
@@ -137,13 +138,13 @@ impl React<ConnectionList> for ConnectionSet {
         conn_list.list.connect_row_selected({
             let send = self.send.clone();
             move |_, opt_row| {
-                send.send(ConnectionAction::Switch(opt_row.map(|row| row.index() )));
+                send.send(ConnectionAction::Switch(opt_row.map(|row| row.index() ))).unwrap();
             }
         });
         conn_list.add_btn.connect_clicked({
             let send = self.send.clone();
             move |_btn| {
-                send.send(ConnectionAction::Add);
+                send.send(ConnectionAction::Add).unwrap();
             }
         });
         conn_list.remove_btn.connect_clicked({
@@ -151,7 +152,7 @@ impl React<ConnectionList> for ConnectionSet {
             let list = conn_list.list.clone();
             move |_btn| {
                 if let Some(ix) = list.selected_row().map(|row| row.index() ) {
-                    send.send(ConnectionAction::Remove(ix));
+                    send.send(ConnectionAction::Remove(ix)).unwrap();
                 }
             }
         });
@@ -189,7 +190,7 @@ fn generate_conn_str(
             host_s = split_port[0].clone();
             port_s = split_port[1].clone();
         },
-        n => {
+        _n => {
             return Err(format!("Host string can contain only a single colon"));
         }
     }
@@ -257,7 +258,7 @@ impl ActiveConnection {
         let mut listener = SqlListener::launch({
             let send = send.clone();
             move |results| {
-                send.send(ActiveConnectionAction::ExecutionCompleted(results));
+                send.send(ActiveConnectionAction::ExecutionCompleted(results)).unwrap();
             }
         });
         recv.attach(None, {
@@ -277,17 +278,19 @@ impl ActiveConnection {
                                 match PostgresConnection::try_new(conn_str) {
                                     Ok(mut conn) => {
                                         let info = conn.info();
-                                        send.send(ActiveConnectionAction::ConnectAccepted(boxed::Box::new(conn), info));
+                                        send.send(ActiveConnectionAction::ConnectAccepted(boxed::Box::new(conn), info)).unwrap();
                                     },
                                     Err(e) => {
-                                        send.send(ActiveConnectionAction::Error(e));
+                                        send.send(ActiveConnectionAction::Error(e)).unwrap();
                                     }
                                 }
                             }
                         });
                     },
                     ActiveConnectionAction::ConnectAccepted(conn, info) => {
-                        listener.update_engine(conn);
+                        if let Err(e) = listener.update_engine(conn) {
+                            println!("{}", e);
+                        }
                         on_connected.borrow().iter().for_each(|f| f(info.clone()) );
                     },
                     ActiveConnectionAction::Disconnect => {
@@ -388,7 +391,7 @@ impl React<ConnectionBox> for ActiveConnection {
             conn_bx.password.entry.clone()
         );
         let send = self.send.clone();
-        conn_bx.switch.connect_state_set(move |switch, state| {
+        conn_bx.switch.connect_state_set(move |switch, _state| {
 
             if switch.is_active() {
                 if host_entry.text().starts_with("file") {
@@ -397,14 +400,14 @@ impl React<ConnectionBox> for ActiveConnection {
 
                 match generate_conn_str(&host_entry, &db_entry, &user_entry, &password_entry) {
                     Ok(conn_str) => {
-                        send.send(ActiveConnectionAction::ConnectRequest(conn_str));
+                        send.send(ActiveConnectionAction::ConnectRequest(conn_str)).unwrap();
                     },
                     Err(e) => {
-                        send.send(ActiveConnectionAction::Error(e));
+                        send.send(ActiveConnectionAction::Error(e)).unwrap();
                     }
                 }
             } else {
-                send.send(ActiveConnectionAction::Disconnect);
+                send.send(ActiveConnectionAction::Disconnect).unwrap();
             }
 
             Inhibit(false)
@@ -590,9 +593,11 @@ impl React<ExecButton> for ActiveConnection {
 
     fn react(&self, btn : &ExecButton) {
         let send = self.send.clone();
-        btn.exec_action.connect_activate(move |action, param| {
+        btn.exec_action.connect_activate(move |_action, param| {
+
+            // Perhaps replace by a ValuedCallback that just fetches the contents of editor.
             let stmts = param.unwrap().get::<String>().unwrap();
-            send.send(ActiveConnectionAction::ExecutionRequest(stmts));
+            send.send(ActiveConnectionAction::ExecutionRequest(stmts)).unwrap();
             // println!("Should execute: {}", );
         });
     }

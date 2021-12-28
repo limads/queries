@@ -1,22 +1,22 @@
-use std::rc::Rc;
-use std::cell::RefCell;
+
+
 // use crate::utils::RecentList;
 use std::thread;
 use std::process::Command;
-use std::path::Path;
+
 // use crate::plots::plot_workspace::PlotWorkspace;
 // use crate::tables::environment::TableEnvironment;
 // use crate::table_notebook::TableNotebook;
-use std::fs::File;
+
 use std::io::Write;
-use std::str::FromStr;
-use crate::tables::table::{Format, TableSettings, NullField, BoolField, Align};
-use std::default::Default;
+
+
+
 // use crate::utils;
 // use crate::status_stack::StatusStack;
 use std::io::BufWriter;
 use std::io::Read;
-use std::sync::mpsc::{self, channel, Sender, Receiver, TryRecvError};
+use std::sync::mpsc::{channel, Sender, Receiver};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 // use crate::status_stack::Status;

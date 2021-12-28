@@ -1,3 +1,5 @@
+#![allow(warnings)]
+
 use gtk4::prelude::*;
 use gtk4::*;
 use sourceview5::prelude::*;
@@ -136,6 +138,9 @@ fn main() {
         queries_win.titlebar.exec_btn.react(&client.scripts);
         queries_win.content.react(&client.env);
         client.scripts.react(&queries_win);
+
+        queries_win.content.editor.save_dialog.react(&client.scripts);
+        queries_win.content.editor.save_dialog.react(&queries_win.titlebar.main_menu);
 
         queries_win.react(&queries_win.titlebar);
         queries_win.react(&client.scripts);

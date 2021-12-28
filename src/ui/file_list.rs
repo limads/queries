@@ -131,8 +131,15 @@ impl React<OpenedScripts> for FileList {
                 if txt.starts_with(ITALIC_SPAN_START) && txt.ends_with(ITALIC_SPAN_END) {
                     let n_chars = txt.as_str().chars().count();
                     let chars = txt.as_str().chars();
-                    lbl.set_label(&format!("{}", chars.skip(26).take(n_chars-7).collect::<String>()));
+                    lbl.set_label(&format!("{}", chars.skip(26).take(n_chars-26-7).collect::<String>()));
                 }
+            }
+        });
+        opened.connect_name_changed({
+            let list = self.list.clone();
+            move |(ix, name)| {
+                let lbl = get_label_child(&list, ix);
+                lbl.set_label(&name);
             }
         });
     }

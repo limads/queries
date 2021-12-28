@@ -8,6 +8,7 @@ use crate::client::OpenedScripts;
 use sourceview5::View;
 use sourceview5::prelude::*;
 use crate::ui::ExecButton;
+use std::boxed;
 
 #[derive(Debug, Clone)]
 pub struct QueriesEditor {
@@ -16,7 +17,8 @@ pub struct QueriesEditor {
     pub stack : Stack,
     pub ignore_file_save_action : gio::SimpleAction,
     pub save_dialog : SaveDialog,
-    pub open_dialog : OpenDialog
+    pub open_dialog : OpenDialog,
+    pub export_dialog : ExportDialog
 }
 
 impl QueriesEditor {
@@ -26,6 +28,7 @@ impl QueriesEditor {
         let script_list = ScriptList::build();
         let save_dialog = SaveDialog::build();
         let open_dialog = OpenDialog::build();
+        let export_dialog = ExportDialog::build();
         stack.add_named(&script_list.bx, Some("list"));
 
         let views : [sourceview5::View; 16]= Default::default();
@@ -37,7 +40,7 @@ impl QueriesEditor {
         open_dialog.react(&script_list);
 
         let ignore_file_save_action = gio::SimpleAction::new("ignore_file_save", Some(&i32::static_variant_type()), /*&(-1i32).to_variant()*/ );
-        Self { views, stack, script_list, save_dialog, open_dialog, ignore_file_save_action }
+        Self { views, stack, script_list, save_dialog, open_dialog, ignore_file_save_action, export_dialog }
     }
 
 }
@@ -47,11 +50,11 @@ impl React<OpenedScripts> for QueriesEditor {
     fn react(&self, opened : &OpenedScripts) {
         opened.connect_selected({
             let stack = self.stack.clone();
-            let views = self.views.clone();
-            move |opt_ix| {
-                match opt_ix {
-                    Some(ix) => {
-                        stack.set_visible_child_name(&format!("editor{}", ix));
+            let _views = self.views.clone();
+            move |opt_file| {
+                match opt_file {
+                    Some(file) => {
+                        stack.set_visible_child_name(&format!("editor{}", file.index));
                         // opened.set_active_text(retrieve_statements_from_buffer(&views[ix]).unwrap());
                     },
                     None => {
@@ -66,15 +69,31 @@ impl React<OpenedScripts> for QueriesEditor {
             move |file| {
                 if let Some(content) = file.content {
                     views[file.index].buffer().set_text(&content);
+                } else {
+                    println!("File does not have content");
                 }
             }
         });
         opened.connect_closed({
             let stack = self.stack.clone();
-            move |(_, n_left)| {
+            let views = self.views.clone();
+            move |(ix, n_left)| {
+                let buffer = views[ix].buffer();
+                buffer.set_text("");
                 if n_left == 0 {
                     stack.set_visible_child_name("list");
                 }
+            }
+        });
+        opened.connect_buffer_read_request({
+            let views = self.views.clone();
+            move |ix : usize| -> String {
+                let buffer = views[ix].buffer();
+                buffer.text(
+                    &buffer.start_iter(),
+                    &buffer.end_iter(),
+                    true
+                ).to_string()
             }
         });
     }
@@ -86,7 +105,7 @@ impl React<ExecButton> for QueriesEditor {
     fn react(&self, btn : &ExecButton) {
         let weak_views : [glib::WeakRef<sourceview5::View>; 16] = self.views.clone().map(|view| view.downgrade() );
         let exec_action = btn.exec_action.clone();
-        btn.btn.connect_clicked(move |btn| {
+        btn.btn.connect_clicked(move |_btn| {
             let selected_view = exec_action.state().unwrap().get::<i32>().unwrap();
             if selected_view >= 0 {
                 if let Some(view) = weak_views[selected_view as usize].upgrade() {
@@ -94,6 +113,7 @@ impl React<ExecButton> for QueriesEditor {
                         println!("Executing...");
 
                         // Implemented at React<ExecButton> for ActiveConnection
+
                         exec_action.activate(Some(&txt.to_variant()));
                     } else {
                         println!("No text to be retrieved");
@@ -242,15 +262,54 @@ impl SaveDialog {
 
     pub fn build() -> Self {
         let dialog = FileChooserDialog::new(
-            Some("New script"),
+            Some("Save script"),
             None::<&Window>,
             FileChooserAction::Save,
-            &[("Cancel", ResponseType::None), ("New", ResponseType::Accept)]
+            &[("Cancel", ResponseType::None), ("Save", ResponseType::Accept)]
         );
+        dialog.connect_response(move |dialog, resp| {
+            println!("{}", resp);
+            match resp {
+                ResponseType::Close | ResponseType::Reject | ResponseType::Accept | ResponseType::Yes |
+                ResponseType::No | ResponseType::None | ResponseType::DeleteEvent => {
+                    dialog.close();
+                },
+                _ => { }
+            }
+        });
         let filter = FileFilter::new();
         filter.add_pattern("*.sql");
         dialog.set_filter(&filter);
         Self { dialog }
+    }
+
+}
+
+impl React<MainMenu> for SaveDialog {
+
+    fn react(&self, menu : &MainMenu) {
+        let dialog = self.dialog.clone();
+        menu.action_save_as.connect_activate(move |_,_| {
+            dialog.show();
+        });
+    }
+
+}
+
+impl React<OpenedScripts> for SaveDialog {
+
+    fn react(&self, scripts : &OpenedScripts) {
+        let dialog = self.dialog.clone();
+        scripts.connect_save_unknown_path(move |path| {
+            let _ = dialog.set_file(&gio::File::for_path(path));
+            dialog.show();
+        });
+        let dialog = self.dialog.clone();
+        scripts.connect_selected(move |opt_file| {
+            if let Some(path) = opt_file.and_then(|f| f.path.clone() ) {
+                let _ = dialog.set_file(&gio::File::for_path(&path));
+            }
+        });
     }
 
 }
@@ -269,6 +328,19 @@ impl OpenDialog {
             FileChooserAction::Open,
             &[("Cancel", ResponseType::None), ("Open", ResponseType::Accept)]
         );
+        dialog.connect_response(move |dialog, resp| {
+            match resp {
+                ResponseType::Reject | ResponseType::Accept | ResponseType::Yes | ResponseType::No |
+                ResponseType::None | ResponseType::DeleteEvent => {
+                    dialog.close();
+                },
+                _ => { }
+            }
+        });
+        dialog.set_modal(true);
+        dialog.set_deletable(true);
+        dialog.set_destroy_with_parent(true);
+        dialog.set_hide_on_close(true);
         let filter = FileFilter::new();
         filter.add_pattern("*.sql");
         dialog.set_filter(&filter);
@@ -298,44 +370,172 @@ impl React<MainMenu> for OpenDialog {
 
 }
 
+/* use sourceview5::*;
+use std::pin::Pin;
+use gio::ListModel;
+use std::error::Error;
+use std::future::Future;*/
+
+/*use gtk4::subclass::prelude::*;
+use sourceview5::prelude::*;
+use sourceview5::*;
+
+glib::wrapper! {
+
+    pub struct QueriesCompletion(ObjectSubclass<completion::QueriesCompletion>)
+
+    @extends CompletionProvider,
+
+    @implements CompletionProviderExt;
+
+}
+
+mod completion {
+
+    #[derive(Default)]
+    pub struct QueriesCompletion { }
+
+    use gtk4::glib;
+    use gtk4::subclass::prelude::*;
+    use sourceview5::*;
+    use sourceview5::prelude::*;
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for super::QueriesCompletion {
+
+        const NAME: &'static str = "QueriesCompletion";
+
+        type Type = super::QueriesCompletion;
+
+        type ParentType = sourceview5::CompletionProvider;
+
+    }
+
+    impl ObjectImpl for QueriesCompletion { }
+
+    /*impl CompletionProviderExt for QueriesCompletion {
+
+        /*fn display<P: IsA<CompletionProposal>>(
+            &self,
+            context: &CompletionContext,
+            proposal: &P,
+            cell: &CompletionCell
+        ) {
+
+        }*/
+    }*/
+
+}*/
+
 fn configure_view(view : &View) {
     let buffer = view.buffer()
         .downcast::<sourceview5::Buffer>().unwrap();
     let manager = sourceview5::StyleSchemeManager::new();
-    // println!("available schemes: {:?}", manager.scheme_ids());
-
     let scheme = manager.scheme("Adwaita").unwrap();
     buffer.set_style_scheme(Some(&scheme));
     buffer.set_highlight_syntax(true);
-
     let provider = CssProvider::new();
     provider.load_from_data(b"textview { font-family: \"Ubuntu Mono\"; font-size: 13pt; }");
     let ctx = view.style_context();
     ctx.add_provider(&provider, 800);
-
     let lang_manager = sourceview5::LanguageManager::default().unwrap();
     let lang = lang_manager.language("sql").unwrap();
     buffer.set_language(Some(&lang));
     connect_source_key_press(&view);
-    let buffer = view.buffer();
-    buffer.connect_changed(move |_buf| {
-        // file_list.mark_current_unsaved();
-        // mark_current_unsaved();
-    });
     view.set_tab_width(4);
     view.set_indent_width(4);
     view.set_auto_indent(true);
     view.set_insert_spaces_instead_of_tabs(true);
-    // view.set_right_margin(80);
     view.set_highlight_current_line(false);
     view.set_indent_on_tab(true);
     view.set_show_line_marks(true);
+    view.set_enable_snippets(true);
+
     // view.set_right_margin_position(80);
     // view.set_show_right_margin(false);
+
+    // https://developer-old.gnome.org/gtksourceview/unstable/GtkSourceCompletion.html
+
+    // completioncell accepts an arbitrary widget via the builder::widget.
+    // let cell = sourceview5::CompletionCell::builder().text("select").paintable(&IconPaintable::builder().icon_name("queries-symbolic").build()).build();
+
+    // let activation = sourceview5::CompletionActivation::Interactive; //UserRequested
+    // let ctx = sourceview5::CompletionContext::builder().build();
+
+    // Completion is an object associated with each View. Each completion has zero, one or
+    // more completion providers. The providers encapsulate the actual logic of how completions
+    // are offered. Two examples of providers are CompletionWords and CompletionSnippets.
+
+    // completion.set_select_on_show(true);
+    // completion.set_remember_info_visibility(true);
+    // completion.set_show_icons(true);
+    // completion.unblock_interactive();
+    // completion.set_show_icons(true);
+
+    // Seems to be working, but only when you click on the the word
+    // and **then** press CTRL+Space (simply pressing CTRL+space does not work).
+    let completion = view.completion().unwrap();
+    let words = sourceview5::CompletionWords::new(Some("main"));
+    words.register(&view.buffer());
+    completion.add_provider(&words);
+
+    /*words.populate_async(&ctx, None::<&gio::Cancellable>, |res_list| {
+        if let Ok(list) = res_list {
+            println!("{}", list.n_items());
+        } else {
+            // panic!()
+        }
+    });*/
+    /*let snippets = sourceview5::CompletionSnippets::new();
+    snippets.set_title(Some("snippets provider"));
+    snippets.populate_async(&ctx, None::<&gio::Cancellable>, |res_list| {
+        if let Ok(list) = res_list {
+            println!("{}", list.n_items());
+        } else {
+            // panic!()
+        }
+    });
+    completion.add_provider(&snippets);*/
+    // proposal
+    // words.display(&ctx, &proposal, &cell);
+    //let new_buffer = TextBuffer::new(None);
+    //new_buffer.set_text("select\ninsert\n");
+    //words.register(&new_buffer);
+    // ctx.set_activation(activation);
+    // let list = gio::ListStore::new(glib::Type::STRING);
+    // list.insert(0, &"select".to_value());
+    // list.insert(0);
+    // list.append(&gio::glib::GString::from("select"));
+    // list.append(&cell);
+    // list.insert(0, &"select".to_value());
+    // list.append(&glib::GString::from("select"));
+    // list.append(&gtk4::glib::GString::from("select"));
+    // let proposal = Completion
+    // list.append(&proposal.upcast());
+    // let words_list = gio::ListStore::new(glib::Type::OBJECT);
+    // ctx.set_proposals_for_provider(&words, Some(&words_list));
+    // let snippets_list = gio::ListStore::new(glib::Type::OBJECT);
+    // ctx.set_proposals_for_provider(&snippets, Some(&snippets_list));
+    // ctx.bounds() -> Gets a pair of TextIters that represent the current completion region.
+    // ctx.word() -> Gets the word that is being completed.
+    // .build();    /*
+    // let provider = CompletionProvider::new();
+    /*let compl = sourceview5::Completion::builder()
+        .show_icons(true)
+        .build();
+    compl.add_provider(&provider);
+    view.set_completion(compl);*/
+    /*view.connect_show_completion(move|view| {
+        println!("Completion requested");
+    });
+    view.connect_completion_notify(move|view| {
+        println!("Completion notified");
+    });*/
+
     view.set_show_line_numbers(false);
 }
 
-fn connect_source_key_press(view : &View) {
+fn connect_source_key_press(_view : &View) {
 
     // EventControllerKey::new().connect_key_pressed(|ev, key, code, modifier| {
     //    Inhibit(false)
@@ -354,4 +554,44 @@ fn connect_source_key_press(view : &View) {
     });*/
 }
 
+#[derive(Debug, Clone)]
+pub struct ExportDialog {
+    pub dialog : FileChooserDialog
+}
 
+impl ExportDialog {
+
+    pub fn build() -> Self {
+        let dialog = FileChooserDialog::new(
+            Some("Export"),
+            None::<&Window>,
+            FileChooserAction::Save,
+            &[("Cancel", ResponseType::None), ("Save", ResponseType::Accept)]
+        );
+        dialog.connect_response(move |dialog, resp| {
+            match resp {
+                ResponseType::Close | ResponseType::Reject | ResponseType::Accept |
+                ResponseType::Yes | ResponseType::No | ResponseType::None => {
+                    dialog.close();
+                },
+                _ => { }
+            }
+        });
+        // let filter = FileFilter::new();
+        // filter.add_pattern("*.sql");
+        // dialog.set_filter(&filter);
+        Self { dialog }
+    }
+
+}
+
+impl React<MainMenu> for ExportDialog {
+
+    fn react(&self, menu : &MainMenu) {
+        let dialog = self.dialog.clone();
+        menu.action_export.connect_activate(move |_,_| {
+            dialog.show();
+        });
+    }
+
+}
