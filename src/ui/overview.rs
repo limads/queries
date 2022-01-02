@@ -46,6 +46,20 @@ impl QueriesOverview {
         bx.set_halign(Align::Center);
         bx.set_valign(Align::Center);
 
+        /*conn_bx.switch.connect_activate({
+            let add_btn = conn_list.add_btn.clone();
+            let remove_btn = conn_list.remove_btn.clone();
+            move |switch| {
+                if switch.is_active() {
+                    add_btn.set_sensitive(false);
+                    remove_btn.set_sensitive(false);
+                } else {
+                    add_btn.set_sensitive(true);
+                    remove_btn.set_sensitive(true);
+                }
+            }
+        });*/
+
         Self { conn_list, conn_bx, detail_bx, bx }
     }
 
@@ -123,7 +137,7 @@ impl ConnectionRow {
 
     fn build() -> Self {
         // Change to "network-server-symbolic" when connected
-        let host = PackedImageLabel::build("gnome-netstatus-tx", "Host");
+        let host = PackedImageLabel::build("preferences-system-network-proxy-symbolic", "Host");
         let db = PackedImageLabel::build("db-symbolic", "Database");
         let user = PackedImageLabel::build("avatar-default-symbolic", "User");
         let bx = Box::new(Orientation::Vertical, 0);
@@ -159,6 +173,7 @@ impl ConnectionList {
 
     pub fn build() -> Self {
         let list = ListBox::builder().valign(Align::Fill).vexpand(true).vexpand_set(true).build();
+        // list.style_context().add_class("boxed-list");
         list.set_valign(Align::Fill);
         list.set_selection_mode(SelectionMode::Single);
         // list.set_activate_on_single_click(true);
@@ -177,35 +192,30 @@ impl ConnectionList {
         list.set_show_separators(true);
         scroll.set_margin_bottom(36);
 
-        let add_btn = Button::builder()
-            .icon_name("list-add-symbolic")
-            //.label("Add")
-            .halign(Align::Fill).hexpand(true).build();
-        // let local_btn = Button::builder().icon_name("folder-symbolic")
-        //    .halign(Align::Fill).hexpand(true).build();
-        let remove_btn = Button::builder()
-            // .label("Remove")
-            .icon_name("list-remove-symbolic")
-            .halign(Align::Fill).hexpand(true).build();
-        let btn_bx = Box::new(Orientation::Horizontal, 0);
-        btn_bx.append(&remove_btn);
-        // btn_bx.append(&local_btn);
-        btn_bx.append(&add_btn);
-        btn_bx.set_valign(Align::End);
-        btn_bx.set_halign(Align::Fill);
-        btn_bx.style_context().add_class("linked");
+        let btn_bx = super::ButtonPairBox::build("list-remove-symbolic", "list-add-symbolic");
+        let add_btn = btn_bx.right_btn.clone();
+        let remove_btn = btn_bx.left_btn.clone();
+
+        btn_bx.bx.set_valign(Align::End);
+        btn_bx.bx.set_halign(Align::Fill);
+        // btn_bx.style_context().add_class("linked");
 
         // super::set_margins(&btn_bx, 0, 36);
         scroll.set_child(Some(&list));
 
         let title = super::title_label("Connections");
         let bx = Box::new(Orientation::Vertical, 0);
-        bx.append(&title);
-        bx.append(&scroll);
-        bx.append(&btn_bx);
-        bx.set_margin_end(72);
 
-        // super::set_margins(&bx, 36, 36);
+        // bx.append(&title);
+        let title_bx = Box::new(Orientation::Horizontal, 0);
+        title_bx.append(&title);
+        title_bx.append(&btn_bx.bx);
+        btn_bx.bx.set_halign(Align::End);
+        bx.append(&title_bx);
+        bx.append(&scroll);
+
+        // bx.append(&btn_bx);
+        bx.set_margin_end(72);
 
         let conn_list = Self { list, scroll, add_btn, /*local_btn,*/ remove_btn, bx };
         conn_list.update();
@@ -253,6 +263,15 @@ impl React<ConnectionSet> for ConnectionList {
                 list.select_row(Some(&list.row_at_index((list.observe_children().n_items()-1) as i32).unwrap()));
             }
         });
+
+        // Row index here is not set yet.
+        /*conns.connect_updated({
+            let list = self.list.clone();
+            move |(ix, info)| {
+                let conn_row = ConnectionRow::extract(&list.row_at_index(ix).unwrap()).unwrap();
+                conn_row.user.lbl.set_text(&format!("{}\t\t\t\t{}", info.user, info.dt));
+            }
+        });*/
         conns.connect_removed({
             let list = self.list.clone();
             move |ix| {
@@ -267,15 +286,23 @@ impl React<ActiveConnection> for ConnectionList {
 
     fn react(&self, conn : &ActiveConnection) {
         let (add_btn, remove_btn) = (self.add_btn.clone(), self.remove_btn.clone());
+        let list = self.list.clone();
         conn.connect_db_connected(move |_| {
             add_btn.set_sensitive(false);
             remove_btn.set_sensitive(false);
+            list.set_sensitive(false);
+            println!("Sensitive false");
+
+            // TODO add connection to settings
         });
 
         let (add_btn, remove_btn) = (self.add_btn.clone(), self.remove_btn.clone());
+        let list = self.list.clone();
         conn.connect_db_disconnected(move |_| {
             add_btn.set_sensitive(true);
             remove_btn.set_sensitive(true);
+            list.set_sensitive(true);
+            println!("Sensitive true");
         });
     }
 
@@ -361,7 +388,7 @@ impl ConnectionBox {
 
     // pub fn on_connected(f : Fn)
     pub fn build() -> Self {
-        let host = PackedImageEntry::build("network-server-symbolic", "Host");
+        let host = PackedImageEntry::build("preferences-system-network-proxy-symbolic", "Host");
         let db = PackedImageEntry::build("db-symbolic", "Database");
         let cred_bx = Box::new(Orientation::Horizontal, 0);
         let user = PackedImageEntry::build("avatar-default-symbolic", "User");
@@ -492,7 +519,7 @@ impl React<ActiveConnection> for ConnectionBox {
 
     fn react(&self, conn : &ActiveConnection) {
         let switch = self.switch.clone();
-        conn.connect_db_error(move |_| {
+        conn.connect_db_conn_failure(move |_| {
             disconnect_with_delay(switch.clone());
         });
     }

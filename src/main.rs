@@ -65,128 +65,141 @@ fn main() {
     let style_manager = libadwaita::StyleManager::default().unwrap();
     style_manager.set_color_scheme(libadwaita::ColorScheme::Default);
 
-    application.connect_activate(move |app| {
-        let display = &gdk::Display::default()
-            .expect("Could not get default Display");
-        let theme = IconTheme::for_display(display)
-            .expect("Could not get IconTheme");
-        theme.add_search_path("/home/diego/Software/queries/assets/icons");
-        let window = ApplicationWindow::builder()
-            .application(app)
-            .title("Queries")
-            .default_width(1024)
-            .default_height(768)
-            .build();
-        let queries_win = QueriesWindow::from(window);
+    let user_state = if let Some(s) = SharedUserState::open(queries4::SETTINGS_PATH) {
+        s
+    } else {
+        Default::default()
+    };
 
-        /*queries_win.content.overview.conn_list.connect_changed({
-            move |action| {
-                match action {
-                    ConnectionAction::Switch(sel) => {
-                        match sel {
-                            Some(row_ix) => {
-                                // rows.iter().for_each(|row| row.stack.set_visible_child_name("closed") );
-                                // rows[row_ix as usize].stack.set_visible_child_name("open")
-                            },
-                            None => {
-                                // rows.iter().for_each(|row| row.stack.set_visible_child_name("closed") )
-                            }
-                        }
-                    },
-                    ConnectionAction::Add => {
-                        // let n = conn_list.observe_children().n_items();
-                        // let new_row = connection_row();
-                        // conn_list.insert(&new_row.row, (n-1) as i32);
-                        // rows.push(new_row);
-                    }
-                }
+    application.connect_activate({
+        let user_state = user_state.clone();
+        move |app| {
+            let display = &gdk::Display::default()
+                .expect("Could not get default Display");
+            let theme = IconTheme::for_display(display)
+                .expect("Could not get IconTheme");
+
+            // GTK4 widgets seem to be able to load them from the icon root. But the libadwaita
+            // widgets expect them to be under icons/hicolor/scalable/actions.
+            theme.add_search_path("/home/diego/Software/queries/assets/icons");
+            let window = ApplicationWindow::builder()
+                .application(app)
+                .title("Queries")
+                .default_width(1024)
+                .default_height(768)
+                .build();
+            let queries_win = QueriesWindow::from(window);
+
+            {
+                let state = user_state.borrow();
+                queries_win.paned.set_position(state.main_handle_pos);
+                queries_win.sidebar.paned.set_position(state.side_handle_pos);
+                queries_win.window.set_default_size(state.window_width, state.window_height);
             }
-        });*/
 
-        let client = QueriesClient::new();
+            let client = QueriesClient::new();
+            client.update(&user_state);
+            // user_state.react(&client.active_conn);
+            user_state.react(&client.conn_set);
+            user_state.react(&client.scripts);
+            user_state.react(&queries_win);
 
-        // TODO perhaps wrap all the data state into a QueriesClient struct.
-        client.conn_set.react(&queries_win.content.results.overview.conn_list);
-        queries_win.content.results.overview.detail_bx.react(&client.conn_set);
-        queries_win.content.results.overview.conn_bx.react(&client.conn_set);
-        queries_win.content.results.overview.conn_list.react(&client.conn_set);
+            // TODO perhaps wrap all the data state into a QueriesClient struct.
+            client.conn_set.react(&queries_win.content.results.overview.conn_list);
+            client.conn_set.react(&client.active_conn);
+            queries_win.content.results.overview.detail_bx.react(&client.conn_set);
+            queries_win.content.results.overview.conn_bx.react(&client.conn_set);
+            queries_win.content.results.overview.conn_list.react(&client.conn_set);
 
-        // let queries_win_c = queries_win.clone();
-        // queries_win.titlebar.sidebar_toggle.connect_toggled(move|_|{
-        //    queries_win_c.overlay.add_toast(&libadwaita::Toast::builder().title("This is a toast").build());
-        // });
+            queries_win.content.results.overview.conn_list.react(&client.active_conn);
 
-        queries_win.content.react(&client.active_conn);
-        queries_win.content.results.overview.conn_bx.react(&client.active_conn);
-        client.active_conn.react(&queries_win.content.results.overview.conn_bx);
-        queries_win.sidebar.schema_tree.react(&client.active_conn);
-        client.active_conn.react(&queries_win.titlebar.exec_btn);
+            queries_win.content.react(&client.active_conn);
+            queries_win.content.results.overview.conn_bx.react(&client.active_conn);
+            client.active_conn.react(&queries_win.content.results.overview.conn_bx);
+            queries_win.sidebar.schema_tree.react(&client.active_conn);
+            client.active_conn.react(&queries_win.titlebar.exec_btn);
 
-        client.env.react(&client.active_conn);
-        queries_win.content.results.workspace.react(&client.env);
-        queries_win.content.results.react(&client.env);
+            client.env.react(&client.active_conn);
+            queries_win.content.results.workspace.react(&client.env);
 
-        client.scripts.react(&queries_win.content.editor.save_dialog);
-        client.scripts.react(&queries_win.content.editor.open_dialog);
-        client.scripts.react(&queries_win.titlebar.main_menu);
-        client.scripts.react(&queries_win.content.editor.script_list);
-        queries_win.sidebar.file_list.react(&client.scripts);
-        queries_win.content.editor.react(&client.scripts);
-        queries_win.content.react(&client.scripts);
-        client.scripts.react(&queries_win.sidebar.file_list);
-        client.scripts.react(&queries_win.content.editor);
-        queries_win.titlebar.exec_btn.react(&client.scripts);
-        queries_win.content.react(&client.env);
-        client.scripts.react(&queries_win);
+            client.scripts.react(&queries_win.content.editor.save_dialog);
+            client.scripts.react(&queries_win.content.editor.open_dialog);
+            client.scripts.react(&queries_win.titlebar.main_menu);
+            client.scripts.react(&queries_win.content.editor.script_list);
+            queries_win.sidebar.file_list.react(&client.scripts);
+            queries_win.content.editor.react(&client.scripts);
+            queries_win.content.react(&client.scripts);
+            client.scripts.react(&queries_win.sidebar.file_list);
+            client.scripts.react(&queries_win.content.editor);
+            queries_win.titlebar.exec_btn.react(&client.scripts);
+            queries_win.titlebar.exec_btn.react(&client.active_conn);
+            queries_win.titlebar.exec_btn.react(&queries_win.content);
+            queries_win.content.react(&client.env);
+            client.scripts.react(&queries_win);
+            client.env.react(&queries_win.content.results.workspace);
+            client.env.react(&queries_win.content.editor.export_dialog);
 
-        queries_win.content.editor.save_dialog.react(&client.scripts);
-        queries_win.content.editor.save_dialog.react(&queries_win.titlebar.main_menu);
+            client.env.react(&queries_win.settings);
+            queries_win.content.editor.save_dialog.react(&client.scripts);
+            queries_win.content.editor.save_dialog.react(&queries_win.titlebar.main_menu);
 
-        queries_win.react(&queries_win.titlebar);
-        queries_win.react(&client.scripts);
-        queries_win.window.show();
+            queries_win.react(&queries_win.titlebar);
+            queries_win.react(&client.scripts);
 
-        // connections.react(queries_win.content.overview.conn_list.receiver());
+            {
+                // Only add scripts and connections after all signals have been setup,
+                // to guarantee the GUI will update.
+                let state = user_state.borrow();
+                client.conn_set.add(&state.conns);
+                client.scripts.add(&state.scripts);
+            }
 
-        // rows.push(connection_row());
-        // rows.push(connection_row());
-        // conn_list.append(&rows[0].row);
-        // conn_list.append(&rows[1].row);
+            queries_win.window.show();
 
-        // overview_bx.set_margin_start(100);
-        // overview_bx.set_margin_end(100);
+            // connections.react(queries_win.content.overview.conn_list.receiver());
 
-        /*let conn_lbl = Label::new(Some("<span font_weight=\"semibold\" fgcolor=\"#3d3d3d\">Connections</span>"));
-        conn_lbl.set_justify(Justification::Left);
-        conn_lbl.set_halign(Align::Start);
-        conn_lbl.set_use_markup(true);
-        set_margins(&conn_lbl, 0, 18);
+            // rows.push(connection_row());
+            // rows.push(connection_row());
+            // conn_list.append(&rows[0].row);
+            // conn_list.append(&rows[1].row);
 
-        overview_bx.append(&conn_lbl);*/
+            // overview_bx.set_margin_start(100);
+            // overview_bx.set_margin_end(100);
 
-        /*let script_lbl = Label::new(Some("<span font_weight=\"semibold\" fgcolor=\"#3d3d3d\">Scripts</span>"));
-        script_lbl.set_justify(Justification::Left);
-        script_lbl.set_use_markup(true);
-        script_lbl.set_halign(Align::Start);
-        let script_list = ListBox::new();
-        overview_bx.append(&script_lbl);
-        overview_bx.append(&script_list);
-        set_margins(&script_lbl, 0, 18);*/
+            /*let conn_lbl = Label::new(Some("<span font_weight=\"semibold\" fgcolor=\"#3d3d3d\">Connections</span>"));
+            conn_lbl.set_justify(Justification::Left);
+            conn_lbl.set_halign(Align::Start);
+            conn_lbl.set_use_markup(true);
+            set_margins(&conn_lbl, 0, 18);
 
-        /*let action_quit = SimpleAction::new("quit", None);
-        action_quit.connect_activate(clone!(@weak window => move |_, _| {
-            window.close();
-        }));
-        window.add_action(&action_quit);
-        app.set_accels_for_action("win.quit", &["<primary>W"]);*/
-        /*let button = Button::builder()
-            .label("Press me!")
-            .action_name("win.count")
-            .action_target(&1.to_variant())
-            .build();*/
+            overview_bx.append(&conn_lbl);*/
+
+            /*let script_lbl = Label::new(Some("<span font_weight=\"semibold\" fgcolor=\"#3d3d3d\">Scripts</span>"));
+            script_lbl.set_justify(Justification::Left);
+            script_lbl.set_use_markup(true);
+            script_lbl.set_halign(Align::Start);
+            let script_list = ListBox::new();
+            overview_bx.append(&script_lbl);
+            overview_bx.append(&script_list);
+            set_margins(&script_lbl, 0, 18);*/
+
+            /*let action_quit = SimpleAction::new("quit", None);
+            action_quit.connect_activate(clone!(@weak window => move |_, _| {
+                window.close();
+            }));
+            window.add_action(&action_quit);
+            app.set_accels_for_action("win.quit", &["<primary>W"]);*/
+            /*let button = Button::builder()
+                .label("Press me!")
+                .action_name("win.count")
+                .action_target(&1.to_variant())
+                .build();*/
+        }
     });
 
     application.run();
+
+    user_state.save(queries4::SETTINGS_PATH);
 }
 
 // println!("File search path = {:?}", theme.search_path());

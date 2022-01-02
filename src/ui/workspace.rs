@@ -6,6 +6,7 @@ use libadwaita;
 use super::table::*;
 use crate::tables::table::Table;
 use crate::ui::PlotView;
+use plots::Panel;
 
 #[derive(Debug, Clone)]
 pub struct QueriesWorkspace {
@@ -56,11 +57,11 @@ impl React<Environment> for QueriesWorkspace {
             for tbl in tables.iter() {
 
                 if let Some(val) = tbl.single_json_field() {
-                    match PlotView::new_from_json(&val.to_string()) {
-                        Ok(view) => {
+                    match Panel::new_from_json(&val.to_string()) {
+                        Ok(panel) => {
+                            let view = PlotView::new_from_panel(panel.clone());
                             let tab_page = tab_view.append(&view.parent).unwrap();
-                            tab_page.set_icon(Some(&gio::ThemedIcon::new("folder-templates-symbolic")));
-                            tab_page.set_title("Plot");
+                            configure_plot_page(&tab_page, &panel);
                             continue;
                         },
                         _ => { }
@@ -76,12 +77,17 @@ impl React<Environment> for QueriesWorkspace {
 
 }
 
+fn configure_plot_page(tab_page : &libadwaita::TabPage, panel : &Panel) {
+    tab_page.set_icon(Some(&gio::ThemedIcon::new("folder-templates-symbolic")));
+    tab_page.set_title("Plot");
+}
+
 fn configure_table_page(tab_page : &libadwaita::TabPage, table : &Table) {
     let source = table.source();
     let (icon, mut title) = match (source.name, source.relation) {
         (Some(name), Some(rel)) => (format!("{}", rel), name.to_string()),
-        (Some(name), None) => (format!("queries-symbolic"), name.to_string()),
-        _ => (format!("queries-symbolic"), format!("Unknown"))
+        (Some(name), None) => (format!("queries"), name.to_string()),
+        _ => (format!("queries"), format!("Unknown"))
     };
     let (nrows, ncols) = table.shape();
     title += &format!(" ({} x {})", nrows - 1, ncols);

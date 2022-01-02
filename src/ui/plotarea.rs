@@ -152,10 +152,7 @@ impl PlotView {
         self.parent.queue_draw();
     }
 
-    pub fn new_from_json(json : &str) -> Result<Self, String> {
-        let mut panel = Panel::new_from_json(json)?;
-        // let layout_path = String::new();
-        // let active_area = 0;
+    pub fn new_from_panel(mut panel : Panel) -> Self {
         let parent = gtk4::DrawingArea::new();
         parent.set_draw_func(move |da, ctx, _, _| {
             let allocation = da.allocation();
@@ -163,9 +160,12 @@ impl PlotView {
             let h = allocation.height;
             panel.draw_to_context(&ctx, 0, 0, w, h);
         });
-        let plot_view = Self { /*plot_group, layout_path, active_area,*/ parent };
-        // connect_draw(&plot_view);
-        Ok(plot_view)
+        Self { parent }
+    }
+
+    pub fn new_from_json(json : &str) -> Result<Self, String> {
+        let mut panel = Panel::new_from_json(json)?;
+        Ok(Self::new_from_panel(panel))
     }
 
     /*/* Starts a new PlotView with an enclosed DrawingArea */

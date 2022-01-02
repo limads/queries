@@ -15,12 +15,17 @@ use notify::{self, Watcher};
 use std::sync::mpsc;
 use std::time::Duration;
 use std::thread::JoinHandle;
+use serde::{Serialize, Deserialize};
+use chrono::prelude::*;
+use crate::ui::PackedImageLabel;
 
 pub enum ScriptAction {
 
     OpenRequest(String),
 
     OpenSuccess(OpenedFile),
+
+    Add(OpenedFile),
 
     OpenError(String),
 
@@ -53,7 +58,7 @@ pub enum ScriptAction {
 
 pub struct OpenedScripts {
 
-    send : glib::Sender<ScriptAction>,
+    pub(super) send : glib::Sender<ScriptAction>,
 
     on_open : Callbacks<OpenedFile>,
 
@@ -63,9 +68,9 @@ pub struct OpenedScripts {
 
     on_save_unknown_path : Callbacks<String>,
 
-    on_file_changed : Callbacks<usize>,
+    on_file_changed : Callbacks<OpenedFile>,
 
-    on_file_persisted : Callbacks<usize>,
+    on_file_persisted : Callbacks<OpenedFile>,
 
     on_active_text_changed : Callbacks<Option<String>>,
 
@@ -81,7 +86,9 @@ pub struct OpenedScripts {
 
     on_selected : Callbacks<Option<OpenedFile>>,
 
-    on_name_changed : Callbacks<(usize, String)>
+    on_name_changed : Callbacks<(usize, String)>,
+
+    on_added : Callbacks<OpenedFile>
 
 }
 
@@ -89,13 +96,19 @@ const MAX_FILE_SIZE : usize = 5_000_000;
 
 impl OpenedScripts {
 
+    pub fn add(&self, files : &[OpenedFile]) {
+        for f in files.iter() {
+            self.send.send(ScriptAction::Add(f.clone()));
+        }
+    }
+
     pub fn new() -> Self {
         let (send, recv) = glib::MainContext::channel::<ScriptAction>(glib::PRIORITY_DEFAULT);
         let on_open : Callbacks<OpenedFile> = Default::default();
         let on_new : Callbacks<OpenedFile> = Default::default();
         let on_save : Callbacks<OpenedFile> = Default::default();
-        let on_file_changed : Callbacks<usize> = Default::default();
-        let on_file_persisted : Callbacks<usize> = Default::default();
+        let on_file_changed : Callbacks<OpenedFile> = Default::default();
+        let on_file_persisted : Callbacks<OpenedFile> = Default::default();
         let on_selected : Callbacks<Option<OpenedFile>> = Default::default();
         let on_file_closed : Callbacks<(usize, usize)> = Default::default();
         let on_active_text_changed : Callbacks<Option<String>> = Default::default();
@@ -105,8 +118,11 @@ impl OpenedScripts {
         let on_buffer_read_request : ValuedCallbacks<usize, String> = Default::default();
         let on_name_changed : Callbacks<(usize, String)> = Default::default();
         let on_open_error : Callbacks<String> = Default::default();
+        let on_added : Callbacks<OpenedFile> = Default::default();
         let mut files : Vec<OpenedFile> = Vec::new();
+        let mut recent_files : Vec<OpenedFile> = Vec::new();
         let mut selected : Option<usize> = None;
+
         let mut win_close_request = false;
         recv.attach(None, {
             let send = send.clone();
@@ -126,6 +142,7 @@ impl OpenedScripts {
                 on_buffer_read_request.clone(),
                 on_save_unknown_path.clone()
             );
+            let on_added = on_added.clone();
             let on_name_changed = on_name_changed.clone();
             let on_open_error = on_open_error.clone();
             let mut file_open_handle : Option<JoinHandle<()>> = None;
@@ -149,11 +166,16 @@ impl OpenedScripts {
                             name : format!("Untitled {}.sql", n_untitled + 1),
                             saved : true,
                             content : None,
-                            index : files.len()
+                            index : files.len(),
+                            dt : Local::now().to_string()
                         };
                         files.push(new_file.clone());
                         // println!("{:?}", files);
                         on_new.borrow().iter().for_each(|f| f(new_file.clone()) );
+                    },
+                    ScriptAction::Add(file) => {
+                        recent_files.push(file.clone());
+                        on_added.borrow().iter().for_each(|f| f(file.clone()) );
                     },
                     ScriptAction::OpenRequest(path) => {
                         if files.len() == 16 {
@@ -161,6 +183,7 @@ impl OpenedScripts {
                             return Continue(true);
                         }
 
+                        println!("{:?}", files);
                         if files.iter().find(|f| f.path.as_ref().map(|p| &p[..] == &path[..] ).unwrap_or(false) ).is_some() {
                             send.send(ScriptAction::OpenError(format!("File already opened"))).unwrap();
                             return Continue(true);
@@ -195,7 +218,8 @@ impl OpenedScripts {
                                             name : path.clone(),
                                             saved : true,
                                             content : Some(content),
-                                            index : n_files
+                                            index : n_files,
+                                            dt : Local::now().to_string()
                                         };
                                         send.send(ScriptAction::OpenSuccess(new_file)).unwrap();
                                     },
@@ -254,6 +278,10 @@ impl OpenedScripts {
                             files[ix].name = path.clone();
                             files[ix].path = Some(path.clone());
                             on_name_changed.borrow().iter().for_each(|f| f((ix, path.clone())) );
+
+                            if recent_files.iter().find(|f| &f.path.as_ref().unwrap()[..] == &path[..] ).is_none() {
+                                recent_files.push(files[ix].clone());
+                            }
                         }
                         send.send(ScriptAction::SetSaved(ix, true));
                     },
@@ -269,9 +297,9 @@ impl OpenedScripts {
 
                         files[ix].saved = saved;
                         if saved {
-                            on_file_persisted.borrow().iter().for_each(|f| f(ix) );
+                            on_file_persisted.borrow().iter().for_each(|f| f(files[ix].clone()) );
                         } else {
-                            on_file_changed.borrow().iter().for_each(|f| f(ix) );
+                            on_file_changed.borrow().iter().for_each(|f| f(files[ix].clone()) );
                         }
                     },
                     ScriptAction::OpenSuccess(file) => {
@@ -279,6 +307,10 @@ impl OpenedScripts {
                         println!("Files after opening = {:?}", files);
                         on_open.borrow().iter().for_each(|f| f(file.clone()) );
                         send.send(ScriptAction::SetSaved(file.index, true));
+
+                        if recent_files.iter().find(|f| &f.path.as_ref().unwrap()[..] == &file.path.as_ref().unwrap()[..] ).is_none() {
+                            recent_files.push(file.clone());
+                        }
                     },
                     ScriptAction::OpenError(msg) => {
                         on_open_error.borrow().iter().for_each(|f| f(msg.clone()) );
@@ -338,7 +370,8 @@ impl OpenedScripts {
             on_buffer_read_request,
             on_save_unknown_path,
             on_name_changed,
-            on_open_error
+            on_open_error,
+            on_added
         }
     }
 
@@ -347,6 +380,13 @@ impl OpenedScripts {
         F : Fn(OpenedFile) + 'static
     {
         self.on_new.borrow_mut().push(boxed::Box::new(f));
+    }
+
+    pub fn connect_added<F>(&self, f : F)
+    where
+        F : Fn(OpenedFile) + 'static
+    {
+        self.on_added.borrow_mut().push(boxed::Box::new(f));
     }
 
     pub fn connect_selected<F>(&self, f : F)
@@ -379,14 +419,14 @@ impl OpenedScripts {
 
     pub fn connect_file_changed<F>(&self, f : F)
     where
-        F : Fn(usize) + 'static
+        F : Fn(OpenedFile) + 'static
     {
         self.on_file_changed.borrow_mut().push(boxed::Box::new(f));
     }
 
     pub fn connect_file_persisted<F>(&self, f : F)
     where
-        F : Fn(usize) + 'static
+        F : Fn(OpenedFile) + 'static
     {
         self.on_file_persisted.borrow_mut().push(boxed::Box::new(f));
     }
@@ -490,12 +530,13 @@ fn spawn_save_file(path : String, index : usize, content : String, send : glib::
     })
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenedFile {
     pub name : String,
     pub path : Option<String>,
     pub content : Option<String>,
     pub saved : bool,
+    pub dt : String,
     pub index : usize
 }
 
@@ -625,6 +666,16 @@ impl React<QueriesEditor> for OpenedScripts {
                 } else {
                     panic!("Action does not have parameter");
                 }
+            }
+        });
+        editor.script_list.list.connect_row_activated({
+            let send = self.send.clone();
+            move |list, row| {
+                println!("Row activated");
+                let child = row.child().unwrap().downcast::<Box>().unwrap();
+                let lbl = PackedImageLabel::extract(&child).unwrap();
+                let path = lbl.lbl.text().as_str().to_string();
+                send.send(ScriptAction::OpenRequest(path)).unwrap();
             }
         });
     }

@@ -11,7 +11,8 @@ pub struct MainMenu {
     pub action_open : gio::SimpleAction,
     pub action_save : gio::SimpleAction,
     pub action_save_as : gio::SimpleAction,
-    pub action_export : gio::SimpleAction
+    pub action_export : gio::SimpleAction,
+    pub action_settings : gio::SimpleAction
 }
 
 impl MainMenu {
@@ -23,6 +24,7 @@ impl MainMenu {
         menu.append(Some("Save"), Some("win.save_file"));
         menu.append(Some("Save as"), Some("win.save_as_file"));
         menu.append(Some("Export"), Some("win.export"));
+        menu.append(Some("Settings"), Some("win.settings"));
         let popover = PopoverMenu::from_model(Some(&menu));
 
         let action_new = gio::SimpleAction::new("new_file", None);
@@ -30,11 +32,12 @@ impl MainMenu {
         let action_save = gio::SimpleAction::new("save_file", None);
         let action_save_as = gio::SimpleAction::new("save_as_file", None);
         let action_export = gio::SimpleAction::new("export", None);
+        let action_settings = gio::SimpleAction::new("settings", None);
         action_save.set_enabled(false);
         action_save_as.set_enabled(false);
         action_export.set_enabled(false);
 
-        Self { popover, action_new, action_open, action_save, action_save_as, action_export }
+        Self { popover, action_new, action_open, action_save, action_save_as, action_export, action_settings }
     }
 
 }
@@ -82,3 +85,124 @@ impl React<QueriesContent> for MainMenu {
         });
     }
 }
+
+/*
+save_img_dialog.connect_response(move |dialog, resp|{
+    match resp {
+        ResponseType::Other(1) => {
+            if let Some(path) = dialog.get_filename() {
+                if let Some(mut plots) = plots.upgrade() {
+                    if let Ok(mut pls) = plots.try_borrow_mut() {
+                        if let Some(p) = path.to_str() {
+                            if let Some(mut pl) = pls.selected_mut() {
+                                if let Err(e) = pl.plot_group.draw_to_file(p) {
+                                    println!("{}", e);
+                                }
+                            } else {
+                                println!("No plot currently selected");
+                            }
+                        } else {
+                            println!("Could not retrieve path as str");
+                        }
+                    } else {
+                        println!("Could not retrieve reference to pl_view when saving image");
+                    }
+                } else {
+                    println!("Unable to upgrade plots vector");
+                }
+            } else {
+                println!("Invalid path for image");
+            }
+        },
+        _ => { }
+    }
+});
+*/
+
+/*
+pub fn copy_table_from_csv(
+    path : String,
+    t_env : &mut TableEnvironment,
+    action : sql::copy::Copy
+) {
+    assert!(action.target == CopyTarget::From);
+    if let Ok(mut f) = File::open(&path) {
+        let mut txt = String::new();
+        if let Err(e) = f.read_to_string(&mut txt) {
+            println!("{}", e);
+            return;
+        }
+        match Table::new_from_text(txt) {
+            Ok(tbl) => {
+                let copy_ans = t_env.copy_to_database(
+                    tbl,
+                    &action.table[..],
+                    &action.cols[..],
+                    false,
+                    true
+                );
+                println!("{:?}", copy_ans);
+            },
+            Err(e) => {
+                println!("Error parsing table");
+            }
+        }
+    } else {
+        println!("Error opening file");
+    }
+}*/
+
+/*pub fn export_selected_table_to_csv(
+    save_tbl_dialog : FileChooserDialog,
+    tables_nb : TableNotebook,
+    tbl_env : Rc<RefCell<TableEnvironment>>
+) {
+    save_tbl_dialog.clone().connect_response(move |dialog, resp| {
+        match resp {
+            ResponseType::Other(1) => {
+                if let Some(path) = dialog.get_filename() {
+                    let ext = path.as_path()
+                        .extension()
+                        .map(|ext| ext.to_str().unwrap_or(""));
+                    if let Some(ext) = ext {
+                        if let Ok(mut t_env) = tbl_env.try_borrow_mut() {
+                            match ext {
+                                "db" | "sqlite" | "sqlite3" => {
+                                    t_env.try_backup(path);
+                                },
+                                _ => {
+                                    write_table_to_csv(&tables_nb, &mut t_env, &path);
+                                }
+                            }
+                        } else {
+                            println!("Unable to get reference to table environment");
+                        }
+                    } else {
+                        println!("Unknown extension");
+                    }
+                } else {
+                    println!("No filename available");
+                }
+            },
+            _ => { }
+        }
+    });
+}*/
+
+/*pub fn import_table_from_csv(tbl_env : &mut TableEnvironment>>) {
+    if let Ok(mut t_env) = tbl_env.try_borrow_mut() {
+        let should_create = create_check.get_active();
+        let should_convert = convert_check.get_active();
+        let copy_ans = t_env.copy_to_database(
+            idx,
+            &action.dst[..],
+            &action.cols[..],
+            false,
+            false
+        );
+        if let Err(e) = copy_ans {
+            println!("{}", e);
+        }
+    }
+}*/
+

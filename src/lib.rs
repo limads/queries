@@ -16,6 +16,10 @@ pub mod tables;
 
 pub mod command;
 
+pub mod report;
+
+pub const SETTINGS_PATH : &'static str = "/home/diego/.local/share/flatpak/app/com.github.limads.queries/user.json";
+
 pub type Callbacks<T> = Rc<RefCell<Vec<boxed::Box<dyn Fn(T) + 'static>>>>;
 
 pub type ValuedCallbacks<A, R> = Rc<RefCell<Vec<boxed::Box<dyn Fn(A)->R + 'static>>>>;

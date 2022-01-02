@@ -546,9 +546,15 @@ impl React<ActiveConnection> for SchemaTree {
 
     fn react(&self, conn : &ActiveConnection) {
         let schema_tree = self.clone();
-        conn.connect_db_connected(move |info : Option<DBInfo>| {
+        conn.connect_db_connected(move |(_, info)| {
             if let Some(info) = info {
                 schema_tree.repopulate(info.schema);
+            }
+        });
+        conn.connect_db_disconnected({
+            let schema_tree = self.clone();
+            move |_| {
+                schema_tree.clear();
             }
         });
     }

@@ -115,8 +115,8 @@ impl React<OpenedScripts> for FileList {
         });
         opened.connect_file_changed({
             let list = self.list.clone();
-            move |ix| {
-                let lbl = get_label_child(&list, ix);
+            move |file| {
+                let lbl = get_label_child(&list, file.index);
                 let txt = lbl.label();
                 if !txt.starts_with(ITALIC_SPAN_END) && !txt.ends_with(ITALIC_SPAN_END) {
                     lbl.set_label(&format!("{}{}{}", ITALIC_SPAN_START, txt, ITALIC_SPAN_END));
@@ -125,8 +125,8 @@ impl React<OpenedScripts> for FileList {
         });
         opened.connect_file_persisted({
             let list = self.list.clone();
-            move |ix| {
-                let lbl = get_label_child(&list, ix);
+            move |file| {
+                let lbl = get_label_child(&list, file.index);
                 let txt = lbl.label();
                 if txt.starts_with(ITALIC_SPAN_START) && txt.ends_with(ITALIC_SPAN_END) {
                     let n_chars = txt.as_str().chars().count();

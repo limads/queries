@@ -14,18 +14,30 @@ use std::fmt;
 use itertools::Itertools;
 use std::collections::HashMap;
 use crate::sql::object::*;
-use crate::Callbacks;
+use crate::{Callbacks, ValuedCallbacks};
 use crate::tables::table::Table;
 use crate::React;
 use crate::client::ActiveConnection;
 use std::boxed;
 use crate::tables::table::TableSettings;
 use crate::tables::table::Columns;
+use plots::Panel;
+use crate::ui::QueriesWorkspace;
+use std::io::Write;
+use std::thread;
+use crate::ui::ExportDialog;
+use crate::ui::QueriesSettings;
 
 // #[cfg(feature="arrowext")]
 // use datafusion::execution::context::ExecutionContext;
 // #[cfg(feature="arrowext")]
 // use datafusion::execution::physical_plan::csv::CsvReadOptions;
+
+#[derive(Debug, Clone)]
+pub enum ExportItem {
+    Table(Table),
+    Panel(Panel)
+}
 
 pub struct ExecutionError {
     pub msg : String,
@@ -38,7 +50,14 @@ pub enum EnvironmentAction {
 
     Clear,
 
-    Select
+    Select(Option<usize>),
+
+    /// Request to export the currently selected item to the path given as the argument.
+    ExportRequest(String),
+
+    ChangeTemplate(String),
+
+    ExportError(String)
 
 }
 
@@ -46,7 +65,9 @@ pub struct Environment {
 
     send : glib::Sender<EnvironmentAction>,
 
-    on_tbl_update : Callbacks<Vec<Table>>
+    on_tbl_update : Callbacks<Vec<Table>>,
+
+    on_export_error : Callbacks<String>
 
 }
 
@@ -55,9 +76,17 @@ impl Environment {
     pub fn new() -> Self {
         let (send, recv) = glib::MainContext::channel::<EnvironmentAction>(glib::PRIORITY_DEFAULT);
         let mut tables = Tables::new();
+        let mut plots = Plots::new();
         let on_tbl_update : Callbacks<Vec<Table>> = Default::default();
+        // Replace by on_export_success and on_export_error. Exporting thread is spanwed and
+        // result message is sent back to user.
+        let on_export_error : Callbacks<String> = Default::default();
+        let mut selected : Option<usize> = None;
+        let mut template_path : Option<String> = None;
         recv.attach(None, {
             let on_tbl_update = on_tbl_update.clone();
+            let on_export_error = on_export_error.clone();
+            let send = send.clone();
             move |action| {
                 match action {
                     EnvironmentAction::Update(results) => {
@@ -69,10 +98,45 @@ impl Environment {
                         }).next().is_some();
                         if !has_error {
                             tables.update_from_query_results(results);
-                            println!("Query resulted in {} tables", tables.tables.len());
+                            plots.update_from_tables(&tables.tables[..]);
                             if tables.tables.len() >= 1 {
                                 on_tbl_update.borrow().iter().for_each(|f| f(tables.tables.clone()) );
                             }
+                        }
+                    },
+                    EnvironmentAction::Select(opt_pos) => {
+                        selected = opt_pos;
+                    },
+                    EnvironmentAction::ExportRequest(path) => {
+                        let item = if let Some(ix) = selected {
+                            if let Some(plot_ix) = plots.ixs.iter().position(|i| *i == ix ) {
+                                Some(ExportItem::Panel(plots.panels[plot_ix].clone()))
+                            } else {
+                                Some(ExportItem::Table(tables.tables[ix].clone()))
+                            }
+                        } else {
+                            None
+                        };
+                        if let Some(item) = item {
+                            thread::spawn({
+                                let send = send.clone();
+                                let template_path = template_path.clone();
+                                move || {
+                                    if let Err(e) = export_to_path(item, Path::new(&path[..]), template_path) {
+                                        send.send(EnvironmentAction::ExportError(e));
+                                    }
+                                }
+                            });
+                        }
+                    },
+                    EnvironmentAction::ExportError(msg) => {
+                        on_export_error.borrow().iter().for_each(|f| f(msg.clone()) );
+                    },
+                    EnvironmentAction::ChangeTemplate(path) => {
+                        if !path.is_empty() {
+                            template_path = Some(path);
+                        } else {
+                            template_path = None;
                         }
                     },
                     _ => { }
@@ -80,7 +144,7 @@ impl Environment {
                 Continue(true)
             }
         });
-        Self { send, on_tbl_update }
+        Self { send, on_tbl_update, on_export_error }
     }
 
     pub fn connect_table_update<F>(&self, f : F)
@@ -88,6 +152,13 @@ impl Environment {
         F : Fn(Vec<Table>) + 'static
     {
         self.on_tbl_update.borrow_mut().push(boxed::Box::new(f));
+    }
+
+    pub fn connect_export_error<F>(&self, f : F)
+    where
+        F : Fn(String) + 'static
+    {
+        self.on_export_error.borrow_mut().push(boxed::Box::new(f));
     }
 
 }
@@ -101,6 +172,109 @@ impl React<ActiveConnection> for Environment {
         });
     }
 
+}
+
+impl React<QueriesWorkspace> for Environment {
+
+    fn react(&self, ws : &QueriesWorkspace) {
+        let send = self.send.clone();
+        ws.tab_view.connect_selected_page_notify(move|view| {
+            if view.selected_page().is_some() {
+                if let Some(pages) = view.pages() {
+                    send.send(EnvironmentAction::Select(Some(pages.selection().nth(0) as usize)));
+                }
+            } else {
+                send.send(EnvironmentAction::Select(None));
+            }
+        });
+    }
+
+}
+
+impl React<ExportDialog> for Environment {
+
+    fn react(&self, dialog : &ExportDialog) {
+        // If table, set default to csv. If plot, set default to svg.
+        /*self.connect_selected(move |path| {
+            let _ = dialog.set_file(&gio::File::for_path(path));
+            dialog.show();
+        });*/
+
+        let send = self.send.clone();
+        dialog.dialog.connect_response(move |dialog, resp| {
+            match resp {
+                ResponseType::Accept => {
+                    if let Some(path) = dialog.file().and_then(|f| f.path() ) {
+                        send.send(EnvironmentAction::ExportRequest(path.to_str().unwrap().to_string())).unwrap();
+                    }
+                },
+                _ => { }
+            }
+        });
+    }
+
+}
+
+impl React<QueriesSettings> for Environment {
+
+    fn react(&self, settings : &QueriesSettings) {
+        settings.report_bx.entry.connect_changed({
+            let send = self.send.clone();
+            move |entry| {
+                let txt = entry.text().as_str().to_string();
+                send.send(EnvironmentAction::ChangeTemplate(txt));
+            }
+        });
+    }
+
+}
+
+fn export_to_path(item : ExportItem, path : &Path, template_path : Option<String>) -> Result<(), String> {
+    let mut f = File::create(path).map_err(|e| format!("{}", e) )?;
+    let ext = path.extension().map(|ext| ext.to_str().unwrap_or("") );
+
+    // Verify if table is csv/fodt/html
+    // Verify if plot is svg/png
+    // Verify if format agrees with export item modality.
+
+    match item {
+        ExportItem::Table(mut tbl) => {
+            // let opt_fmt : Option<TableSettings> = None;
+            // tbl.update_format(fmt);
+
+            match ext {
+                Some("csv") => {
+                    let mut s = tbl.to_string();
+                    f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )
+                },
+                Some("fodt") => {
+                    let s = crate::report::ooxml::substitute_ooxml(&tbl, &read_template(template_path)?)
+                        .map_err(|e| format!("{}", e) )?;
+                    f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )
+                },
+                Some("html") => {
+                    let s = crate::report::html::substitute_html(&tbl, &read_template(template_path)?)
+                        .map_err(|e| format!("{}", e) )?;
+                    f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )
+                },
+                _ => Err(format!("Invalid extension"))
+            }
+        },
+        ExportItem::Panel(mut panel) => {
+            panel.draw_to_file(path.to_str().unwrap())
+        }
+    }
+}
+
+fn read_template(template_path : Option<String>) -> Result<String, String> {
+    if let Some(template) = template_path {
+        let mut s = String::new();
+        let mut f = File::open(&template).map_err(|e| format!("{}", e))?;
+        f.read_to_string(&mut s).map_err(|e| format!("{}", e))?;
+        Ok(s)
+    } else {
+        Err(format!("Missing template"))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -121,6 +295,48 @@ pub enum EnvironmentUpdate {
 
     /// External table added to environment (by loading CSV file or executing command)
     NewExternal
+
+}
+
+/// The plot JSON representation is still kept in the Tables::tables
+/// vector, it is just now shown. But the original plot content is kept
+/// here in case it is required to be exported.
+pub struct Plots {
+
+    panels : Vec<Panel>,
+
+    ixs : Vec<usize>
+
+}
+
+impl Plots {
+
+    pub fn clear(&mut self) {
+        self.panels.clear();
+        self.ixs.clear();
+    }
+
+    pub fn new() -> Self {
+        Self {
+            panels : Vec::new(),
+            ixs : Vec::new()
+        }
+    }
+
+    pub fn update_from_tables(&mut self, tables : &[Table]) {
+        self.clear();
+        for (ix, tbl) in tables.iter().enumerate() {
+            if let Some(val) = tbl.single_json_field() {
+                match Panel::new_from_json(&val.to_string()) {
+                    Ok(panel) => {
+                        self.ixs.push(ix);
+                        self.panels.push(panel);
+                    },
+                    _ => { }
+                }
+            }
+        }
+    }
 
 }
 
@@ -178,7 +394,10 @@ impl Tables {
     /// is no update; Returns the Ok(result) if there is update, potentially
     /// carrying the first error the database encountered. If the update is valid,
     /// return the update event that happened (Refresh or NewTables).
-    pub fn update_from_query_results(&mut self, results : Vec<StatementOutput>) -> Option<Result<EnvironmentUpdate, ExecutionError>> {
+    pub fn update_from_query_results(
+        &mut self,
+        results : Vec<StatementOutput>
+    ) -> Option<Result<EnvironmentUpdate, ExecutionError>> {
         self.tables.clear();
         self.queries.clear();
         self.exec_results.clear();

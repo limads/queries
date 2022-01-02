@@ -47,6 +47,10 @@ mod plotarea;
 
 pub use plotarea::*;
 
+mod settings;
+
+pub use settings::*;
+
 #[derive(Debug, Clone)]
 pub struct QueriesContent {
     pub stack : libadwaita::ViewStack,
@@ -93,28 +97,32 @@ impl QueriesResults {
 
 }
 
-impl React<Environment> for QueriesResults {
+impl React<Environment> for QueriesContent {
 
     fn react(&self, env : &Environment) {
-        let stack = self.stack.clone();
+        let content_stack = self.stack.clone();
+        let results_stack = self.results.stack.clone();
         env.connect_table_update(move |tables| {
-            stack.set_visible_child_name("tables");
+            content_stack.set_visible_child_name("results");
+            results_stack.set_visible_child_name("tables");
+        });
+        env.connect_export_error({
+            let overlay = self.overlay.clone();
+            move |msg| {
+                overlay.add_toast(&libadwaita::Toast::builder().title(&msg[..]).build());
+            }
         });
     }
 
 }
 
-impl React<ExecButton> for QueriesResults {
+/*impl React<ExecButton> for QueriesResults {
 
     fn react(&self, exec_btn : &ExecButton) {
-        let stack = self.stack.clone();
-        exec_btn.clear_action.connect_activate(move |_action, param| {
-            stack.set_visible_child_name("overview");
-            // TODO disable export action.
-        });
+
     }
 
-}
+}*/
 
 impl React<QueriesWorkspace> for QueriesContent {
 
@@ -212,6 +220,16 @@ impl React<ActiveConnection> for QueriesContent {
                 stack.set_visible_child_name("overview");
             }
         });
+        conn.connect_db_conn_failure({
+            let overlay = self.overlay.clone();
+            let results_page = self.results_page.clone();
+            let stack = self.results.stack.clone();
+            move |err : String| {
+                overlay.add_toast(&libadwaita::Toast::builder().title(&err).build());
+                results_page.set_icon_name(Some("db-symbolic"));
+                stack.set_visible_child_name("overview");
+            }
+        });
         conn.connect_exec_result({
             let overlay = self.overlay.clone();
             let results_page = self.results_page.clone();
@@ -237,7 +255,7 @@ impl React<ActiveConnection> for QueriesContent {
                             }
                         }).next().is_some();
                     if has_any_tbl {
-                        results_page.set_icon_name(Some("queries-symbolic"));
+                        results_page.set_icon_name(Some("queries"));
                     }
                 }
             }
@@ -263,20 +281,11 @@ impl React<FileList> for QueriesContent {
 impl React<ExecButton> for QueriesContent {
 
     fn react(&self, exec_btn : &ExecButton) {
-        let stack = self.stack.clone();
+        let stack = self.results.stack.clone();
+        let results_page = self.results_page.clone();
         exec_btn.clear_action.connect_activate(move |_action, param| {
             stack.set_visible_child_name("overview");
-        });
-    }
-
-}
-
-impl React<Environment> for QueriesContent {
-
-    fn react(&self, env : &Environment) {
-        let stack = self.stack.clone();
-        env.connect_table_update(move |tables| {
-            stack.set_visible_child_name("results");
+            results_page.set_icon_name(Some("db-symbolic"));
         });
     }
 
@@ -288,7 +297,8 @@ pub struct QueriesWindow {
     pub paned : Paned,
     pub titlebar : QueriesTitlebar,
     pub sidebar : QueriesSidebar,
-    pub content : QueriesContent
+    pub content : QueriesContent,
+    pub settings : QueriesSettings
 }
 
 impl QueriesWindow {
@@ -331,6 +341,7 @@ impl QueriesWindow {
         window.add_action(&titlebar.main_menu.action_save);
         window.add_action(&titlebar.main_menu.action_save_as);
         window.add_action(&titlebar.main_menu.action_export);
+        window.add_action(&titlebar.main_menu.action_settings);
         window.add_action(&content.editor.ignore_file_save_action);
         window.add_action(&titlebar.sidebar_hide_action);
 
@@ -347,12 +358,17 @@ impl QueriesWindow {
         titlebar.exec_btn.react(&sidebar.file_list);
         // titlebar.exec_btn.react(&content.editor);
         content.editor.react(&titlebar.exec_btn);
-        content.results.react(&titlebar.exec_btn);
+        content.react(&titlebar.exec_btn);
         content.react(&content.results.workspace);
         //titlebar.exec_btn.react(&content);
         titlebar.main_menu.react(&content);
 
-        Self { paned, sidebar, titlebar, content, window }
+        let settings = QueriesSettings::build();
+        settings.dialog.set_transient_for(Some(&window));
+
+        settings.react(&titlebar.main_menu);
+
+        Self { paned, sidebar, titlebar, content, window, settings }
     }
 }
 
@@ -555,4 +571,39 @@ fn set_border_to_title(bx : &Box) {
     provider.load_from_data("* { border-bottom : 1px solid #d9dada; } ".as_bytes());
     bx.style_context().add_provider(&provider, 800);
 }
+
+#[derive(Debug, Clone)]
+pub struct ButtonPairBox {
+    pub left_btn : Button,
+    pub right_btn : Button,
+    pub bx : Box
+}
+
+impl ButtonPairBox {
+
+    pub fn build(left_icon : &str, right_icon : &str) -> Self {
+        let left_btn = Button::builder()
+            .icon_name(left_icon)
+            .halign(Align::Fill)
+            .hexpand(true)
+            .build();
+        left_btn.set_width_request(64);
+        left_btn.style_context().add_class("flat");
+        let right_btn = Button::builder()
+            .icon_name(right_icon)
+            .halign(Align::Fill)
+            .hexpand(true)
+            .build();
+        let bx = Box::new(Orientation::Horizontal, 0);
+        for btn in [&left_btn, &right_btn] {
+            btn.set_width_request(64);
+            btn.style_context().add_class("flat");
+            btn.set_focusable(false);
+            bx.append(btn);
+        }
+        Self { left_btn, right_btn, bx }
+    }
+
+}
+
 

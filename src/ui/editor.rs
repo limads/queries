@@ -9,6 +9,7 @@ use sourceview5::View;
 use sourceview5::prelude::*;
 use crate::ui::ExecButton;
 use std::boxed;
+use crate::client::OpenedFile;
 
 #[derive(Debug, Clone)]
 pub struct QueriesEditor {
@@ -30,16 +31,15 @@ impl QueriesEditor {
         let open_dialog = OpenDialog::build();
         let export_dialog = ExportDialog::build();
         stack.add_named(&script_list.bx, Some("list"));
-
         let views : [sourceview5::View; 16]= Default::default();
         for ix in 0..16 {
             configure_view(&views[ix]);
-            stack.add_named(&views[ix], Some(&format!("editor{}", ix)));
+            let scroll = ScrolledWindow::new();
+            scroll.set_child(Some(&views[ix]));
+            stack.add_named(&scroll, Some(&format!("editor{}", ix)));
         }
-
         open_dialog.react(&script_list);
-
-        let ignore_file_save_action = gio::SimpleAction::new("ignore_file_save", Some(&i32::static_variant_type()), /*&(-1i32).to_variant()*/ );
+        let ignore_file_save_action = gio::SimpleAction::new("ignore_file_save", Some(&i32::static_variant_type()));
         Self { views, stack, script_list, save_dialog, open_dialog, ignore_file_save_action, export_dialog }
     }
 
@@ -66,12 +66,14 @@ impl React<OpenedScripts> for QueriesEditor {
         });
         opened.connect_opened({
             let views = self.views.clone();
+            let list = self.script_list.clone();
             move |file| {
-                if let Some(content) = file.content {
+                if let Some(content) = file.content.clone() {
                     views[file.index].buffer().set_text(&content);
                 } else {
                     println!("File does not have content");
                 }
+                add_if_not_present(&list, &file);
             }
         });
         opened.connect_closed({
@@ -83,6 +85,18 @@ impl React<OpenedScripts> for QueriesEditor {
                 if n_left == 0 {
                     stack.set_visible_child_name("list");
                 }
+            }
+        });
+        opened.connect_file_persisted({
+            let list = self.script_list.clone();
+            move |file| {
+                add_if_not_present(&list, &file);
+            }
+        });
+        opened.connect_added({
+            let list = self.script_list.clone();
+            move |file| {
+                add_if_not_present(&list, &file);
             }
         });
         opened.connect_buffer_read_request({
@@ -98,6 +112,28 @@ impl React<OpenedScripts> for QueriesEditor {
         });
     }
 
+}
+
+fn add_if_not_present(list : &ScriptList, file : &OpenedFile) {
+    if let Some(path) = &file.path {
+        let prev_paths = file_paths(&list.list);
+        if prev_paths.iter().find(|p| &p[..] == &path[..] ).is_none() {
+            list.add_row(&path[..]);
+        }
+    }
+}
+
+fn file_paths(list : &ListBox) -> Vec<String> {
+    let mut paths = Vec::new();
+    let n = list.observe_children().n_items();
+    for ix in 0..n {
+        let row = list.row_at_index(ix as i32).unwrap();
+        let child = row.child().unwrap().downcast::<Box>().unwrap();
+        let lbl = PackedImageLabel::extract(&child).unwrap();
+        let txt = lbl.lbl.text().as_str().to_string();
+        paths.push(txt);
+    }
+    paths
 }
 
 impl React<ExecButton> for QueriesEditor {
@@ -161,8 +197,7 @@ pub fn mark_current_unsaved(&self) {
     } else {
         println!("No selected row");
     }
-}
-*/
+}*/
 
 pub fn retrieve_statements_from_buffer(view : &sourceview5::View) -> Result<Option<String>, String> {
     let buffer = view.buffer();
@@ -192,20 +227,29 @@ pub struct ScriptList {
 impl ScriptList {
 
     pub fn build() -> Self {
-        let new_btn = Button::builder().icon_name("document-new-symbolic") /*.label("New").*/ .halign(Align::Fill).hexpand(true).build();
+        let btn_bx = super::ButtonPairBox::build("document-new-symbolic", "document-open-symbolic");
+        /*let new_btn = Button::builder().icon_name("document-new-symbolic") /*.label("New").*/ .halign(Align::Fill).hexpand(true).build();
+        new_btn.style_context().add_class("flat");
+        new_btn.set_width_request(64);
         let open_btn = Button::builder().icon_name("document-open-symbolic") /*.label("Open").*/ .halign(Align::Fill).hexpand(true).build();
+        open_btn.style_context().add_class("flat");
+        open_btn.set_width_request(64);*/
+        let new_btn = btn_bx.left_btn.clone();
+        let open_btn = btn_bx.right_btn.clone();
+
         // open_btn.style_context().add_class("image-button");
         // new_btn.style_context().add_class("image-button");
 
-        let btn_bx = Box::new(Orientation::Horizontal, 0);
+        /*let btn_bx = Box::new(Orientation::Horizontal, 0);
         btn_bx.append(&new_btn);
         btn_bx.append(&open_btn);
         btn_bx.set_halign(Align::Fill);
         btn_bx.set_hexpand(true);
-        btn_bx.set_hexpand_set(true);
-        btn_bx.style_context().add_class("linked");
+        btn_bx.set_hexpand_set(true);*/
+        // btn_bx.style_context().add_class("linked");
 
         let list = ListBox::new();
+        // list.style_context().add_class("boxed-list");
         let scroll = ScrolledWindow::new();
         let provider = CssProvider::new();
         provider.load_from_data("* { border : 1px solid #d9dada; } ".as_bytes());
@@ -220,9 +264,16 @@ impl ScriptList {
         bx.set_halign(Align::Center);
 
         let title = super::title_label("Scripts");
-        bx.append(&title);
+        let title_bx = Box::new(Orientation::Horizontal, 0);
+        title_bx.append(&title);
+        title_bx.append(&btn_bx.bx);
+        btn_bx.bx.set_halign(Align::End);
+        bx.append(&title_bx);
+
+        bx.append(&title_bx);
         bx.append(&scroll);
-        bx.append(&btn_bx);
+
+        // bx.append(&btn_bx);
         bx.set_halign(Align::Center);
         bx.set_valign(Align::Center);
 
@@ -268,7 +319,6 @@ impl SaveDialog {
             &[("Cancel", ResponseType::None), ("Save", ResponseType::Accept)]
         );
         dialog.connect_response(move |dialog, resp| {
-            println!("{}", resp);
             match resp {
                 ResponseType::Close | ResponseType::Reject | ResponseType::Accept | ResponseType::Yes |
                 ResponseType::No | ResponseType::None | ResponseType::DeleteEvent => {

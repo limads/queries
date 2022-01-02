@@ -12,15 +12,18 @@ use std::thread;
 use crate::sql::object::DBInfo;
 use crate::sql::StatementOutput;
 use crate::ui::ExecButton;
+use chrono::prelude::*;
+use serde::{Serialize, Deserialize};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConnectionInfo {
     pub host : String,
     pub user : String,
     pub database : String,
     pub encoding : String,
     pub size : String,
-    pub locale : String
+    pub locale : String,
+    pub dt : String
 }
 
 impl ConnectionInfo {
@@ -28,6 +31,10 @@ impl ConnectionInfo {
     pub fn is_default(&self) -> bool {
         &self.host[..] == "Host" && &self.user[..] == "User" && &self.database[..] == "Database" &&
         &self.encoding[..] == "Unknown" && &self.size[..] == "Unknown" && &self.locale[..] == "Unknown"
+    }
+
+    pub fn is_like(&self, other : &Self) -> bool {
+        &self.host[..] == &other.host[..] && &self.user[..] == &other.user[..] && &self.database[..] == &other.database[..]
     }
 
 }
@@ -42,6 +49,7 @@ impl Default for ConnectionInfo {
             encoding : String::from("Unknown"),
             size : String::from("Unknown"),
             locale : String::from("Unknown"),
+            dt : Local::now().to_string()
         }
     }
 
@@ -55,8 +63,10 @@ pub enum ConnectionChange {
 #[derive(Debug, Clone)]
 pub enum ConnectionAction {
     Switch(Option<i32>),
-    Add,
-    Remove(i32)
+    Add(Option<ConnectionInfo>),
+    Update(ConnectionInfo),
+    Remove(i32),
+    // ViewState(Vec<ConnectionInfo>)
 }
 
 pub struct ConnectionSet {
@@ -65,37 +75,73 @@ pub struct ConnectionSet {
 
     removed : Callbacks<i32>,
 
+    updated : Callbacks<(i32, ConnectionInfo)>,
+
     selected : Callbacks<Option<(i32, ConnectionInfo)>>,
 
-    send : glib::Sender<ConnectionAction>
+    // on_view : Callbacks<Vec<ConnectionInfo>>,
+
+    pub(super) send : glib::Sender<ConnectionAction>
 
 }
 
-pub type ConnSetTypes = (Callbacks<Option<(i32, ConnectionInfo)>>, Callbacks<ConnectionInfo>, Callbacks<i32>);
+pub type ConnSetTypes = (
+    Callbacks<Option<(i32, ConnectionInfo)>>,
+    Callbacks<ConnectionInfo>,
+    Callbacks<(i32, ConnectionInfo)>,
+    Callbacks<i32>
+);
 
 impl ConnectionSet {
 
+    pub fn add(&self, conns : &[ConnectionInfo]) {
+        for conn in conns.iter() {
+            self.send.send(ConnectionAction::Add(Some(conn.clone())));
+        }
+    }
+
     pub fn new() -> Self {
         let (send, recv) = MainContext::channel::<ConnectionAction>(glib::source::PRIORITY_DEFAULT);
-        let (selected, added, removed) : ConnSetTypes = Default::default();
+        let (selected, added, updated, removed) : ConnSetTypes = Default::default();
+        // let on_view : Callbacks<Vec<ConnectionInfo>> = Default::default();
         recv.attach(None, {
             let mut conns : (Vec<ConnectionInfo>, Option<i32>) = (Vec::new(), None);
-            let (selected, added, removed) = (selected.clone(), added.clone(), removed.clone());
+            let (selected, added, updated, removed) = (selected.clone(), added.clone(), updated.clone(), removed.clone());
+            // let on_view = on_view.clone();
             move |action| {
                 match action {
                     ConnectionAction::Switch(opt_ix) => {
                         conns.1 = opt_ix;
                         selected.borrow().iter().for_each(|f| f(opt_ix.map(|ix| (ix, conns.0[ix as usize].clone() ))) );
                     },
-                    ConnectionAction::Add => {
-                        conns.0.push(Default::default());
+                    ConnectionAction::Add(opt_conn) => {
+                        if let Some(conn) = &opt_conn {
+                            if !conn.is_like(&ConnectionInfo::default()) && conns.0.iter().find(|c| c.is_like(&conn) ).is_some() {
+                                return Continue(true);
+                            }
+                        }
+
+                        let conn = opt_conn.unwrap_or_default();
+                        conns.0.push(conn.clone());
                         conns.1 = None;
-                        added.borrow().iter().for_each(|f| f(Default::default()) );
+                        added.borrow().iter().for_each(|f| f(conn.clone()) );
+                        // TODO add to settings
+                    },
+                    ConnectionAction::Update(mut info) => {
+                        if let Some(ix) = conns.1 {
+                            info.dt = Local::now().to_string();
+                            conns.0[ix as usize] = info;
+                            updated.borrow().iter().for_each(|f| f((ix, conns.0[ix as usize].clone())) );
+                        } else {
+                            panic!()
+                        }
+                        // TODO update settings
                     },
                     ConnectionAction::Remove(ix) => {
                         let _rem_conn = conns.0.remove(ix as usize);
                         removed.borrow().iter().for_each(|f| f(ix) );
                         selected.borrow().iter().for_each(|f| f(None) );
+                        // TODO remove from settings
                     },
                 }
                 Continue(true)
@@ -105,12 +151,17 @@ impl ConnectionSet {
             send,
             selected,
             added,
-            removed
+            updated,
+            removed,
         }
     }
 
     pub fn connect_added(&self, f : impl Fn(ConnectionInfo) + 'static) {
         self.added.borrow_mut().push(boxed::Box::new(f))
+    }
+
+    pub fn connect_updated(&self, f : impl Fn((i32, ConnectionInfo)) + 'static) {
+        self.updated.borrow_mut().push(boxed::Box::new(f))
     }
 
     pub fn connect_removed(&self, f : impl Fn(i32) + 'static) {
@@ -144,7 +195,7 @@ impl React<ConnectionList> for ConnectionSet {
         conn_list.add_btn.connect_clicked({
             let send = self.send.clone();
             move |_btn| {
-                send.send(ConnectionAction::Add).unwrap();
+                send.send(ConnectionAction::Add(None)).unwrap();
             }
         });
         conn_list.remove_btn.connect_clicked({
@@ -160,12 +211,23 @@ impl React<ConnectionList> for ConnectionSet {
 
 }
 
+impl React<ActiveConnection> for ConnectionSet {
+
+    fn react(&self, conn : &ActiveConnection) {
+        let send = self.send.clone();
+        conn.connect_db_connected(move |(info, _)| {
+            send.send(ConnectionAction::Update(info));
+        });
+    }
+
+}
+
 fn generate_conn_str(
     host_entry : &Entry,
     db_entry : &Entry,
     user_entry : &Entry,
     password_entry : &PasswordEntry
-) -> Result<String, String> {
+) -> Result<(ConnectionInfo, String), String> {
     let mut host_s = host_entry.text().as_str().to_owned();
     if host_s.is_empty() {
         return Err(format!("Missing host"));
@@ -204,7 +266,12 @@ fn generate_conn_str(
     }
     conn_str = conn_str + ":" + &port_s;
     conn_str = conn_str + "/" + &db_s;
-    Ok(conn_str)
+
+    let mut info : ConnectionInfo = Default::default();
+    info.host = host_s.to_string();
+    info.database = db_s.to_string();
+    info.user = user_s.to_string();
+    Ok((info, conn_str))
 }
 
 pub enum ErrorKind {
@@ -219,9 +286,11 @@ pub enum ErrorKind {
 
 pub enum ActiveConnectionAction {
 
-    ConnectRequest(String),
+    ConnectRequest(ConnectionInfo, String),
 
-    ConnectAccepted(boxed::Box<dyn Connection>, Option<DBInfo>),
+    ConnectAccepted(boxed::Box<dyn Connection>, ConnectionInfo, Option<DBInfo>),
+
+    ConnectFailure(String),
 
     Disconnect,
 
@@ -233,11 +302,13 @@ pub enum ActiveConnectionAction {
 
 }
 
-pub type ActiveConnCallbacks = (Callbacks<Option<DBInfo>>, Callbacks<()>, Callbacks<String>);
+pub type ActiveConnCallbacks = (Callbacks<(ConnectionInfo, Option<DBInfo>)>, Callbacks<()>, Callbacks<String>);
 
 pub struct ActiveConnection {
 
-    on_connected : Callbacks<Option<DBInfo>>,
+    on_connected : Callbacks<(ConnectionInfo, Option<DBInfo>)>,
+
+    on_conn_failure : Callbacks<String>,
 
     on_disconnected : Callbacks<()>,
 
@@ -254,6 +325,7 @@ impl ActiveConnection {
     pub fn new() -> Self {
         let (on_connected, on_disconnected, on_error) : ActiveConnCallbacks = Default::default();
         let on_exec_result : Callbacks<Vec<StatementOutput>> = Default::default();
+        let on_conn_failure : Callbacks<String> = Default::default();
         let (send, recv) = glib::MainContext::channel::<ActiveConnectionAction>(glib::source::PRIORITY_DEFAULT);
         let mut listener = SqlListener::launch({
             let send = send.clone();
@@ -269,29 +341,30 @@ impl ActiveConnection {
                 on_error.clone(),
                 on_exec_result.clone(),
             );
+            let on_conn_failure = on_conn_failure.clone();
             move |action| {
                 match action {
-                    ActiveConnectionAction::ConnectRequest(conn_str) => {
+                    ActiveConnectionAction::ConnectRequest(conn_info, conn_str) => {
                         thread::spawn({
                             let send = send.clone();
                             move || {
                                 match PostgresConnection::try_new(conn_str) {
                                     Ok(mut conn) => {
-                                        let info = conn.info();
-                                        send.send(ActiveConnectionAction::ConnectAccepted(boxed::Box::new(conn), info)).unwrap();
+                                        let db_info = conn.info();
+                                        send.send(ActiveConnectionAction::ConnectAccepted(boxed::Box::new(conn), conn_info, db_info)).unwrap();
                                     },
                                     Err(e) => {
-                                        send.send(ActiveConnectionAction::Error(e)).unwrap();
+                                        send.send(ActiveConnectionAction::ConnectFailure(e)).unwrap();
                                     }
                                 }
                             }
                         });
                     },
-                    ActiveConnectionAction::ConnectAccepted(conn, info) => {
+                    ActiveConnectionAction::ConnectAccepted(conn, conn_info, db_info) => {
                         if let Err(e) = listener.update_engine(conn) {
                             println!("{}", e);
                         }
-                        on_connected.borrow().iter().for_each(|f| f(info.clone()) );
+                        on_connected.borrow().iter().for_each(|f| f((conn_info.clone(), db_info.clone())) );
                     },
                     ActiveConnectionAction::Disconnect => {
                         on_disconnected.borrow().iter().for_each(|f| f(()) );
@@ -319,6 +392,9 @@ impl ActiveConnection {
                             on_exec_result.borrow().iter().for_each(|f| f(results.clone()) );
                         }
                     },
+                    ActiveConnectionAction::ConnectFailure(e) => {
+                        on_conn_failure.borrow().iter().for_each(|f| f(e.clone()) );
+                    },
                     ActiveConnectionAction::Error(e) => {
                         on_error.borrow().iter().for_each(|f| f(e.clone()) );
                     }
@@ -327,20 +403,19 @@ impl ActiveConnection {
             }
         });
 
-        // TODO create glib timeout to listen to commands. The send channel will be cloned into this timeout.
-
         Self {
             on_connected,
             on_disconnected,
             on_error,
             send,
             on_exec_result,
+            on_conn_failure
         }
     }
 
     pub fn connect_db_connected<F>(&self, f : F)
     where
-        F : Fn(Option<DBInfo>) + 'static
+        F : Fn((ConnectionInfo, Option<DBInfo>)) + 'static
     {
         self.on_connected.borrow_mut().push(boxed::Box::new(f));
     }
@@ -357,6 +432,13 @@ impl ActiveConnection {
         F : Fn(String) + 'static
     {
         self.on_error.borrow_mut().push(boxed::Box::new(f));
+    }
+
+    pub fn connect_db_conn_failure<F>(&self, f : F)
+    where
+        F : Fn(String) + 'static
+    {
+        self.on_conn_failure.borrow_mut().push(boxed::Box::new(f));
     }
 
     pub fn connect_exec_result<F>(&self, f : F)
@@ -399,8 +481,8 @@ impl React<ConnectionBox> for ActiveConnection {
                 }
 
                 match generate_conn_str(&host_entry, &db_entry, &user_entry, &password_entry) {
-                    Ok(conn_str) => {
-                        send.send(ActiveConnectionAction::ConnectRequest(conn_str)).unwrap();
+                    Ok((info, conn_str)) => {
+                        send.send(ActiveConnectionAction::ConnectRequest(info, conn_str)).unwrap();
                     },
                     Err(e) => {
                         send.send(ActiveConnectionAction::Error(e)).unwrap();
@@ -596,6 +678,8 @@ impl React<ExecButton> for ActiveConnection {
         btn.exec_action.connect_activate(move |_action, param| {
 
             // Perhaps replace by a ValuedCallback that just fetches the contents of editor.
+            // Then impl React<ExecBtn> for Editor, then React<Editor> for ActiveConnection,
+            // where editor exposes on_script_read(.).
             let stmts = param.unwrap().get::<String>().unwrap();
             send.send(ActiveConnectionAction::ExecutionRequest(stmts)).unwrap();
             // println!("Should execute: {}", );

@@ -6,6 +6,7 @@ use super::FileList;
 use crate::React;
 use crate::client::OpenedScripts;
 use super::QueriesContent;
+use crate::client::ActiveConnection;
 
 #[derive(Debug, Clone)]
 pub struct QueriesTitlebar {
@@ -54,6 +55,13 @@ impl QueriesTitlebar {
         menu_button.set_popover(Some(&main_menu.popover));
         let sidebar_hide_action = gio::SimpleAction::new_stateful("sidebar_hide", None, &(0).to_variant());
 
+        /*clear_action.connect_activate({
+            let
+            move || {
+
+            }
+        });*/
+
         Self { header, /*tbl_toggle, editor_toggle,*/ menu_button, exec_btn, sidebar_toggle, main_menu, sidebar_hide_action }
     }
 
@@ -79,6 +87,8 @@ impl ExecButton {
         let btn = SplitButton::builder().icon_name("download-db-symbolic").menu_model(&exec_menu).sensitive(false).build();
         let exec_action = gio::SimpleAction::new_stateful("execute", Some(&String::static_variant_type()), &(-1i32).to_variant());
         let clear_action = gio::SimpleAction::new("clear", None);
+        exec_action.set_enabled(false);
+        btn.set_sensitive(false);
         let schedule_action = gio::SimpleAction::new("schedule", None);
         // btn.activate_action(&exec_action, None);
         Self { btn, exec_action, clear_action, schedule_action }
@@ -109,6 +119,55 @@ impl React<OpenedScripts> for ExecButton {
                 action.set_state(&(ix as i32).to_variant());
             } else {
                 action.set_state(&(-1i32).to_variant());
+            }
+        });
+    }
+
+}
+
+impl React<ActiveConnection> for ExecButton {
+
+    fn react(&self, conn : &ActiveConnection) {
+        conn.connect_db_connected({
+            let exec_action = self.exec_action.clone();
+            move |_| {
+                exec_action.set_enabled(true);
+            }
+        });
+        conn.connect_db_disconnected({
+            let exec_action = self.exec_action.clone();
+            let exec_btn = self.btn.clone();
+            move |_| {
+                exec_action.set_enabled(false);
+                exec_btn.set_sensitive(false);
+            }
+        });
+    }
+
+}
+
+impl React<QueriesContent> for ExecButton {
+
+    fn react(&self, content : &QueriesContent) {
+        let exec_btn = self.btn.clone();
+        let exec_action = self.exec_action.clone();
+        content.stack.connect_visible_child_notify(move |stack| {
+            if let Some(name) = stack.visible_child_name() {
+                match name.as_str() {
+                    "editor" => {
+                        // i.e. there is a file selected
+                        let any_file_selected = exec_action.state().unwrap().get::<i32>().unwrap() >= 0;
+                        if exec_action.is_enabled() && any_file_selected {
+                            exec_btn.set_sensitive(true);
+                        } else {
+                            exec_btn.set_sensitive(false);
+                        }
+                    },
+                    "results" => {
+                        exec_btn.set_sensitive(false);
+                    },
+                    _ => { }
+                }
             }
         });
     }
