@@ -11,6 +11,7 @@ use std::ops::Deref;
 use std::thread;
 use gtk4::*;
 use gtk4::prelude::*;
+use crate::client::QueriesClient;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct UserState {
@@ -20,7 +21,8 @@ pub struct UserState {
     pub window_height : i32,
     pub scripts : Vec<OpenedFile>,
     pub conns : Vec<ConnectionInfo>,
-    pub templates : Vec<String>
+    pub templates : Vec<String>,
+    pub selected_template : usize
 }
 
 #[derive(Clone)]
@@ -46,7 +48,8 @@ impl Default for SharedUserState {
             window_height : 768,
             scripts : Vec::new(),
             conns : Vec::new(),
-            templates : Vec::new()
+            templates : Vec::new(),
+            selected_template : 0
         })))
     }
 
@@ -61,21 +64,24 @@ impl SharedUserState {
         Some(SharedUserState(Rc::new(RefCell::new(state))))
     }
 
-    /// Saves the state to the given path by spawning a thread. This is
-    /// a nonblocking operation.
-    pub fn save(&self, path : &str) -> thread::JoinHandle<bool> {
-        let mut state : UserState = self.borrow().clone();
-        state.scripts.iter_mut().for_each(|s| { s.content.as_mut().map(|c| c.clear() ); } );
-        let path = path.to_string();
-        thread::spawn(move|| {
-            if let Ok(f) = File::create(&path) {
-                serde_json::to_writer(f, &state).is_ok()
-            } else {
-                false
-            }
-        })
-    }
+}
 
+/// Saves the state to the given path by spawning a thread. This is
+/// a nonblocking operation.
+pub fn persist_user_preferences(user_state : &SharedUserState, path : &str) -> thread::JoinHandle<bool> {
+    let mut state : UserState = user_state.borrow().clone();
+    state.scripts.iter_mut().for_each(|s| { s.content.as_mut().map(|c| c.clear() ); } );
+    let path = path.to_string();
+
+    // TODO filter repeated scripts and connections
+
+    thread::spawn(move|| {
+        if let Ok(f) = File::create(&path) {
+            serde_json::to_writer(f, &state).is_ok()
+        } else {
+            false
+        }
+    })
 }
 
 /*impl React<super::ActiveConnection> for SharedUserState {
@@ -91,7 +97,7 @@ impl SharedUserState {
 
 }*/
 
-impl React<super::ConnectionSet> for SharedUserState {
+/*impl React<super::ConnectionSet> for SharedUserState {
 
     fn react(&self, set : &ConnectionSet) {
         set.connect_removed({
@@ -118,9 +124,9 @@ impl React<super::ConnectionSet> for SharedUserState {
                 // A connection might be added to the set when the user either activates the
                 // connection switch or connection is added from the disk at startup. We ignore
                 // the second case here, since the connection will already be loaded at the state.
-                if state.conns.iter().find(|c| c.is_like(&conn) ).is_none() {
-                    state.conns.push(conn);
-                }
+                // if state.conns.iter().find(|c| c.is_like(&conn) ).is_none() {
+                state.conns.push(conn);
+                // }
 
             }
         });
@@ -143,18 +149,24 @@ impl React<super::OpenedScripts> for SharedUserState {
                 add_file(&state, file);
             }
         });
+        scripts.connect_added({
+            let state = self.clone();
+            move |file| {
+                add_file(&state, file);
+            }
+        });
     }
 
-}
+}*/
 
-fn add_file(state : &SharedUserState, file : OpenedFile) {
+/*fn add_file(state : &SharedUserState, file : OpenedFile) {
     let mut state = state.borrow_mut();
     if let Some(path) = &file.path {
         if state.scripts.iter().find(|f| &f.path.as_ref().unwrap()[..] == &path[..] ).is_none() {
             state.scripts.push(file);
         }
     }
-}
+}*/
 
 impl React<crate::ui::QueriesWindow> for SharedUserState {
 
@@ -191,6 +203,19 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
 
 }
 
+pub fn set_window_state(user_state : &SharedUserState, queries_win : &QueriesWindow) {
+    let state = user_state.borrow();
+    queries_win.paned.set_position(state.main_handle_pos);
+    queries_win.sidebar.paned.set_position(state.side_handle_pos);
+    queries_win.window.set_default_size(state.window_width, state.window_height);
+}
+
+pub fn set_client_state(user_state : &SharedUserState, client : &QueriesClient) {
+    let state = user_state.borrow();
+    client.conn_set.add_connections(&state.conns);
+    client.scripts.add_files(&state.scripts);
+    crate::log_debug_if_required("Client updated with user state");
+}
 
 // React to all common data structures, to persist state to filesystem.
 // impl React<ActiveConnection> for UserState { }

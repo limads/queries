@@ -350,6 +350,8 @@ impl QueriesWindow {
         window.add_action(&titlebar.exec_btn.clear_action);
         window.add_action(&titlebar.exec_btn.schedule_action);
         window.add_action(&sidebar.file_list.close_action);
+        window.add_action(&sidebar.schema_tree.query_action);
+        window.add_action(&sidebar.schema_tree.insert_action);
 
         content.editor.open_dialog.react(&titlebar.main_menu);
         content.editor.export_dialog.react(&titlebar.main_menu);
@@ -367,6 +369,9 @@ impl QueriesWindow {
         settings.dialog.set_transient_for(Some(&window));
 
         settings.react(&titlebar.main_menu);
+
+        // sidebar.schema_tree.schema_popover.set_default_widget(Some(&window));
+        // sidebar.schema_tree.schema_popover.set_child(Some(&window));
 
         Self { paned, sidebar, titlebar, content, window, settings }
     }

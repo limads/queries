@@ -1,13 +1,20 @@
 use std::cmp::{Eq, PartialEq};
 use std::str::FromStr;
 use std::fmt;
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DBDetails {
+    pub uptime : String,
+    pub server : String,
+    pub size : String,
+    pub locale : String
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct DBInfo {
     pub schema : Vec<DBObject>,
-    pub encoding : String,
-    pub size : usize,
-    pub collation : String
+    pub details : Option<DBDetails>
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -147,6 +154,18 @@ impl DBObject {
                 _ => None
             }
         }
+    }
+}
+
+pub fn index_db_object(objs : &[DBObject], ixs : Vec<usize>) -> Option<DBObject> {
+    if let Some(root_obj) = objs.get(ixs[0]).cloned() {
+        if ixs.len() == 1 {
+            Some(root_obj)
+        } else {
+            root_obj.get_table_or_schema(&ixs[1..])
+        }
+    } else {
+        None
     }
 }
 

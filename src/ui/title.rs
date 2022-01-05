@@ -37,7 +37,10 @@ impl QueriesTitlebar {
         // header.set_title_widget(Some(&header_bx));
 
         let left_bx = Box::new(Orientation::Horizontal, 0);
+
+        // use dock-left-symbolic when stable
         let sidebar_toggle = ToggleButton::builder().icon_name("sidebar-symbolic").active(false).build();
+
         sidebar_toggle.set_active(true);
         let exec_btn = ExecButton::build();
         left_bx.append(&sidebar_toggle);

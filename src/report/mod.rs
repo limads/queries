@@ -28,16 +28,29 @@ Libreoffice convention:
 </table-row>
 */
 
+#[derive(Debug)]
+pub struct SubstitutionError(String);
+
+impl fmt::Display for SubstitutionError {
+
+    fn fmt(&self, f : &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Field '{}' at template does not match any column", self.0)
+    }
+
+}
+
+impl std::error::Error for SubstitutionError { }
+
 fn substitute_field(
     writer : &mut Writer<Cursor<Vec<u8>>>,
     table : &Table,
     colname : &str,
     is_html : bool,
     row_ix : usize
-) {
+) -> Result<(), Box<dyn Error>> {
     // Search for this txt in the data table columns
 	// println!("Looking for {}", txt.trim());
-    let col = table.get_column_by_name(colname).unwrap();
+    let col = table.get_column_by_name(colname).ok_or(SubstitutionError(colname.to_string()))?;
     let field = col.at(row_ix).unwrap();
 
     /*let mut start = BytesStart::owned(b"text:p".to_vec(), "text:p".len());
@@ -61,6 +74,8 @@ fn substitute_field(
                         pl.html_img_tag().unwrap()
 
                     } else {
+
+                        // TODO create hidden dir beside the report file.
 
                         let path = format!("/home/diego/Downloads/{}.svg", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
                         pl.draw_to_file(&path[..]).unwrap();
@@ -106,6 +121,8 @@ fn substitute_field(
     // let bytes_txt = BytesText::from_plain(content.as_ref());
     // writer.write_event(Event::Text(bytes_txt));
     writer.write(content.as_bytes());
+
+    Ok(())
 
 	// println!("{}", txt);
 	// writer.write_event(Event::End(BytesEnd::borrowed(b"text:p")));
@@ -161,7 +178,7 @@ pub mod html {
                             &reader,
                             true,
                             row_ix
-                        );
+                        )?;
 	                },
 	                Event::End(ref e) => {
 	                	process_end(e, b"template", &mut inside_placeholder, &mut copy_current);
@@ -351,7 +368,7 @@ pub mod ooxml {
                         &reader,
                         false,
                         row_ix
-                    );
+                    )?;
 		        },
 		        Event::End(ref e) => {
 		            process_end(e, b"text:placeholder", &mut inside_placeholder, &mut copy_current);
@@ -400,14 +417,15 @@ fn substitute_text(
     reader : &Reader<& [u8]>,
     is_html : bool,
     row_ix : usize
-) {
+) -> Result<(), Box<dyn Error>> {
     if inside_placeholder {
         let colname = get_colname(event_name, reader);
-        substitute_field(writer, &table, &colname, is_html, row_ix);
+        substitute_field(writer, &table, &colname, is_html, row_ix)?;
         *copy_current = false;
     } else {
         *copy_current = true;
     }
+    Ok(())
 }
 
 fn process_end(end : &BytesEnd<'_>, end_tag : &[u8], inside_placeholder : &mut bool, copy_current : &mut bool) {

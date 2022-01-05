@@ -1,3 +1,5 @@
+use std::mem;
+
 pub struct QueriesClient {
     pub conn_set : ConnectionSet,
     pub active_conn : ActiveConnection,
@@ -17,12 +19,16 @@ impl QueriesClient {
     }
 
     pub fn update(&self, state : &SharedUserState) {
+        let mut state = state.borrow_mut();
 
-        for conn in state.borrow().conns.iter() {
+        // The connection and scripts vectors are moved out of state
+        // because they will be re-set by the connect_added events. Adding them
+        // via the events guarantees the GUI is automatically updated.
+        for conn in mem::take(&mut state.conns) {
             self.conn_set.send.send(ConnectionAction::Add(Some(conn.clone())));
         }
 
-        for script in state.borrow().scripts.iter() {
+        for script in mem::take(&mut state.scripts) {
             self.scripts.send.send(ScriptAction::Add(script.clone()));
         }
     }
@@ -52,5 +58,4 @@ pub use user::*;
 mod exec;
 
 pub use exec::*;
-
 

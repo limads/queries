@@ -5,25 +5,19 @@ use std::rc::Rc;
 use std::cell::{RefCell};
 use std::fs::File;
 use std::io::Read;
-// use crate::tables::environment::{/*TableEnvironment,*/ EnvironmentUpdate};
 use crate::sql::object::{DBObject, DBType, DBInfo};
-// use sourceview::*;
-// use gtk::prelude::*;
-// use crate::{status_stack::StatusStack};
-// use crate::status_stack::*;
-// use crate::utils;
-// use sourceview::View;
-// use crate::editor::SqlEditor;
 use std::path::{Path, PathBuf};
 use glib::{types::Type, value::{Value, ToValue}};
 use gdk_pixbuf::Pixbuf;
 use std::collections::HashMap;
-use gdk::{RGBA, EventType};
-// use crate::editor::{QuerySchedule, ExecutionState};
+use gdk::{self, RGBA, EventType};
 use std::env;
 use crate::React;
 use crate::client::ActiveConnection;
 use crate::ui::PackedImageLabel;
+use gtk4::glib;
+use gtk4::subclass::prelude::*;
+// use gtk4::gdk;
 
 /*pub trait View {
 
@@ -94,29 +88,23 @@ pub enum Growth<T> {
 // tree in a breadth fashion.
 #[derive(Clone, Debug)]
 pub struct SchemaTree {
-    tree_view : TreeView,
+    pub tree_view : TreeView,
     model : TreeStore,
-
     type_icons : Rc<HashMap<DBType, Pixbuf>>,
-
     tbl_icon : Pixbuf,
     clock_icon : Pixbuf,
     schema_icon : Pixbuf,
     fn_icon : Pixbuf,
     view_icon : Pixbuf,
     key_icon : Pixbuf,
-
     // db_objs : Rc<RefCell<Option<Vec<DBObject>>>>,
-
     // selected_obj : Rc<RefCell<Option<(DBObject, Vec<i32>)>>>,
-
     // pub schema_popover : SchemaPopover
-
-    schema_popover : PopoverMenu,
-
+    pub schema_popover : PopoverMenu,
     scroll : ScrolledWindow,
-
-    pub bx : Box
+    pub bx : Box,
+    pub query_action : gio::SimpleAction,
+    pub insert_action : gio::SimpleAction,
 }
 
 const ALL_TYPES : [DBType; 15] = [
@@ -195,7 +183,7 @@ impl SchemaTree {
         let menu = gio::Menu::new();
         menu.append(Some("Query"), Some("win.query"));
         menu.append(Some("Insert"), Some("win.insert"));
-        let schema_popover = PopoverMenu::from_model(Some(&menu));
+        let schema_popover = PopoverMenu::builder().menu_model(&menu) /*.cascade_popdown(true).can_focus(true).can_target(true).focusable(true).has_tooltip(true).*/ .build();
 
         // table_menu.upcast::<Popover>().set_transition_type(RevealerTransitionType::SlideRight);
         // schema_menu.upcast::<Popover>().set_transition_type(RevealerTransitionType::SlideRight);
@@ -205,10 +193,11 @@ impl SchemaTree {
         let clock_icon = Pixbuf::from_file_at_scale(&icon_path("clock-app-symbolic.svg").unwrap(), 16, 16, true).unwrap();
         let view_icon = Pixbuf::from_file_at_scale(&icon_path("view.svg").unwrap(), 16, 16, true).unwrap();
         let key_icon = Pixbuf::from_file_at_scale(&icon_path("key-symbolic.svg").unwrap(), 16, 16, true).unwrap();
-
-        // let tree_view : TreeView = builder.get_object("schema_tree_view").unwrap();
-        let tree_view = TreeView::builder().valign(Align::Fill).vexpand(true).build();
-
+        let tree_view = TreeView::new();
+        tree_view.set_valign(Align::Fill);
+        tree_view.set_vexpand(true);
+        schema_popover.set_position(PositionType::Right);
+        schema_popover.set_autohide(true);
         let model = configure_tree_view(&tree_view);
 
         // tree_view.get_background_area(None, None).connect_clicked(move |_| {
@@ -234,7 +223,68 @@ impl SchemaTree {
         bx.append(&title.bx);
         bx.append(&scroll);
 
-        Self{ tree_view, model, type_icons, tbl_icon, schema_icon, fn_icon, clock_icon, view_icon, key_icon, schema_popover, bx, scroll }
+        // Popovers must always have a parent. Currently (4.5) GTK will
+        // segfault when manipulating a Popover without a parent.
+        // Setting the Treeview as the parent makes the popover unresponsive.
+        // schema_popover.set_parent(&tree_view);
+        schema_popover.set_parent(&scroll);
+
+        // (queries4:28811): Gtk-CRITICAL **: 22:05:39.730: gtk_css_node_insert_after: assertion 'previous_sibling == NULL || previous_sibling->parent == parent' failed
+        // https://gitlab.gnome.org/GNOME/gtk/-/issues/3561
+        // popover.set_parent(&tree_view);
+
+        let gesture_click = GestureClick::builder().build();
+        gesture_click.set_button(gdk::BUTTON_SECONDARY);
+        tree_view.add_controller(&gesture_click);
+        gesture_click.connect_pressed({
+            let schema_popover = schema_popover.clone();
+            let tree_view = tree_view.clone();
+            move |gesture, n_press, x, y| {
+                if let Some((Some(opt_path), Some(opt_col), _, _)) = tree_view.path_at_pos(x as i32, y as i32) {
+                    let area = tree_view.cell_area(Some(&opt_path), Some(&opt_col));
+                    schema_popover.set_pointing_to(&area);
+                    schema_popover.popup();
+                }
+            }
+        });
+
+        // let controller = EventControllerKey::new();
+        // controller.connect_key_pressed(|ctrl_key, key, code, modifier| {
+        // });
+
+        /*tree_view.connect_button_press_event({
+            move |view, ev_btn| {
+                if ev_btn.get_event_type() == EventType::ButtonPress && ev_btn.get_button() == 3 {
+                    let (x, y) = if let Some((y, x)) = ev_btn.get_coords() {
+                        (y, x)
+                    } else {
+                        return glib::signal::Inhibit(false);
+                    };
+                }
+            }
+        });*/
+
+        let query_action = gio::SimpleAction::new_stateful("query", None, &"".to_variant());
+        let insert_action = gio::SimpleAction::new_stateful("insert", None, &"".to_variant());
+        query_action.set_enabled(false);
+        insert_action.set_enabled(false);
+
+        Self{
+            tree_view,
+            model,
+            type_icons,
+            tbl_icon,
+            schema_icon,
+            fn_icon,
+            clock_icon,
+            view_icon,
+            key_icon,
+            schema_popover,
+            bx,
+            scroll,
+            query_action,
+            insert_action
+        }
     }
 
     // grow_tree<T>(obj : T) for T : Display + Iterator<Item=&Self>
@@ -557,6 +607,35 @@ impl React<ActiveConnection> for SchemaTree {
                 schema_tree.clear();
             }
         });
+        conn.connect_schema_update({
+            let schema_tree = self.clone();
+            move |info| {
+                if let Some(info) = info {
+                    schema_tree.repopulate(info);
+                }
+            }
+        });
+        conn.connect_object_selected({
+            let insert_action = self.insert_action.clone();
+            let query_action = self.query_action.clone();
+            move |opt_obj| {
+                match opt_obj {
+                    Some(DBObject::Table { .. }) => {
+                        insert_action.set_enabled(true);
+                        query_action.set_enabled(true);
+                        // TODO set action state to the JSON-serialized table object.
+                    },
+                    Some(DBObject::Schema { .. }) => {
+                        insert_action.set_enabled(false);
+                        query_action.set_enabled(false);
+                    },
+                    _ => {
+                        insert_action.set_enabled(false);
+                        query_action.set_enabled(false);
+                    }
+                }
+            }
+        });
     }
 
 }
@@ -627,4 +706,167 @@ fn exec_dir() -> Result<String, &'static str> {
         .to_str().ok_or("Could not convert path to str")?;
     Ok(exe_dir.to_string())
 }
+
+/*// According to the GTK 3-4 migration guide, popovers can't be attached to random
+// widgets (removal of Popover::set_relative_to), and we must create a custom widget
+// to do that. This is an initial implementation of a TreeView with an associated popover.
+// For now, it is possible to append popover to a TreeView just by calling popover.set_parent(tree_view)
+// and updating the popover position by querying the cell position. If this solution stops working
+// with future GTK versions, this implementation can be developed further.
+mod imp {
+
+    use gtk4::*;
+    use gtk4::prelude::*;
+    use gtk4::glib;
+    use gtk4::subclass::prelude::*;
+    use gtk4::gdk;
+    use std::cell::RefCell;
+
+    #[derive(Default)]
+    pub struct PopoverTreeView(pub RefCell<Option<Popover>>);
+
+    // The central trait for subclassing a GObject
+    #[glib::object_subclass]
+    impl ObjectSubclass for PopoverTreeView {
+
+        const NAME: &'static str = "PopoverTreeView";
+
+        type Type = super::PopoverTreeView;
+
+        type ParentType = gtk4::TreeView;
+
+    }
+
+    impl ObjectImpl for PopoverTreeView {
+
+        fn constructed(&self, obj: &Self::Type) {
+            self.parent_constructed(obj);
+
+            // let popover = Popover::new();
+            // popover.set_parent(&obj.clone());
+            // popover.present();
+            // popover.popup();
+            // self.0.replace(popover);
+        }
+
+    }
+
+    impl WidgetImpl for PopoverTreeView {
+
+        fn realize(&self, widget : &Self::Type) {
+            self.parent_realize(widget);
+            // popover.realize();
+
+            // let alloc = widget.allocation();
+
+            // self.0.
+            // self.0.set_parent(&self);
+            // self.0.realize();
+        }
+
+        fn size_allocate(
+            &self,
+            widget: &Self::Type,
+            width: i32,
+            height: i32,
+            baseline: i32
+        ) {
+            self.parent_size_allocate(widget, width, height, baseline);
+
+            if let Ok(mut opt_popover) = self.0.try_borrow_mut() {
+                if opt_popover.is_none() {
+                    let popover = Popover::new();
+                    popover.set_position(PositionType::Right);
+                    let bx_pop = Box::new(Orientation::Vertical, 0);
+                    let btn1 = Button::with_label("Query");
+                    btn1.style_context().add_class("flat");
+
+                    use std::rc::Rc;
+                    use std::cell::RefCell;
+                    let n = Rc::new(RefCell::new(0usize));
+                    let motion = EventControllerMotion::new();
+
+                    motion.connect_contains_pointer_notify({
+                        let btn1 = btn1.clone();
+                        let popover = popover.clone();
+                        move|motion| {
+                            println!("Pointed");
+                            println!("Popover classes = {:?}", popover.css_classes());
+                            println!("Button classes = {:?}", btn1.css_classes());
+                            btn1.style_context().add_class("raised");
+                        }
+                    });
+                    motion.connect_leave({
+                        let btn1 = btn1.clone();
+                        move|_| {
+                            println!("Left");
+                            btn1.style_context().remove_class("raised");
+                        }
+                    });
+                    //motion.connect_motion(move |motion, x, y| {
+                    //    println!("{} {}", x, y);
+                    //});
+                    btn1.add_controller(&motion);
+
+                    let btn2 = Button::with_label("Insert");
+                    btn2.style_context().add_class("flat");
+                    bx_pop.append(&btn1);
+                    bx_pop.append(&btn2);
+                    popover.set_autohide(true);
+                    popover.set_child(Some(&bx_pop));
+                    let gesture_click = GestureClick::builder().build();
+                    gesture_click.set_button(gdk::BUTTON_SECONDARY);
+                    widget.add_controller(&gesture_click);
+                    gesture_click.connect_pressed({
+                        let popover = popover.clone();
+                        let tree_view = widget.clone();
+                        move |gesture, n_press, x, y| {
+                            if let Some((Some(opt_path), Some(opt_col), _, _)) = tree_view.path_at_pos(x as i32, y as i32) {
+                                let area = tree_view.cell_area(Some(&opt_path), Some(&opt_col));
+                                popover.set_pointing_to(&area);
+                                popover.popup();
+                            }
+                        }
+                    });
+                    popover.set_parent(&widget.clone());
+                    *opt_popover = Some(popover);
+                }
+            }
+            // let popover = self.0.borrow().clone().unwrap();
+            // popover.set_pointing_to(&gdk::Rectangle { x : 0, y : 0, width : width / 2, height : height / 2 });
+            // popover.present();
+            // popover.popup();
+        }
+
+    }
+
+    impl TreeViewImpl for PopoverTreeView {
+
+        fn test_collapse_row(&self, tree_view: &Self::Type, iter: &TreeIter, path: &TreePath) -> bool {
+            // self.parent_test_collapse_row(tree_view, iter, path)
+            false
+        }
+
+        fn test_expand_row(&self, tree_view: &Self::Type, iter: &TreeIter, path: &TreePath) -> bool {
+            // self.parent_test_expand_row(tree_view, iter, path)
+            false
+        }
+
+    }
+
+}
+
+glib::wrapper! {
+    pub struct PopoverTreeView(ObjectSubclass<imp::PopoverTreeView>)
+        @extends gtk4::TreeView, gtk4::Widget,
+        @implements gtk4::Accessible, gtk4::Buildable, gtk4::ConstraintTarget, gtk4::Scrollable;
+}
+
+impl PopoverTreeView {
+    pub fn new() -> Self {
+        glib::Object::new(&[])
+            .expect("Failed to create `CustomButton`.")
+    }
+}*/
+
 

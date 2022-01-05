@@ -341,5 +341,18 @@ impl SqlListener {
         }
     }
 
+    /// Queries the database info, executing the given closure when the
+    /// info arrives.
+    pub fn on_db_info_arrived(&self, f : impl Fn(Option<Vec<DBObject>>) + Send + 'static) {
+        let engine = self.engine.clone();
+        thread::spawn(move|| {
+            if let Some(mut engine) = engine.lock().unwrap().as_mut() {
+                f(engine.info().map(|info| info.schema ));
+            } else {
+                f(None);
+            }
+        });
+    }
+
 }
 

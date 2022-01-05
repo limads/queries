@@ -9,28 +9,31 @@ use std::collections::HashMap;
 use super::listener::SqlListener;
 use crate::server::*;
 use std::thread;
-use crate::sql::object::DBInfo;
+use crate::sql::object::{DBInfo, DBDetails};
 use crate::sql::StatementOutput;
 use crate::ui::ExecButton;
 use chrono::prelude::*;
 use serde::{Serialize, Deserialize};
+use std::rc::Rc;
+use std::cell::RefCell;
+use crate::ui::QueriesWindow;
+use crate::sql::object::DBObject;
+use crate::ui::SchemaTree;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConnectionInfo {
     pub host : String,
     pub user : String,
     pub database : String,
-    pub encoding : String,
-    pub size : String,
-    pub locale : String,
+    pub details : Option<DBDetails>,
     pub dt : String
 }
 
 impl ConnectionInfo {
 
     pub fn is_default(&self) -> bool {
-        &self.host[..] == "Host" && &self.user[..] == "User" && &self.database[..] == "Database" &&
-        &self.encoding[..] == "Unknown" && &self.size[..] == "Unknown" && &self.locale[..] == "Unknown"
+        &self.host[..] == "Host" && &self.user[..] == "User" && &self.database[..] == "Database" //&&
+        // &self.encoding[..] == "Unknown" && &self.size[..] == "Unknown" && &self.locale[..] == "Unknown"
     }
 
     pub fn is_like(&self, other : &Self) -> bool {
@@ -46,10 +49,8 @@ impl Default for ConnectionInfo {
             host : String::from("Host"),
             user : String::from("User"),
             database : String::from("Database"),
-            encoding : String::from("Unknown"),
-            size : String::from("Unknown"),
-            locale : String::from("Unknown"),
-            dt : Local::now().to_string()
+            dt : Local::now().to_string(),
+            details : None
         }
     }
 
@@ -66,10 +67,13 @@ pub enum ConnectionAction {
     Add(Option<ConnectionInfo>),
     Update(ConnectionInfo),
     Remove(i32),
+    CloseWindow
     // ViewState(Vec<ConnectionInfo>)
 }
 
 pub struct ConnectionSet {
+
+    final_state : Rc<RefCell<Vec<ConnectionInfo>>>,
 
     added : Callbacks<ConnectionInfo>,
 
@@ -94,7 +98,11 @@ pub type ConnSetTypes = (
 
 impl ConnectionSet {
 
-    pub fn add(&self, conns : &[ConnectionInfo]) {
+    pub fn final_state(&self) -> Rc<RefCell<Vec<ConnectionInfo>>> {
+        self.final_state.clone()
+    }
+
+    pub fn add_connections(&self, conns : &[ConnectionInfo]) {
         for conn in conns.iter() {
             self.send.send(ConnectionAction::Add(Some(conn.clone())));
         }
@@ -104,30 +112,46 @@ impl ConnectionSet {
         let (send, recv) = MainContext::channel::<ConnectionAction>(glib::source::PRIORITY_DEFAULT);
         let (selected, added, updated, removed) : ConnSetTypes = Default::default();
         // let on_view : Callbacks<Vec<ConnectionInfo>> = Default::default();
+        let final_state = Rc::new(RefCell::new(Vec::new()));
         recv.attach(None, {
+
+            // Holds the set of connections added by the user. This is synced to the
+            // Connections list seen by the user on startup. The connections are
+            // set to the final state just before the window closes.
             let mut conns : (Vec<ConnectionInfo>, Option<i32>) = (Vec::new(), None);
+
             let (selected, added, updated, removed) = (selected.clone(), added.clone(), updated.clone(), removed.clone());
+            let final_state = final_state.clone();
             // let on_view = on_view.clone();
             move |action| {
+                println!("{:?} {:?}", action, conns.0);
                 match action {
                     ConnectionAction::Switch(opt_ix) => {
                         conns.1 = opt_ix;
                         selected.borrow().iter().for_each(|f| f(opt_ix.map(|ix| (ix, conns.0[ix as usize].clone() ))) );
                     },
                     ConnectionAction::Add(opt_conn) => {
-                        if let Some(conn) = &opt_conn {
+                        /*if let Some(conn) = &opt_conn {
                             if !conn.is_like(&ConnectionInfo::default()) && conns.0.iter().find(|c| c.is_like(&conn) ).is_some() {
                                 return Continue(true);
                             }
-                        }
+                        }*/
 
+                        // If the user clicked the 'plus' button, this will be None. If the connection
+                        // was added from the settings file, there will be a valid value here.
                         let conn = opt_conn.unwrap_or_default();
                         conns.0.push(conn.clone());
+
+                        // The selection will be re-set when the list triggers the callback at connect_added.
                         conns.1 = None;
+
                         added.borrow().iter().for_each(|f| f(conn.clone()) );
-                        // TODO add to settings
                     },
                     ConnectionAction::Update(mut info) => {
+
+                        // On update, it might be the case the info is the same as some
+                        // other connection. Must decide how to resolve duplicates (perhaps
+                        // remove old one by sending ConnectionAction::remove(other_equal_ix)?).
                         if let Some(ix) = conns.1 {
                             info.dt = Local::now().to_string();
                             conns.0[ix as usize] = info;
@@ -143,6 +167,10 @@ impl ConnectionSet {
                         selected.borrow().iter().for_each(|f| f(None) );
                         // TODO remove from settings
                     },
+                    ConnectionAction::CloseWindow => {
+                        // println!("Replacing with {:?}", conns.0);
+                        final_state.replace(conns.0.clone());
+                    }
                 }
                 Continue(true)
             }
@@ -153,6 +181,7 @@ impl ConnectionSet {
             added,
             updated,
             removed,
+            final_state
         }
     }
 
@@ -217,6 +246,18 @@ impl React<ActiveConnection> for ConnectionSet {
         let send = self.send.clone();
         conn.connect_db_connected(move |(info, _)| {
             send.send(ConnectionAction::Update(info));
+        });
+    }
+
+}
+
+impl React<QueriesWindow> for ConnectionSet {
+
+    fn react(&self, win : &QueriesWindow) {
+        let send = self.send.clone();
+        win.window.connect_close_request(move |_win| {
+            send.send(ConnectionAction::CloseWindow);
+            Inhibit(false)
         });
     }
 
@@ -298,6 +339,10 @@ pub enum ActiveConnectionAction {
 
     ExecutionCompleted(Vec<StatementOutput>),
 
+    SchemaUpdate(Option<Vec<DBObject>>),
+
+    ObjectSelected(Option<Vec<usize>>),
+
     Error(String)
 
 }
@@ -316,7 +361,11 @@ pub struct ActiveConnection {
 
     on_exec_result : Callbacks<Vec<StatementOutput>>,
 
-    send : glib::Sender<ActiveConnectionAction>
+    send : glib::Sender<ActiveConnectionAction>,
+
+    on_schema_update : Callbacks<Option<Vec<DBObject>>>,
+
+    on_object_selected : Callbacks<Option<DBObject>>
 
 }
 
@@ -327,12 +376,16 @@ impl ActiveConnection {
         let on_exec_result : Callbacks<Vec<StatementOutput>> = Default::default();
         let on_conn_failure : Callbacks<String> = Default::default();
         let (send, recv) = glib::MainContext::channel::<ActiveConnectionAction>(glib::source::PRIORITY_DEFAULT);
+        let on_schema_update : Callbacks<Option<Vec<DBObject>>> = Default::default();
+        let on_object_selected : Callbacks<Option<DBObject>> = Default::default();
         let mut listener = SqlListener::launch({
             let send = send.clone();
             move |results| {
                 send.send(ActiveConnectionAction::ExecutionCompleted(results)).unwrap();
             }
         });
+        let mut schema : Option<Vec<DBObject>> = None;
+        let mut selected_obj : Option<DBObject> = None;
         recv.attach(None, {
             let send = send.clone();
             let (on_connected, on_disconnected, on_error, on_exec_result) = (
@@ -342,15 +395,22 @@ impl ActiveConnection {
                 on_exec_result.clone(),
             );
             let on_conn_failure = on_conn_failure.clone();
+            let on_object_selected = on_object_selected.clone();
+            let on_schema_update = on_schema_update.clone();
             move |action| {
                 match action {
-                    ActiveConnectionAction::ConnectRequest(conn_info, conn_str) => {
+                    ActiveConnectionAction::ConnectRequest(mut conn_info, conn_str) => {
                         thread::spawn({
                             let send = send.clone();
                             move || {
-                                match PostgresConnection::try_new(conn_str) {
+                                match PostgresConnection::try_new(conn_str, conn_info.clone()) {
                                     Ok(mut conn) => {
                                         let db_info = conn.info();
+                                        conn_info.details = if let Some(info) = &db_info {
+                                            info.details.clone()
+                                        } else {
+                                            None
+                                        };
                                         send.send(ActiveConnectionAction::ConnectAccepted(boxed::Box::new(conn), conn_info, db_info)).unwrap();
                                     },
                                     Err(e) => {
@@ -361,12 +421,16 @@ impl ActiveConnection {
                         });
                     },
                     ActiveConnectionAction::ConnectAccepted(conn, conn_info, db_info) => {
+                        schema = db_info.clone().map(|info| info.schema.clone() );
+                        selected_obj = None;
                         if let Err(e) = listener.update_engine(conn) {
                             println!("{}", e);
                         }
                         on_connected.borrow().iter().for_each(|f| f((conn_info.clone(), db_info.clone())) );
                     },
                     ActiveConnectionAction::Disconnect => {
+                        schema = None;
+                        selected_obj = None;
                         on_disconnected.borrow().iter().for_each(|f| f(()) );
                     },
                     ActiveConnectionAction::ExecutionRequest(stmts) => {
@@ -378,19 +442,49 @@ impl ActiveConnection {
                         }
                     },
                     ActiveConnectionAction::ExecutionCompleted(results) => {
+                        let any_schema_updates = results.iter()
+                            .find(|res| {
+                                match res {
+                                    StatementOutput::Modification(_) => true,
+                                    _ => false
+                                }
+                            }).is_some();
+                        if any_schema_updates {
+                            let send = send.clone();
+                            listener.on_db_info_arrived(move |info| {
+                                send.send(ActiveConnectionAction::SchemaUpdate(info));
+                            });
+                        }
                         let fst_error = results.iter()
                             .filter_map(|res| {
                                 match res {
                                     StatementOutput::Invalid(e, _) => Some(e.clone()),
                                     _ => None
                                 }
-                            })
-                            .next();
+                            }).next();
                         if let Some(error) = fst_error {
                             on_error.borrow().iter().for_each(|f| f(error.clone()) );
                         } else {
                             on_exec_result.borrow().iter().for_each(|f| f(results.clone()) );
                         }
+                    },
+                    ActiveConnectionAction::SchemaUpdate(opt_schema) => {
+                        schema = opt_schema.clone();
+                        selected_obj = None;
+                        on_schema_update.borrow().iter().for_each(|f| f(opt_schema.clone()) );
+                    },
+                    ActiveConnectionAction::ObjectSelected(obj_ixs) => {
+                        match (&schema, obj_ixs) {
+                            (Some(schema), Some(ixs)) => {
+                                selected_obj = crate::sql::object::index_db_object(&schema[..], ixs);
+                                println!("{:?}", selected_obj);
+                            },
+                            _ => {
+                                selected_obj = None;
+                                println!("{:?}", selected_obj);
+                            }
+                        }
+                        on_object_selected.borrow().iter().for_each(|f| f(selected_obj.clone()) );
                     },
                     ActiveConnectionAction::ConnectFailure(e) => {
                         on_conn_failure.borrow().iter().for_each(|f| f(e.clone()) );
@@ -409,7 +503,9 @@ impl ActiveConnection {
             on_error,
             send,
             on_exec_result,
-            on_conn_failure
+            on_conn_failure,
+            on_schema_update,
+            on_object_selected
         }
     }
 
@@ -446,6 +542,20 @@ impl ActiveConnection {
         F : Fn(Vec<StatementOutput>) + 'static
     {
         self.on_exec_result.borrow_mut().push(boxed::Box::new(f));
+    }
+
+    pub fn connect_schema_update<F>(&self, f : F)
+    where
+        F : Fn(Option<Vec<DBObject>>) + 'static
+    {
+        self.on_schema_update.borrow_mut().push(boxed::Box::new(f));
+    }
+
+    pub fn connect_object_selected<F>(&self, f : F)
+    where
+        F : Fn(Option<DBObject>) + 'static
+    {
+        self.on_object_selected.borrow_mut().push(boxed::Box::new(f));
     }
 
     /*pub fn connect_exec_message<F>(&self, f : F)
@@ -686,4 +796,29 @@ impl React<ExecButton> for ActiveConnection {
         });
     }
 
+}
+
+impl React<SchemaTree> for ActiveConnection {
+
+    fn react(&self, tree : &SchemaTree) {
+        let send = self.send.clone();
+        tree.tree_view.selection().connect_changed(move |sel| {
+            let mut n_selected = 0;
+            sel.selected_foreach(|_, path, _| {
+                n_selected += 1;
+                let res_ixs : Result<Vec<usize>, ()> = path.indices()
+                    .iter()
+                    .map(|ix| if *ix >= 0 { Ok(*ix as usize) } else { Err(()) })
+                    .collect();
+                if let Ok(ixs) = res_ixs {
+                    send.send(ActiveConnectionAction::ObjectSelected(Some(ixs)));
+                }
+            });
+
+            if n_selected == 0 {
+                send.send(ActiveConnectionAction::ObjectSelected(None));
+            }
+        });
+
+    }
 }

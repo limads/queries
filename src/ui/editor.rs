@@ -249,16 +249,19 @@ impl ScriptList {
         // btn_bx.style_context().add_class("linked");
 
         let list = ListBox::new();
-        // list.style_context().add_class("boxed-list");
+        super::set_margins(&list, 1, 1);
+        list.style_context().add_class("boxed-list");
         let scroll = ScrolledWindow::new();
-        let provider = CssProvider::new();
-        provider.load_from_data("* { border : 1px solid #d9dada; } ".as_bytes());
-        scroll.style_context().add_provider(&provider, 800);
+        // let provider = CssProvider::new();
+        // provider.load_from_data("* { border : 1px solid #d9dada; } ".as_bytes());
+        // scroll.style_context().add_provider(&provider, 800);
         scroll.set_child(Some(&list));
         scroll.set_width_request(520);
         scroll.set_height_request(220);
-        scroll.set_margin_bottom(36);
+        // scroll.set_margin_bottom(36);
+        scroll.set_has_frame(false);
         list.set_activate_on_single_click(true);
+        list.set_show_separators(true);
 
         let bx = Box::new(Orientation::Vertical, 0);
         bx.set_halign(Align::Center);
@@ -283,6 +286,7 @@ impl ScriptList {
 
     pub fn add_row(&self, path : &str) {
         let row = ListBoxRow::new();
+        row.set_height_request(64);
         let lbl = PackedImageLabel::build("emblem-documents-symbolic", path);
         row.set_child(Some(&lbl.bx));
         row.set_selectable(false);
@@ -327,6 +331,7 @@ impl SaveDialog {
                 _ => { }
             }
         });
+        configure_dialog(&dialog);
         let filter = FileFilter::new();
         filter.add_pattern("*.sql");
         dialog.set_filter(&filter);
@@ -387,16 +392,20 @@ impl OpenDialog {
                 _ => { }
             }
         });
-        dialog.set_modal(true);
-        dialog.set_deletable(true);
-        dialog.set_destroy_with_parent(true);
-        dialog.set_hide_on_close(true);
+        configure_dialog(&dialog);
         let filter = FileFilter::new();
         filter.add_pattern("*.sql");
         dialog.set_filter(&filter);
         Self { dialog }
     }
 
+}
+
+fn configure_dialog(dialog : &FileChooserDialog) {
+    dialog.set_modal(true);
+    dialog.set_deletable(true);
+    dialog.set_destroy_with_parent(true);
+    dialog.set_hide_on_close(true);
 }
 
 impl React<ScriptList> for OpenDialog {
@@ -619,6 +628,7 @@ impl ExportDialog {
             &[("Cancel", ResponseType::None), ("Save", ResponseType::Accept)]
         );
         dialog.connect_response(move |dialog, resp| {
+            println!("{:?}", resp);
             match resp {
                 ResponseType::Close | ResponseType::Reject | ResponseType::Accept |
                 ResponseType::Yes | ResponseType::No | ResponseType::None => {
@@ -627,6 +637,7 @@ impl ExportDialog {
                 _ => { }
             }
         });
+        configure_dialog(&dialog);
         // let filter = FileFilter::new();
         // filter.add_pattern("*.sql");
         // dialog.set_filter(&filter);

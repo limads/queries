@@ -27,7 +27,7 @@ use crate::tables::field::Field;
 use postgres::fallible_iterator::FallibleIterator;
 use std::time::Duration;
 use sqlparser::dialect::{PostgreSqlDialect, GenericDialect};
-use sqlparser::ast::{Statement, Function, Select, Value, Expr, SetExpr, SelectItem, Ident, TableFactor, Join, JoinOperator};
+use sqlparser::ast::{Statement, Function, Select, Value, Expr, SetExpr, SelectItem, Ident, TableFactor, Join, JoinOperator, ObjectType};
 use sqlparser::parser::{Parser, ParserError};
 use sqlparser::dialect::keywords::Keyword;
 use sqlparser::dialect;
@@ -209,14 +209,15 @@ pub fn condense_errors(stmts : &[StatementOutput]) -> Option<String> {
     match errs.len() {
         0 => None,
         1 => Some(errs.remove(0)),
-        n => Some(format!("{} (+{} errors)", errs.remove(0), n))
+        2 => Some(format!("{} (+1 previous error)", errs.last().unwrap())),
+        n => Some(format!("{} (+{} previous errors)", errs.last().unwrap(), n-1))
     }
 }
 
 pub fn condense_statement_outputs(stmts : &[StatementOutput]) -> Option<String> {
     let mut msgs : Vec<String> = stmts.iter().filter_map(|stmt| {
         match stmt {
-            StatementOutput::Statement(msg) => {
+            StatementOutput::Statement(msg) | StatementOutput::Modification(msg) => {
                 Some(msg.clone())
             },
             _ => None
@@ -225,7 +226,8 @@ pub fn condense_statement_outputs(stmts : &[StatementOutput]) -> Option<String> 
     match msgs.len() {
         0 => None,
         1 => Some(msgs.remove(0)),
-        n => Some(format!("{} (+{} changes)", msgs.remove(0), n))
+        2 => Some(format!("{} (+1 previous change)", msgs.last().unwrap())),
+        n => Some(format!("{} (+{} previous changes)", msgs.last().unwrap(), n-1))
     }
 }
 
@@ -261,9 +263,29 @@ pub fn build_statement_result(any_stmt : &AnyStatement, n : usize) -> StatementO
             Statement::CreateIndex{..} => StatementOutput::Modification(format!("Create index")),
             Statement::CreateSchema{..} => StatementOutput::Modification(format!("Create schema")),
             Statement::AlterTable{..} => StatementOutput::Modification(format!("Alter table")),
-            Statement::Drop{..} => StatementOutput::Modification(format!("Drop table")),
+            Statement::Drop{ object_type, ..} => {
+                let drop_msg = match object_type {
+                    ObjectType::Table => "Drop table",
+                    ObjectType::View => "Drop view",
+                    ObjectType::Index => "Drop index",
+                    ObjectType::Schema => "Drop schema",
+                };
+                StatementOutput::Modification(format!("{}", drop_msg))
+            },
+            Statement::Truncate { .. } => {
+                StatementOutput::Statement(format!("Truncate"))
+            },
             Statement::Copy{..} => StatementOutput::Modification(format!("Copy")),
-            _ => StatementOutput::Statement(format!("{} row(s) modified", n))
+            Statement::Insert { .. } => {
+                StatementOutput::Statement(format!("{} row(s) inserted", n))
+            },
+            Statement::Update { .. } => {
+                StatementOutput::Statement(format!("{} row(s) updated", n))
+            },
+            Statement::Delete { .. } => {
+                StatementOutput::Statement(format!("{} row(s) deleted", n))
+            },
+            _ => StatementOutput::Statement(format!("Statement executed"))
         },
         AnyStatement::Raw(_, s, _) => {
             if s.contains("create table") || s.contains("CREATE TABLE") {

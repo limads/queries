@@ -67,24 +67,51 @@ impl QueriesOverview {
 
 #[derive(Debug, Clone)]
 pub struct DetailBox {
-    bx : Box
+    bx : Box,
+    server_lbl : Label,
+    size_lbl : Label,
+    uptime_lbl : Label,
+    locale_lbl : Label
 }
 
 impl DetailBox {
 
     pub fn build() -> Self {
         let bx = Box::new(Orientation::Vertical, 0);
+        bx.set_hexpand(true);
+        bx.set_halign(Align::Fill);
         let title = super::title_label("Details");
-        let dbname = PackedImageLabel::build("db-symbolic", "Database");
+        let server = PackedImageLabel::build("db-symbolic", "Server");
         let size = PackedImageLabel::build("drive-harddisk-symbolic", "Size");
-        let encoding = PackedImageLabel::build("format-text-underline-symbolic", "Encoding");
+        let uptime = PackedImageLabel::build("clock-app-symbolic", "Uptime");
         let locale = PackedImageLabel::build("globe-symbolic", "Locale");
+        for item in [&server, &size, &uptime, &locale].iter() {
+            item.bx.set_hexpand(true);
+            item.bx.set_halign(Align::Fill);
+            item.lbl.set_halign(Align::Start);
+            item.img.set_halign(Align::Start);
+        }
+
+        let server_lbl = Label::new(None);
+        let size_lbl = Label::new(None);
+        let uptime_lbl = Label::new(None);
+        let locale_lbl = Label::new(None);
+        for lbl in [&server_lbl, &size_lbl, &uptime_lbl, &locale_lbl].iter() {
+            lbl.set_hexpand(true);
+            lbl.set_halign(Align::End);
+        }
+
+        server.bx.append(&server_lbl);
+        size.bx.append(&size_lbl);
+        uptime.bx.append(&uptime_lbl);
+        locale.bx.append(&locale_lbl);
+
         bx.append(&title);
-        bx.append(&dbname.bx);
+        bx.append(&server.bx);
         bx.append(&size.bx);
-        bx.append(&encoding.bx);
+        bx.append(&uptime.bx);
         bx.append(&locale.bx);
-        Self { bx }
+        Self { bx, server_lbl, size_lbl, uptime_lbl, locale_lbl }
     }
 
 }
@@ -102,6 +129,48 @@ impl React<ConnectionSet> for DetailBox {
         });
     }
 
+}
+
+impl React<ActiveConnection> for DetailBox {
+
+    fn react(&self, conn : &ActiveConnection) {
+        conn.connect_db_connected({
+            let (server_lbl, size_lbl, uptime_lbl, locale_lbl) = (
+                self.server_lbl.clone(),
+                self.size_lbl.clone(),
+                self.uptime_lbl.clone(),
+                self.locale_lbl.clone()
+            );
+            move |(info, _)| {
+                if let Some(details) = info.details {
+                    server_lbl.set_text(&details.server);
+                    size_lbl.set_text(&details.size);
+                    uptime_lbl.set_text(&details.uptime);
+                    locale_lbl.set_text(&details.locale);
+                } else {
+                    server_lbl.set_text("");
+                    size_lbl.set_text("");
+                    uptime_lbl.set_text("");
+                    locale_lbl.set_text("");
+                }
+            }
+        });
+
+        conn.connect_db_disconnected({
+            let (server_lbl, size_lbl, uptime_lbl, locale_lbl) = (
+                self.server_lbl.clone(),
+                self.size_lbl.clone(),
+                self.uptime_lbl.clone(),
+                self.locale_lbl.clone()
+            );
+            move |_| {
+                server_lbl.set_text("");
+                size_lbl.set_text("");
+                uptime_lbl.set_text("");
+                locale_lbl.set_text("");
+            }
+        });
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -173,35 +242,31 @@ impl ConnectionList {
 
     pub fn build() -> Self {
         let list = ListBox::builder().valign(Align::Fill).vexpand(true).vexpand_set(true).build();
-        // list.style_context().add_class("boxed-list");
+        list.style_context().add_class("boxed-list");
         list.set_valign(Align::Fill);
+        list.set_vexpand(true);
         list.set_selection_mode(SelectionMode::Single);
-        // list.set_activate_on_single_click(true);
-        // let add_row = ListBoxRow::new();
-        // add_row.set_child(Some(&Image::from_icon_name(Some("list-add-symbolic"))));
-        // add_row.set_selectable(false);
-        // add_row.set_activatable(true);
-        // list.append(&add_row);
         let scroll = ScrolledWindow::new();
-        scroll.set_width_request(520);
+        scroll.set_width_request(600);
+        // list.set_width_request(600);
         scroll.set_valign(Align::Fill);
+        scroll.set_vexpand(true);
 
-        let provider = CssProvider::new();
-        provider.load_from_data("* { border : 1px solid #d9dada; } ".as_bytes());
-        scroll.style_context().add_provider(&provider, 800);
+        // let provider = CssProvider::new();
+        scroll.set_has_frame(false);
+        // provider.load_from_data(".scrolledwindow { border : 1px solid #d9dada; } ".as_bytes());
+        // scroll.style_context().add_provider(&provider, 800);
+
         list.set_show_separators(true);
-        scroll.set_margin_bottom(36);
+        super::set_margins(&list, 1, 1);
 
         let btn_bx = super::ButtonPairBox::build("list-remove-symbolic", "list-add-symbolic");
         let add_btn = btn_bx.right_btn.clone();
         let remove_btn = btn_bx.left_btn.clone();
+        remove_btn.set_sensitive(false);
 
         btn_bx.bx.set_valign(Align::End);
         btn_bx.bx.set_halign(Align::Fill);
-        // btn_bx.style_context().add_class("linked");
-
-        // super::set_margins(&btn_bx, 0, 36);
-        scroll.set_child(Some(&list));
 
         let title = super::title_label("Connections");
         let bx = Box::new(Orientation::Vertical, 0);
@@ -212,11 +277,23 @@ impl ConnectionList {
         title_bx.append(&btn_bx.bx);
         btn_bx.bx.set_halign(Align::End);
         bx.append(&title_bx);
+
+        scroll.set_child(Some(&list));
         bx.append(&scroll);
+        // let adj = Adjustment::builder().page_size(10.).page_increment(10.).step_increment(10.).lower(0.).upper(100.).value(0.).build();
+        // let adj = PageRange::new(0, 3);
+        // list.set_adjustment(Some(&adj));
+        // bx.append(&list);
 
         // bx.append(&btn_bx);
         bx.set_margin_end(72);
 
+        list.connect_row_selected({
+            let remove_btn = remove_btn.clone();
+            move |_, opt_row| {
+                remove_btn.set_sensitive(opt_row.is_some());
+            }
+        });
         let conn_list = Self { list, scroll, add_btn, /*local_btn,*/ remove_btn, bx };
         conn_list.update();
         conn_list
@@ -400,7 +477,7 @@ impl ConnectionBox {
         cred_bx.append(&user.bx);
         cred_bx.append(&password.bx);
         cred_bx.append(&switch);
-        let title = super::title_label("Credentials");
+        let title = super::title_label("Authentication");
         let bx = Box::new(Orientation::Vertical, 0);
         bx.append(&title);
         bx.append(&host.bx);

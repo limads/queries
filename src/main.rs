@@ -8,6 +8,8 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::boxed;
 use libadwaita;
+use glib::{LogLevel, g_log};
+use std::env;
 
 use queries4::*;
 
@@ -45,7 +47,34 @@ use queries4::ui::*;
 // sudo cp queries-symbolic.svg /usr/share/icons/Yaru/scalable/actions
 fn main() {
 
-    gtk4::init().expect("GTK initialization failed");
+    /*static glib_logger: glib::GlibLogger = glib::GlibLogger::new(
+        glib::GlibLoggerFormat::Plain,
+        glib::GlibLoggerDomain::CrateTarget,
+    );
+
+    log::set_logger(&glib_logger);
+    log::set_max_level(log::LevelFilter::Debug);
+    log::info!("This line will get logged by glib");*/
+
+    g_log!(LogLevel::Debug, "Initialized");
+    let debug = match env::var("QUERIES_DEBUG") {
+        Ok(var) => {
+            match &var[..] {
+                "1" => true,
+                "0" => false,
+                _ => {
+                    queries4::log_error("QUERIES_DEBUG valid values are 1 or 0. Ignoring current value.");
+                    false
+                }
+            }
+        },
+        _ => {
+            false
+        }
+    };
+    queries4::DEBUG_LOG.set(debug).unwrap();
+
+    gtk4::init().map_err(queries4::log_critical_then_abort);
 
     /*let res_bytes = include_bytes!("../assets/icons.bin");
     let data = glib::Bytes::from(&res_bytes[..]);
@@ -59,29 +88,52 @@ fn main() {
     // theme.add_resource_path("/assets");
 
     let application = Application::builder()
-        .application_id("com.github.limads.queries")
+        .application_id(queries4::APP_ID)
         .build();
 
-    let style_manager = libadwaita::StyleManager::default().unwrap();
-    style_manager.set_color_scheme(libadwaita::ColorScheme::Default);
+    match libadwaita::StyleManager::default() {
+        Some(style_manager) => {
+            style_manager.set_color_scheme(libadwaita::ColorScheme::Default);
+        },
+        None => {
+            queries4::log_error("Could not get default libadwaita style manager");
+        }
+    }
 
     let user_state = if let Some(s) = SharedUserState::open(queries4::SETTINGS_PATH) {
+        queries4::log_debug_if_required("User state loaded");
         s
     } else {
+        queries4::log_debug_if_required("No user state found. Starting from Default.");
         Default::default()
     };
+
+    let client = QueriesClient::new();
+    client.update(&user_state);
+
+    // Take shared ownership of the client state, because they will be needed to
+    // persist the client state before the application closes (which is done outside
+    // connect_activate). The state is updated for both of these structures just before
+    // the window is closed.
+    let script_final_state = client.scripts.final_state();
+    let conn_final_state = client.conn_set.final_state();
 
     application.connect_activate({
         let user_state = user_state.clone();
         move |app| {
-            let display = &gdk::Display::default()
-                .expect("Could not get default Display");
-            let theme = IconTheme::for_display(display)
-                .expect("Could not get IconTheme");
+            if let Some(display) = gdk::Display::default() {
+                if let Some(theme) = IconTheme::for_display(&display) {
+                    theme.add_search_path("/home/diego/Software/queries/assets/icons");
+                } else {
+                    queries4::log_error("Unable to get theme for current GDK display");
+                }
+            } else {
+                queries4::log_error("Unable to get default GDK display");
+            }
 
             // GTK4 widgets seem to be able to load them from the icon root. But the libadwaita
             // widgets expect them to be under icons/hicolor/scalable/actions.
-            theme.add_search_path("/home/diego/Software/queries/assets/icons");
+
             let window = ApplicationWindow::builder()
                 .application(app)
                 .title("Queries")
@@ -89,117 +141,81 @@ fn main() {
                 .default_height(768)
                 .build();
             let queries_win = QueriesWindow::from(window);
+            queries4::log_debug_if_required("Window built");
 
-            {
-                let state = user_state.borrow();
-                queries_win.paned.set_position(state.main_handle_pos);
-                queries_win.sidebar.paned.set_position(state.side_handle_pos);
-                queries_win.window.set_default_size(state.window_width, state.window_height);
-            }
+            crate::client::set_window_state(&user_state, &queries_win);
 
-            let client = QueriesClient::new();
-            client.update(&user_state);
-            // user_state.react(&client.active_conn);
-            user_state.react(&client.conn_set);
-            user_state.react(&client.scripts);
             user_state.react(&queries_win);
+            queries4::log_debug_if_required("Client initialized");
 
-            // TODO perhaps wrap all the data state into a QueriesClient struct.
             client.conn_set.react(&queries_win.content.results.overview.conn_list);
             client.conn_set.react(&client.active_conn);
+            client.conn_set.react(&queries_win);
+            client.active_conn.react(&queries_win.content.results.overview.conn_bx);
+            client.active_conn.react(&queries_win.titlebar.exec_btn);
+            client.active_conn.react(&queries_win.sidebar.schema_tree);
+
+            client.env.react(&client.active_conn);
+            client.env.react(&queries_win.content.results.workspace);
+            client.env.react(&queries_win.content.editor.export_dialog);
+            client.env.react(&queries_win.settings);
+
+            queries_win.content.react(&client.active_conn);
             queries_win.content.results.overview.detail_bx.react(&client.conn_set);
             queries_win.content.results.overview.conn_bx.react(&client.conn_set);
             queries_win.content.results.overview.conn_list.react(&client.conn_set);
-
             queries_win.content.results.overview.conn_list.react(&client.active_conn);
-
-            queries_win.content.react(&client.active_conn);
             queries_win.content.results.overview.conn_bx.react(&client.active_conn);
-            client.active_conn.react(&queries_win.content.results.overview.conn_bx);
-            queries_win.sidebar.schema_tree.react(&client.active_conn);
-            client.active_conn.react(&queries_win.titlebar.exec_btn);
-
-            client.env.react(&client.active_conn);
             queries_win.content.results.workspace.react(&client.env);
+
+            queries_win.sidebar.schema_tree.react(&client.active_conn);
+            queries_win.sidebar.file_list.react(&client.scripts);
 
             client.scripts.react(&queries_win.content.editor.save_dialog);
             client.scripts.react(&queries_win.content.editor.open_dialog);
             client.scripts.react(&queries_win.titlebar.main_menu);
             client.scripts.react(&queries_win.content.editor.script_list);
-            queries_win.sidebar.file_list.react(&client.scripts);
-            queries_win.content.editor.react(&client.scripts);
-            queries_win.content.react(&client.scripts);
             client.scripts.react(&queries_win.sidebar.file_list);
             client.scripts.react(&queries_win.content.editor);
+            client.scripts.react(&queries_win);
+
+            queries_win.content.editor.react(&client.scripts);
+            queries_win.content.editor.save_dialog.react(&client.scripts);
+            queries_win.content.editor.save_dialog.react(&queries_win.titlebar.main_menu);
+
+            queries_win.content.react(&client.scripts);
             queries_win.titlebar.exec_btn.react(&client.scripts);
             queries_win.titlebar.exec_btn.react(&client.active_conn);
             queries_win.titlebar.exec_btn.react(&queries_win.content);
             queries_win.content.react(&client.env);
-            client.scripts.react(&queries_win);
-            client.env.react(&queries_win.content.results.workspace);
-            client.env.react(&queries_win.content.editor.export_dialog);
 
-            client.env.react(&queries_win.settings);
-            queries_win.content.editor.save_dialog.react(&client.scripts);
-            queries_win.content.editor.save_dialog.react(&queries_win.titlebar.main_menu);
+            queries_win.content.results.overview.detail_bx.react(&client.active_conn);
+
 
             queries_win.react(&queries_win.titlebar);
             queries_win.react(&client.scripts);
 
-            {
-                // Only add scripts and connections after all signals have been setup,
-                // to guarantee the GUI will update.
-                let state = user_state.borrow();
-                client.conn_set.add(&state.conns);
-                client.scripts.add(&state.scripts);
-            }
+            // It is important to make this call to add scripts and connections
+            // only after all signals have been setup, to guarantee the GUI will update
+            // when the client updates.
+            crate::client::set_client_state(&user_state, &client);
 
             queries_win.window.show();
-
-            // connections.react(queries_win.content.overview.conn_list.receiver());
-
-            // rows.push(connection_row());
-            // rows.push(connection_row());
-            // conn_list.append(&rows[0].row);
-            // conn_list.append(&rows[1].row);
-
-            // overview_bx.set_margin_start(100);
-            // overview_bx.set_margin_end(100);
-
-            /*let conn_lbl = Label::new(Some("<span font_weight=\"semibold\" fgcolor=\"#3d3d3d\">Connections</span>"));
-            conn_lbl.set_justify(Justification::Left);
-            conn_lbl.set_halign(Align::Start);
-            conn_lbl.set_use_markup(true);
-            set_margins(&conn_lbl, 0, 18);
-
-            overview_bx.append(&conn_lbl);*/
-
-            /*let script_lbl = Label::new(Some("<span font_weight=\"semibold\" fgcolor=\"#3d3d3d\">Scripts</span>"));
-            script_lbl.set_justify(Justification::Left);
-            script_lbl.set_use_markup(true);
-            script_lbl.set_halign(Align::Start);
-            let script_list = ListBox::new();
-            overview_bx.append(&script_lbl);
-            overview_bx.append(&script_list);
-            set_margins(&script_lbl, 0, 18);*/
-
-            /*let action_quit = SimpleAction::new("quit", None);
-            action_quit.connect_activate(clone!(@weak window => move |_, _| {
-                window.close();
-            }));
-            window.add_action(&action_quit);
-            app.set_accels_for_action("win.quit", &["<primary>W"]);*/
-            /*let button = Button::builder()
-                .label("Press me!")
-                .action_name("win.count")
-                .action_target(&1.to_variant())
-                .build();*/
         }
     });
 
     application.run();
+    queries4::log_debug_if_required("Application closed");
 
-    user_state.save(queries4::SETTINGS_PATH);
+    user_state.replace_with(|user_state| {
+        user_state.conns = conn_final_state.borrow().clone();
+        user_state.scripts = script_final_state.borrow().clone();
+        user_state.clone()
+    });
+    crate::client::persist_user_preferences(&user_state, queries4::SETTINGS_PATH);
+    queries4::log_debug_if_required("User state persisted");
+
+    queries4::log_debug_if_required("Leaving main thread");
 }
 
 // println!("File search path = {:?}", theme.search_path());

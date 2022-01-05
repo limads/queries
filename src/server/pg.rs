@@ -29,10 +29,13 @@ use postgres::Client;
 use itertools::Itertools;
 use std::path::Path;
 use crate::tables::field::Field;
+use crate::client::ConnectionInfo;
 
 pub struct PostgresConnection {
 
     conn_str : String,
+
+    info : ConnectionInfo,
 
     conn : postgres::Client,
 
@@ -44,7 +47,7 @@ pub struct PostgresConnection {
 
 impl PostgresConnection {
 
-    pub fn try_new(conn_str : String) -> Result<Self, String> {
+    pub fn try_new(conn_str : String, info : ConnectionInfo) -> Result<Self, String> {
         let tls_mode = NoTls{ };
         //println!("{}", conn_str);
         match Client::connect(&conn_str[..], tls_mode) {
@@ -52,7 +55,8 @@ impl PostgresConnection {
                 conn_str,
                 conn,
                 exec : Arc::new(Mutex::new((Executor::new(), String::new()))) ,
-                channel : None
+                channel : None,
+                info
             }),
             Err(e) => {
                 let mut e = e.to_string();
@@ -70,24 +74,26 @@ impl Connection for PostgresConnection {
 
     }
 
-    fn query(&mut self, q : &str, subs : &HashMap<String, String>) -> StatementOutput {
-        let query = substitute_if_required(q, subs);
-
+    fn query(&mut self, query : &str, subs : &HashMap<String, String>) -> StatementOutput {
+        // let query = substitute_if_required(q, subs);
         // println!("Final query: {}", query);
         // println!("Executing: {}", query);
         match self.conn.query(&query[..], &[]) {
             Ok(rows) => {
                 match build_table_from_postgre(&rows[..]) {
                     Ok(mut tbl) => {
-                        if let Some((name, relation)) = crate::sql::table_name_from_sql(q) {
+                        if let Some((name, relation)) = crate::sql::table_name_from_sql(query) {
                             tbl.set_name(Some(name));
                             if !relation.is_empty() {
                                 tbl.set_relation(Some(relation));
                             }
                         }
                         if tbl.names().iter().unique().count() == tbl.names().len() {
-                            StatementOutput::Valid(q.to_string(), tbl)
+                            StatementOutput::Valid(query.to_string(), tbl)
                         } else {
+
+                            // The reporing feature relies on unique column names. Perhaps move
+                            // this error to the reporting validation.
                             StatementOutput::Invalid(crate::sql::build_error_with_stmt("Non-unique column names", &query[..]), false)
                         }
                     },
@@ -104,16 +110,21 @@ impl Connection for PostgresConnection {
 
     fn exec(&mut self, stmt : &AnyStatement, subs : &HashMap<String, String>) -> StatementOutput {
         // let final_stmt = substitute_if_required(&s, subs);
+
+        // TODO The postgres driver panics when the number of arguments differ from the number of required
+        // substitutions with $. Must reject any query/statements containing those outside literal strings,
+        // which can be verified with the sqlparse tokenizer.
+
         let ans = match stmt {
             AnyStatement::Parsed(stmt, s) => {
                 let s = format!("{}", stmt);
-                let final_statement = substitute_if_required(&s, subs);
+                // let final_statement = substitute_if_required(&s, subs);
                 // println!("Final statement: {}", final_statement);
-                self.conn.execute(&final_statement[..], &[])
+                self.conn.execute(&s[..], &[])
             },
             AnyStatement::Raw(_, s, _) => {
-                let final_statement = substitute_if_required(&s, subs);
-                self.conn.execute(&final_statement[..], &[])
+                // let final_statement = substitute_if_required(&s, subs);
+                self.conn.execute(&s[..], &[])
             },
             AnyStatement::Local(_) => {
                 panic!("Tried to execute local statement remotely")
@@ -162,7 +173,18 @@ impl Connection for PostgresConnection {
             // let catalog_funcs = self.get_postgres_functions("pg_catalog").unwrap_or(Vec::new());
             // top_objs.push(DBObject::Schema { name : format!("catalog"), children : catalog_funcs });
 
-            Some(DBInfo { schema : top_objs, ..Default::default() })
+            let mut details = DBDetails::default();
+            let version = self.conn.query_one("show server_version", &[]).unwrap().get::<_, String>(0);
+            let version_number = version.split(" ").next().unwrap();
+            details.server = format!("Postgres {}", version_number);
+            // details.encoding = self.conn.query_one("show server_encoding", &[]).unwrap().get::<_, String>(0);
+            details.locale = self.conn.query_one("show lc_collate", &[]).unwrap().get::<_, String>(0);
+            details.size = self.conn.query_one("select pg_size_pretty(pg_database_size($1));", &[&self.info.database]).unwrap().get::<_, String>(0);
+
+            // Can also use extract (days from interval) or extract(hour from interval)
+            details.uptime = self.conn.query_one(UPTIME_QUERY, &[]).unwrap().get::<_, String>(0);
+
+            Some(DBInfo { schema : top_objs, details : Some(details) })
 
         } else {
             println!("Failed retrieving database schemata");
@@ -174,6 +196,14 @@ impl Connection for PostgresConnection {
     }
 
 }
+
+const UPTIME_QUERY : &'static str = r#"
+with uptime as (select current_timestamp - pg_postmaster_start_time() as uptime)
+select cast(extract(days from uptime) as integer) || 'd ' ||
+    cast(extract(hours from uptime) as integer) || 'h ' ||
+    cast(extract(minutes from uptime) as integer) || 'm'
+from uptime;
+"#;
 
 /*fn get_postgre_extensions(&mut self) {
     // First, check all available extensions.
