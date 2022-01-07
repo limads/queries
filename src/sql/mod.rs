@@ -260,6 +260,10 @@ pub fn build_statement_result(any_stmt : &AnyStatement, n : usize) -> StatementO
             Statement::CreateTable{..} | Statement::CreateVirtualTable{..} => {
                 StatementOutput::Modification(format!("Create table"))
             },
+
+            // Not implemented yet
+            // Statement::CreateFunction{ .. } => StatementOutput::Modification(format!("Create function")),
+
             Statement::CreateIndex{..} => StatementOutput::Modification(format!("Create index")),
             Statement::CreateSchema{..} => StatementOutput::Modification(format!("Create schema")),
             Statement::AlterTable{..} => StatementOutput::Modification(format!("Alter table")),

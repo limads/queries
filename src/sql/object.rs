@@ -17,7 +17,7 @@ pub struct DBInfo {
     pub details : Option<DBDetails>
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DBType {
     Bool,
     I16,
@@ -94,7 +94,7 @@ impl fmt::Display for DBType {
 
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Relation {
     pub tgt_schema : String,
     pub tgt_tbl : String,
@@ -119,7 +119,7 @@ pub enum DBFunction {
 
 }*/
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DBObject {
 
     // In practice, children will always hold table variants.
@@ -127,13 +127,22 @@ pub enum DBObject {
 
     Table{ name : String, cols : Vec<(String, DBType, bool)>, rels : Vec<Relation> },
 
-    Function { name : String, args : Vec<DBType>, ret : DBType },
+    Function { name : String, args : Vec<DBType>, arg_names : Option<Vec<String>>, ret : DBType },
 
     View { name : String }
 
 }
 
 impl DBObject {
+
+    pub fn obj_name(&self) -> &str {
+        match &self {
+            Self::Schema { name, .. } => &name[..],
+            Self::Table { name, .. } => &name[..],
+            Self::Function { name, .. } => &name[..],
+            Self::View { name, .. } => &name[..]
+        }
+    }
 
     /// Gets a table or schema by recursively indexing this structure.
     pub fn get_table_or_schema(&self, sub_ixs : &[usize]) -> Option<DBObject> {

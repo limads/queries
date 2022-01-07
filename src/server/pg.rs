@@ -154,6 +154,9 @@ impl Connection for PostgresConnection {
                         return None;
                     }
                 }
+                tbl_objs.sort_by(|a, b| {
+                    a.obj_name().chars().next().unwrap().cmp(&b.obj_name().chars().next().unwrap())
+                });
 
                 let func_objs = get_postgres_functions(self, &schema[..]).unwrap_or(Vec::new());
                 let view_objs = get_postgres_views(self, &schema[..]).unwrap_or(Vec::new());
@@ -229,10 +232,11 @@ fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Opti
     let fn_query = format!(r#"
     with arguments as (
         with arg_types as (select pg_proc.oid as proc_oid,
-            unnest(proargtypes) as arg_oid
+            unnest(proargtypes) as arg_oid,
+            generate_series(1, cardinality(proargtypes)) as arg_order
             from pg_catalog.pg_proc
         ) select arg_types.proc_oid as proc_id,
-            array_agg(cast(typname as text)) as arg_typename
+            array_agg(cast(typname as text) order by arg_order) as arg_typename
             from pg_catalog.pg_type inner join arg_types on pg_type.oid = arg_types.arg_oid
             group by arg_types.proc_oid
             order by arg_types.proc_oid
@@ -241,6 +245,7 @@ fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Opti
         proname::text,
         arguments.arg_typename,
         cast(typname as text) as ret_typename,
+        pg_proc.proargnames as arg_names,
         pg_language.lanname as lang,
         pg_namespace.nspname
     from pg_catalog.pg_proc left join pg_catalog.pg_type on pg_proc.prorettype = pg_type.oid
@@ -258,11 +263,13 @@ fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Opti
         StatementOutput::Valid(_, fn_info) => {
             let mut fns = Vec::new();
             let names = Vec::<String>::try_from(fn_info.get_column(2).unwrap().clone()).ok()?;
-            let args = (0..names.len()).map(|ix| fn_info.get_column(3).unwrap().at(ix) ).collect::<Vec<_>>();
-            println!("Retrieved args = {:?}", args);
+            let arg_types = (0..names.len()).map(|ix| fn_info.get_column(3).unwrap().at(ix) ).collect::<Vec<_>>();
+            // println!("Retrieved args = {:?}", args);
             let ret = Vec::<String>::try_from(fn_info.get_column(4).unwrap().clone()).ok()?;
-            for (name, (arg_vals, ret)) in names.iter().zip(args.iter().zip(ret.iter())) {
-                let args = match arg_vals {
+            let arg_names = (0..names.len()).map(|ix| fn_info.get_column(5).unwrap().at(ix) ).collect::<Vec<_>>();
+            let fn_iter = names.iter().zip(arg_names.iter().zip(arg_types.iter().zip(ret.iter())));
+            for (name, (arg_ns, (arg_tys, ret))) in fn_iter {
+                let args = match arg_tys {
                     Some(Field::Json(serde_json::Value::Array(arg_names))) => {
                         arg_names.iter().map(|arg| match arg {
                             serde_json::Value::String(s) => DBType::from_str(&s[..]).unwrap_or(DBType::Unknown),
@@ -274,8 +281,33 @@ fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Opti
                     }
                 };
                 let ret = DBType::from_str(ret).unwrap_or(DBType::Unknown);
-                fns.push(DBObject::Function { name : name.clone(), args, ret });
+
+                let mut func_arg_names = Vec::new();
+                if let Some(ns) = arg_ns {
+                    match ns {
+                        Field::Json(Value::Array(arr)) => {
+                            for name in arr.iter() {
+                                let content = name.to_string();
+                                let trim_content = content.trim_start_matches("\"").trim_end_matches("\"");
+                                if &trim_content[..] != "null" && &trim_content[..] != "NULL" {
+                                    func_arg_names.push(trim_content.to_string());
+                                }
+                            }
+                        },
+                        _ => { }
+                    }
+                }
+                let opt_func_arg_names = if func_arg_names.len() > 0 && func_arg_names.len() == args.len() {
+                    Some(func_arg_names)
+                } else {
+                    None
+                };
+                fns.push(DBObject::Function { name : name.clone(), args, arg_names : opt_func_arg_names, ret });
             }
+
+            fns.sort_by(|a, b| {
+                a.obj_name().chars().next().unwrap().cmp(&b.obj_name().chars().next().unwrap())
+            });
             Some(fns)
         },
         StatementOutput::Invalid(msg, _) => { println!("{}", msg); None },
@@ -377,7 +409,9 @@ fn get_postgres_pks(conn : &mut PostgresConnection, schema_name : &str, tbl_name
                     .and_then(|c| { let s : Option<Vec<String>> = c.clone().try_into().ok(); s })?;
                 Some(cols)
             },
-            StatementOutput::Invalid(msg, _) => { println!("{}", msg); None },
+
+            // Will throw an error when there are no relations.
+            StatementOutput::Invalid(msg, _) => { /*println!("{}", msg);*/ None },
             _ => None
         }
     } else {
@@ -802,11 +836,16 @@ pub fn build_table_from_postgre(rows : &[postgres::row::Row]) -> Result<Table, &
         // println!("{:?}", col_types[i]);
         let is_bool = col_types[i] == &Type::BOOL;
         let is_bytea = col_types[i] == &Type::BYTEA;
-        let is_text = col_types[i] == &Type::TEXT || col_types[i] == &Type::VARCHAR;
+        let is_text = col_types[i] == &Type::TEXT ||
+            col_types[i] == &Type::VARCHAR ||
+            col_types[i] == &Type::BPCHAR ||
+            col_types[i] == &Type::NAME;
+        let is_char = col_types[i] == &Type::CHAR;
         let is_double = col_types[i] == &Type::FLOAT8;
         let is_float = col_types[i] == &Type::FLOAT4;
         let is_int = col_types[i] == &Type::INT4;
         let is_long = col_types[i] == &Type::INT8;
+        let is_oid = col_types[i] == &Type::OID;
         let is_smallint = col_types[i] == &Type::INT2;
         let is_timestamp = col_types[i] == &Type::TIMESTAMP;
         let is_date = col_types[i] == &Type::DATE;
@@ -843,40 +882,48 @@ pub fn build_table_from_postgre(rows : &[postgres::row::Row]) -> Result<Table, &
                 if is_text {
                     null_cols.push(nullable_from_rows::<String>(rows, i)?);
                 } else {
-                    if is_double {
-                        null_cols.push(nullable_from_rows::<f64>(rows, i)?);
+                    if is_char {
+                        null_cols.push(nullable_from_rows::<i8>(rows, i)?);
                     } else {
-                        if is_float {
-                            null_cols.push(nullable_from_rows::<f32>(rows, i)?);
+                        if is_double {
+                            null_cols.push(nullable_from_rows::<f64>(rows, i)?);
                         } else {
-                            if is_int {
-                                null_cols.push(nullable_from_rows::<i32>(rows, i)?);
+                            if is_float {
+                                null_cols.push(nullable_from_rows::<f32>(rows, i)?);
                             } else {
-                                if is_smallint {
-                                    null_cols.push(nullable_from_rows::<i16>(rows, i)?);
+                                if is_int {
+                                    null_cols.push(nullable_from_rows::<i32>(rows, i)?);
                                 } else {
-                                    if is_long {
-                                        null_cols.push(nullable_from_rows::<i64>(rows, i)?);
+                                    if is_smallint {
+                                        null_cols.push(nullable_from_rows::<i16>(rows, i)?);
                                     } else {
-                                        if is_timestamp {
-                                            null_cols.push(as_nullable_text::<chrono::NaiveDateTime>(rows, i)?);
+                                        if is_long {
+                                            null_cols.push(nullable_from_rows::<i64>(rows, i)?);
                                         } else {
-                                            if is_date {
-                                                null_cols.push(as_nullable_text::<chrono::NaiveDate>(rows, i)?);
+                                            if is_oid {
+                                                null_cols.push(nullable_from_rows::<u32>(rows, i)?);
                                             } else {
-                                                if is_time {
-                                                    null_cols.push(as_nullable_text::<chrono::NaiveTime>(rows, i)?);
+                                                if is_timestamp {
+                                                    null_cols.push(as_nullable_text::<chrono::NaiveDateTime>(rows, i)?);
                                                 } else {
-                                                    if is_numeric {
-                                                        null_cols.push(nullable_from_rows::<Decimal>(rows, i)?);
+                                                    if is_date {
+                                                        null_cols.push(as_nullable_text::<chrono::NaiveDate>(rows, i)?);
                                                     } else {
-                                                        if is_json {
-                                                            null_cols.push(nullable_from_rows::<Value>(rows, i)?);
+                                                        if is_time {
+                                                            null_cols.push(as_nullable_text::<chrono::NaiveTime>(rows, i)?);
                                                         } else {
-                                                            if let Some(ty) = array_ty {
-                                                                null_cols.push(nullable_from_arr(rows, i, ty)?);
+                                                            if is_numeric {
+                                                                null_cols.push(nullable_from_rows::<Decimal>(rows, i)?);
                                                             } else {
-                                                                null_cols.push(nullable_unable_to_parse(rows, col_types[i]));
+                                                                if is_json {
+                                                                    null_cols.push(nullable_from_rows::<Value>(rows, i)?);
+                                                                } else {
+                                                                    if let Some(ty) = array_ty {
+                                                                        null_cols.push(nullable_from_arr(rows, i, ty)?);
+                                                                    } else {
+                                                                        null_cols.push(nullable_unable_to_parse(rows, col_types[i]));
+                                                                    }
+                                                                }
                                                             }
                                                         }
                                                     }

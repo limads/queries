@@ -264,7 +264,7 @@ impl TableWidget {
                 if i == 0 {
                     let header_cell = self.create_data_cell(col.as_ref(), i, j, nrows, ncols);
                     // self.grid.append(&header_cell);
-                    header_cell.set_selectable(true);
+                    // header_cell.set_selectable(true);
                     /*ev_box.realize();
                     if let Some(win) = ev_box.get_window() {
                         let disp = win.get_display();

@@ -50,8 +50,10 @@ impl React<Environment> for QueriesWorkspace {
         let tab_view = self.tab_view.clone();
         env.connect_table_update(move |tables| {
 
-            while let Some(page) = tab_view.nth_page(0) {
-                tab_view.close_page(&page);
+            while tab_view.n_pages() > 0 {
+                if let Some(page) = tab_view.nth_page(0) {
+                    tab_view.close_page(&page);
+                }
             }
 
             for tbl in tables.iter() {
@@ -90,7 +92,7 @@ fn configure_table_page(tab_page : &libadwaita::TabPage, table : &Table) {
         _ => (format!("queries"), format!("Unknown"))
     };
     let (nrows, ncols) = table.shape();
-    title += &format!(" ({} x {})", nrows - 1, ncols);
+    title += &format!(" ({} x {})", nrows, ncols);
     tab_page.set_title(&title);
     tab_page.set_icon(Some(&gio::ThemedIcon::new(&icon)));
 }

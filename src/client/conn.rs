@@ -477,11 +477,11 @@ impl ActiveConnection {
                         match (&schema, obj_ixs) {
                             (Some(schema), Some(ixs)) => {
                                 selected_obj = crate::sql::object::index_db_object(&schema[..], ixs);
-                                println!("{:?}", selected_obj);
+                                // println!("{:?}", selected_obj);
                             },
                             _ => {
                                 selected_obj = None;
-                                println!("{:?}", selected_obj);
+                                // println!("{:?}", selected_obj);
                             }
                         }
                         on_object_selected.borrow().iter().for_each(|f| f(selected_obj.clone()) );
@@ -818,7 +818,25 @@ impl React<SchemaTree> for ActiveConnection {
             if n_selected == 0 {
                 send.send(ActiveConnectionAction::ObjectSelected(None));
             }
+
         });
 
+        tree.query_action.connect_activate({
+            let send = self.send.clone();
+            move |action, _| {
+                if let Some(state) = action.state() {
+                    let s = state.get::<String>().unwrap();
+                    if !s.is_empty() {
+                        let obj : DBObject = serde_json::from_str(&s).unwrap();
+                        match obj {
+                            DBObject::Table { name, .. } => {
+                                send.send(ActiveConnectionAction::ExecutionRequest(format!("select * from {} limit 500;", name)));
+                            },
+                            _ => { }
+                        }
+                    }
+                }
+            }
+        });
     }
 }

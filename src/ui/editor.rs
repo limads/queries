@@ -331,7 +331,7 @@ impl SaveDialog {
                 _ => { }
             }
         });
-        configure_dialog(&dialog);
+        super::configure_dialog(&dialog);
         let filter = FileFilter::new();
         filter.add_pattern("*.sql");
         dialog.set_filter(&filter);
@@ -392,20 +392,13 @@ impl OpenDialog {
                 _ => { }
             }
         });
-        configure_dialog(&dialog);
+        super::configure_dialog(&dialog);
         let filter = FileFilter::new();
         filter.add_pattern("*.sql");
         dialog.set_filter(&filter);
         Self { dialog }
     }
 
-}
-
-fn configure_dialog(dialog : &FileChooserDialog) {
-    dialog.set_modal(true);
-    dialog.set_deletable(true);
-    dialog.set_destroy_with_parent(true);
-    dialog.set_hide_on_close(true);
 }
 
 impl React<ScriptList> for OpenDialog {
@@ -637,7 +630,7 @@ impl ExportDialog {
                 _ => { }
             }
         });
-        configure_dialog(&dialog);
+        super::configure_dialog(&dialog);
         // let filter = FileFilter::new();
         // filter.add_pattern("*.sql");
         // dialog.set_filter(&filter);

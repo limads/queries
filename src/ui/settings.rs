@@ -117,7 +117,10 @@ impl EditorBox {
 
 #[derive(Debug, Clone)]
 pub struct ExecutionBox {
-    bx : Box
+    bx : Box,
+    row_limit_spin : SpinButton,
+    col_limit_spin : SpinButton,
+    schedule_scale : Scale
 }
 
 impl ExecutionBox {
@@ -126,7 +129,22 @@ impl ExecutionBox {
         let bx = Box::new(Orientation::Vertical, 0);
         bx.set_halign(Align::Fill);
         bx.set_hexpand(true);
-        Self { bx }
+        let row_limit_spin = SpinButton::with_range(0.0, 10_000.0, 1.0);
+        row_limit_spin.set_digits(0);
+        row_limit_spin.set_value(500.);
+
+        let col_limit_spin = SpinButton::with_range(0.0, 100.0, 1.0);
+        col_limit_spin.set_digits(0);
+        col_limit_spin.set_value(25.);
+
+        let schedule_scale = Scale::with_range(Orientation::Horizontal, 1.0, 30.0, 1.0);
+        schedule_scale.set_width_request(240);
+        schedule_scale.set_draw_value(true);
+        schedule_scale.set_value_pos(PositionType::Top);
+        bx.append(&NamedBox::new("Row limit", None, row_limit_spin.clone()).bx);
+        bx.append(&NamedBox::new("Column limit", None, col_limit_spin.clone()).bx);
+        bx.append(&NamedBox::new("Execution interval", Some("Interval (in seconds) between scheduled executions"), schedule_scale.clone()).bx);
+        Self { bx, row_limit_spin, col_limit_spin, schedule_scale }
     }
 
 }

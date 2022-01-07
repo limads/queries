@@ -6,7 +6,7 @@ use crate::React;
 use crate::client::Environment;
 use crate::sql::StatementOutput;
 use crate::client::OpenedScripts;
-
+use crate::sql::object::{DBObject, DBType};
 mod overview;
 
 pub use overview::*;
@@ -51,6 +51,10 @@ mod settings;
 
 pub use settings::*;
 
+mod form;
+
+pub use form::*;
+
 #[derive(Debug, Clone)]
 pub struct QueriesContent {
     pub stack : libadwaita::ViewStack,
@@ -76,9 +80,6 @@ impl QueriesResults {
         let overview = QueriesOverview::build();
         let workspace = QueriesWorkspace::build();
         stack.add_named(&overview.bx, Some("overview"));
-        // overview.bx.set_margin_bottom(0);
-        // workspace.bx.set_margin_bottom(0);
-        // stack.bx.set_margin_bottom(0);
         stack.add_named(&workspace.bx, Some("tables"));
         stack.set_visible_child_name("overview");
         // stack.set_visible_child_name("tables");
@@ -173,13 +174,11 @@ impl QueriesContent {
         let stack = libadwaita::ViewStack::new();
         let editor = QueriesEditor::build();
         let results = QueriesResults::build();
-        let results_page = stack.add_named(&results.stack, Some("results")).unwrap();
-        results_page.set_icon_name(Some("db-symbolic"));
-        //page.connect_visible_notify(move |_| {
-        //    println!("Results visible");
-        // } );
-        // stack.add_named(&workspace.nb, Some("workspace"));
         let editor_page = stack.add_named(&editor.stack, Some("editor")).unwrap();
+        let results_page = stack.add_named(&results.stack, Some("results")).unwrap();
+        stack.set_visible_child_name("results");
+        results_page.set_icon_name(Some("db-symbolic"));
+
         editor_page.set_icon_name(Some("accessories-text-editor-symbolic"));
         let switcher = libadwaita::ViewSwitcher::builder().stack(&stack).can_focus(false).policy(libadwaita::ViewSwitcherPolicy::Wide).build();
         let overlay = libadwaita::ToastOverlay::builder() /*.margin_bottom(10).*/ .opacity(1.0).visible(true).build();
@@ -310,6 +309,7 @@ impl QueriesWindow {
         content.editor.save_dialog.dialog.set_transient_for(Some(&window));
         content.editor.open_dialog.dialog.set_transient_for(Some(&window));
         content.editor.export_dialog.dialog.set_transient_for(Some(&window));
+        sidebar.schema_tree.form.dialog.set_transient_for(Some(&window));
 
         titlebar.header.set_title_widget(Some(&content.switcher));
 
@@ -350,8 +350,11 @@ impl QueriesWindow {
         window.add_action(&titlebar.exec_btn.clear_action);
         window.add_action(&titlebar.exec_btn.schedule_action);
         window.add_action(&sidebar.file_list.close_action);
+
         window.add_action(&sidebar.schema_tree.query_action);
         window.add_action(&sidebar.schema_tree.insert_action);
+        window.add_action(&sidebar.schema_tree.import_action);
+        window.add_action(&sidebar.schema_tree.call_action);
 
         content.editor.open_dialog.react(&titlebar.main_menu);
         content.editor.export_dialog.react(&titlebar.main_menu);
@@ -611,4 +614,26 @@ impl ButtonPairBox {
 
 }
 
+pub fn configure_dialog(dialog : &impl GtkWindowExt) {
+    dialog.set_modal(true);
+    dialog.set_deletable(true);
+    dialog.set_destroy_with_parent(true);
+    dialog.set_hide_on_close(true);
+}
+
+pub fn get_type_icon_name(ty : &DBType) -> &'static str {
+    match ty {
+        DBType::Bool => "type-boolean",
+        DBType::I16 | DBType::I32 | DBType::I64 => "type-integer",
+        DBType::F32 | DBType::F64 | DBType::Numeric => "type-real",
+        DBType::Text => "type-text",
+        DBType::Date => "type-date",
+        DBType::Time => "type-time",
+        DBType::Json => "type-json",
+        DBType::Xml => "type-xml",
+        DBType::Bytes => "type-binary",
+        DBType::Array => "type-array",
+        DBType::Unknown | DBType::Trigger => "type-unknown",
+    }
+}
 

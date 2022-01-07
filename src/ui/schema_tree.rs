@@ -18,6 +18,7 @@ use crate::ui::PackedImageLabel;
 use gtk4::glib;
 use gtk4::subclass::prelude::*;
 // use gtk4::gdk;
+use serde_json;
 
 /*pub trait View {
 
@@ -105,6 +106,9 @@ pub struct SchemaTree {
     pub bx : Box,
     pub query_action : gio::SimpleAction,
     pub insert_action : gio::SimpleAction,
+    pub import_action : gio::SimpleAction,
+    pub call_action : gio::SimpleAction,
+    pub form : super::Form
 }
 
 const ALL_TYPES : [DBType; 15] = [
@@ -183,6 +187,19 @@ impl SchemaTree {
         let menu = gio::Menu::new();
         menu.append(Some("Query"), Some("win.query"));
         menu.append(Some("Insert"), Some("win.insert"));
+        menu.append(Some("Import"), Some("win.import"));
+        menu.append(Some("Call"), Some("win.call"));
+
+        //let call_menu = gio::Menu::new();\
+        //let item = gio::MenuItem::new(Some("Field"), Some("win.field"));
+        // item.
+        // call_menu.append_item()
+        // menu.append_section(Some("Call"), &call_menu);
+        // let submenu = gio::Menu::new();
+        // let subitem = MenuItem::
+        // let item = gio::MenuItem::new_submenu(Some("Call"), &submenu);
+        // menu.append_item(&item);
+
         let schema_popover = PopoverMenu::builder().menu_model(&menu) /*.cascade_popdown(true).can_focus(true).can_target(true).focusable(true).has_tooltip(true).*/ .build();
 
         // table_menu.upcast::<Popover>().set_transition_type(RevealerTransitionType::SlideRight);
@@ -264,11 +281,41 @@ impl SchemaTree {
             }
         });*/
 
-        let query_action = gio::SimpleAction::new_stateful("query", None, &"".to_variant());
-        let insert_action = gio::SimpleAction::new_stateful("insert", None, &"".to_variant());
+        let form = super::Form::new();
+        let query_action = gio::SimpleAction::new_stateful("query", None, &String::from("").to_variant());
+        let insert_action = gio::SimpleAction::new_stateful("insert", None, &String::from("").to_variant());
+        let import_action = gio::SimpleAction::new_stateful("import", None, &String::from("").to_variant());
+        let call_action = gio::SimpleAction::new_stateful("call", None, &String::from("").to_variant());
         query_action.set_enabled(false);
         insert_action.set_enabled(false);
-
+        import_action.set_enabled(false);
+        call_action.set_enabled(false);
+        insert_action.connect_activate({
+            let form = form.clone();
+            move |action, _| {
+                if let Some(state) = action.state() {
+                    let s = state.get::<String>().unwrap();
+                    if !s.is_empty() {
+                        let obj : DBObject = serde_json::from_str(&s[..]).unwrap();
+                        form.update_from_table(&obj);
+                        form.dialog.show();
+                    }
+                }
+            }
+        });
+        call_action.connect_activate({
+            let form = form.clone();
+            move |action, _| {
+                if let Some(state) = action.state() {
+                    let s = state.get::<String>().unwrap();
+                    if !s.is_empty() {
+                        let obj : DBObject = serde_json::from_str(&s[..]).unwrap();
+                        form.update_from_function(&obj);
+                        form.dialog.show();
+                    }
+                }
+            }
+        });
         Self{
             tree_view,
             model,
@@ -283,7 +330,10 @@ impl SchemaTree {
             bx,
             scroll,
             query_action,
-            insert_action
+            insert_action,
+            import_action,
+            call_action,
+            form
         }
     }
 
@@ -327,7 +377,7 @@ impl SchemaTree {
                     model.set(&col_pos, &[(0, icon), (1, &name.to_value())]);
                 }
             },
-            DBObject::Function { name, args, ret } => {
+            DBObject::Function { name, args, ret, .. } => {
                 let schema_pos = model.append(parent);
                 let args_str = args.iter().map(|a| a.to_string() ).collect::<Vec<_>>().join(",");
                 let sig = format!("{}({}) {}", name, args_str, ret );
@@ -618,20 +668,39 @@ impl React<ActiveConnection> for SchemaTree {
         conn.connect_object_selected({
             let insert_action = self.insert_action.clone();
             let query_action = self.query_action.clone();
+            let call_action = self.call_action.clone();
+            let import_action = self.import_action.clone();
             move |opt_obj| {
-                match opt_obj {
+                match &opt_obj {
                     Some(DBObject::Table { .. }) => {
-                        insert_action.set_enabled(true);
-                        query_action.set_enabled(true);
-                        // TODO set action state to the JSON-serialized table object.
+                        let s = serde_json::to_string(&opt_obj.unwrap()).unwrap().to_variant();
+                        for action in [&insert_action, &query_action, &import_action] {
+                            action.set_enabled(true);
+                            action.set_state(&s);
+                        }
+                        call_action.set_enabled(false);
+                        call_action.set_state(&String::new().to_variant());
                     },
                     Some(DBObject::Schema { .. }) => {
-                        insert_action.set_enabled(false);
-                        query_action.set_enabled(false);
+                        for action in [&insert_action, &query_action, &import_action, &call_action] {
+                            action.set_enabled(false);
+                            action.set_state(&String::new().to_variant());
+                        }
+                    },
+                    Some(DBObject::Function { .. }) => {
+                        let s = serde_json::to_string(&opt_obj.unwrap()).unwrap().to_variant();
+                        for action in [&insert_action, &query_action, &import_action] {
+                            action.set_enabled(false);
+                            action.set_state(&String::new().to_variant());
+                        }
+                        call_action.set_enabled(true);
+                        call_action.set_state(&s);
                     },
                     _ => {
-                        insert_action.set_enabled(false);
-                        query_action.set_enabled(false);
+                        for action in [&insert_action, &query_action, &import_action, &call_action] {
+                            action.set_enabled(false);
+                            action.set_state(&String::new().to_variant());
+                        }
                     }
                 }
             }
@@ -643,21 +712,8 @@ impl React<ActiveConnection> for SchemaTree {
 fn load_type_icons() -> Rc<HashMap<DBType, Pixbuf>> {
     let mut type_icons = HashMap::new();
     for ty in ALL_TYPES.iter() {
-        let path = match ty {
-            DBType::Bool => "boolean.svg",
-            DBType::I16 | DBType::I32 | DBType::I64 => "integer.svg",
-            DBType::F32 | DBType::F64 | DBType::Numeric => "real.svg",
-            DBType::Text => "text.svg",
-            DBType::Date => "date.svg",
-            DBType::Time => "time.svg",
-            DBType::Json => "json.svg",
-            DBType::Xml => "xml.svg",
-            DBType::Bytes => "binary.svg",
-            DBType::Array => "array.svg",
-            DBType::Unknown => "unknown.svg",
-            DBType::Trigger => "unknown.svg"
-        };
-        let pix = Pixbuf::from_file_at_scale(&icon_path(&path).unwrap(), 16, 16, true).unwrap();
+        let path = icon_path(&format!("{}.svg", super::get_type_icon_name(ty))).unwrap();
+        let pix = Pixbuf::from_file_at_scale(&path, 16, 16, true).unwrap();
         type_icons.insert(*ty, pix);
     }
     Rc::new(type_icons)
