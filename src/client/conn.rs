@@ -18,7 +18,8 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use crate::ui::QueriesWindow;
 use crate::sql::object::DBObject;
-use crate::ui::SchemaTree;
+use crate::ui::{SchemaTree};
+use crate::sql::object::DBType;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConnectionInfo {
@@ -801,24 +802,25 @@ impl React<ExecButton> for ActiveConnection {
 impl React<SchemaTree> for ActiveConnection {
 
     fn react(&self, tree : &SchemaTree) {
-        let send = self.send.clone();
-        tree.tree_view.selection().connect_changed(move |sel| {
-            let mut n_selected = 0;
-            sel.selected_foreach(|_, path, _| {
-                n_selected += 1;
-                let res_ixs : Result<Vec<usize>, ()> = path.indices()
-                    .iter()
-                    .map(|ix| if *ix >= 0 { Ok(*ix as usize) } else { Err(()) })
-                    .collect();
-                if let Ok(ixs) = res_ixs {
-                    send.send(ActiveConnectionAction::ObjectSelected(Some(ixs)));
+        tree.tree_view.selection().connect_changed({
+            let send = self.send.clone();
+            move |sel| {
+                let mut n_selected = 0;
+                sel.selected_foreach(|_, path, _| {
+                    n_selected += 1;
+                    let res_ixs : Result<Vec<usize>, ()> = path.indices()
+                        .iter()
+                        .map(|ix| if *ix >= 0 { Ok(*ix as usize) } else { Err(()) })
+                        .collect();
+                    if let Ok(ixs) = res_ixs {
+                        send.send(ActiveConnectionAction::ObjectSelected(Some(ixs)));
+                    }
+                });
+
+                if n_selected == 0 {
+                    send.send(ActiveConnectionAction::ObjectSelected(None));
                 }
-            });
-
-            if n_selected == 0 {
-                send.send(ActiveConnectionAction::ObjectSelected(None));
             }
-
         });
 
         tree.query_action.connect_activate({
@@ -838,5 +840,132 @@ impl React<SchemaTree> for ActiveConnection {
                 }
             }
         });
+
+        tree.form.btn_ok.connect_clicked({
+            let insert_action = tree.insert_action.clone();
+            let call_action = tree.call_action.clone();
+            let entries = tree.form.entries.clone();
+            let send = self.send.clone();
+            move |_| {
+                let state_str : String = if let Some(state) = insert_action.state() {
+                    let s = state.get::<String>().unwrap();
+                    if !s.is_empty() {
+                         s
+                    } else {
+                        if let Some(state) = call_action.state() {
+                            let s = state.get::<String>().unwrap();
+                            if !s.is_empty() {
+                                s
+                            } else {
+                                return;
+                            }
+                        } else {
+                            return;
+                        }
+                    }
+                } else {
+                    return;
+                };
+                let values = entries.iter().map(|e| e.text().to_string() ).collect::<Vec<_>>();
+                let obj : DBObject = serde_json::from_str(&state_str[..]).unwrap();
+                //match form_action {
+                //    FormAction::Table(obj) => {
+
+                match obj {
+                    DBObject::Table { name, cols, .. } => {
+                        let tys : Vec<DBType> = cols.iter().map(|col| col.1 ).collect();
+                        match sql_literal_tuple(&entries, &tys) {
+                            Ok(tuple) => {
+                                let insert_stmt = format!("insert into {} values {};", name, tuple);
+                                send.send(ActiveConnectionAction::ExecutionRequest(insert_stmt));
+                            },
+                            Err(e) => {
+                                send.send(ActiveConnectionAction::Error(e));
+                            }
+                        }
+                    },
+                    DBObject::Function { name, args, .. } => {
+                        match sql_literal_tuple(&entries, &args) {
+                            Ok(tuple) => {
+                                let call_stmt = format!("select {}{};", name, tuple);
+                                send.send(ActiveConnectionAction::ExecutionRequest(call_stmt));
+                            },
+                            Err(e) => {
+                                send.send(ActiveConnectionAction::Error(e));
+                            }
+                        }
+                    },
+                    _ => { }
+                }
+
+               //     },
+               //     FormAction::FnCall(obj) => {
+                        // send.send(ActiveConnectionAction::ExecutionRequest(format!("select * from {} limit 500;", name)));
+               //     },
+               // }
+            }
+        });
     }
 }
+
+fn sql_literal_tuple(entries : &[Entry], tys : &[DBType]) -> Result<String, String> {
+    let mut ix = 0;
+    let mut tuple = String::from("(");
+    for (entry, col) in entries.iter().zip(tys) {
+        match text_to_sql_literal(&entry, &col) {
+            Ok(txt) => {
+                tuple += &txt;
+            },
+            Err(e) => {
+                return Err(format!("Error at {} field ({})", ordinal::Ordinal(ix), e));
+            }
+        }
+        if ix == tys.len() - 1 {
+            tuple += ")"
+        } else {
+            tuple += ", "
+        }
+        ix += 1;
+    }
+    Ok(tuple)
+}
+
+fn text_to_sql_literal(entry : &Entry, ty : &DBType) -> Result<String, String> {
+    use sqlparser::tokenizer::{Tokenizer, Token};
+    let entry_s = entry.text();
+    let entry_s = entry_s.as_str();
+    if entry_s.is_empty() {
+        return Ok("null".to_string())
+    } else {
+        let desired_lit = match ty {
+            DBType::Text | DBType::Date | DBType::Time | DBType::Bytes |
+            DBType::Json | DBType::Xml | DBType::Array => {
+                format!("'{}'", entry_s)
+            },
+            _ => format!("{}", entry_s)
+        };
+        let dialect = sqlparser::dialect::PostgreSqlDialect{};
+        let mut tkn = sqlparser::tokenizer::Tokenizer::new(&dialect, desired_lit.trim());
+        match tkn.tokenize() {
+            Ok(tokens) => {
+                if tokens.len() == 1 {
+                    match &tokens[0] {
+                        Token::Number(_, _) | Token::SingleQuotedString(_) => {
+                            Ok(desired_lit.trim().to_string())
+                        },
+                        _ => {
+                            Err(format!("Invalid literal"))
+                        }
+                    }
+                } else {
+                    Err(format!("Invalid literal"))
+                }
+            },
+            Err(e) => {
+                Err(format!("Invalid literal"))
+            }
+        }
+    }
+}
+
+

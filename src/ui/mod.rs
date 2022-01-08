@@ -137,6 +137,10 @@ impl React<QueriesWorkspace> for QueriesContent {
             }
             false
         });
+        let results_page = self.results_page.clone();
+        ws.tab_view.connect_page_attached(move |tab_view, page, pos| {
+            results_page.set_icon_name(Some("queries-symbolic"));
+        });
     }
 
 }

@@ -223,11 +223,12 @@ from uptime;
 // pg_proc.prokind codes: f = function; p = procedure; a = aggregate; w = window
 // To retrieve source: case when pg_language.lanname = 'internal' then pg_proc.prosrc else pg_get_functiondef(pg_proc.oid) end as source
 // -- pg_language.lanname not like 'internal' and
-// TODO arguments are not correctly ordered.
 // Alternative query:
 // select cast(cast(pg_proc.oid as regprocedure) as text) from pg_proc left join pg_namespace on
 // pg_proc.pronamespace = pg_namespace.oid where pg_namespace.nspname like 'public';
 // Then parse the resulting text (but it won't give the return type).
+// TODO the generate_series seems to be slowing the query down, making the connection startup
+// unreasonably slow. But removing it makes the arguments be unnested at the incorrect order.
 fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Option<Vec<DBObject>> {
     let fn_query = format!(r#"
     with arguments as (
@@ -280,8 +281,10 @@ fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Opti
                         Vec::new()
                     }
                 };
-                let ret = DBType::from_str(ret).unwrap_or(DBType::Unknown);
-
+                let ret = match &ret[..] {
+                    "VOID" | "void" => None,
+                    _ => Some(DBType::from_str(ret).unwrap_or(DBType::Unknown))
+                };
                 let mut func_arg_names = Vec::new();
                 if let Some(ns) = arg_ns {
                     match ns {

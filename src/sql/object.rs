@@ -127,7 +127,7 @@ pub enum DBObject {
 
     Table{ name : String, cols : Vec<(String, DBType, bool)>, rels : Vec<Relation> },
 
-    Function { name : String, args : Vec<DBType>, arg_names : Option<Vec<String>>, ret : DBType },
+    Function { name : String, args : Vec<DBType>, arg_names : Option<Vec<String>>, ret : Option<DBType> },
 
     View { name : String }
 

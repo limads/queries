@@ -987,6 +987,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da32515d9f6e6e489d7bc9d84c71b060db7247dc035bbe44eac88cf87486d8d5"
 
 [[package]]
+name = "ordinal"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7743451938a8eda7454b48c8a3997bbd66ad9cd495d566e654feafeafba64c0b"
+dependencies = [
+ "num-integer",
+]
+
+[[package]]
 name = "pango"
 version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1212,6 +1221,7 @@ dependencies = [
  "notify",
  "num-traits",
  "once_cell",
+ "ordinal",
  "plots",
  "postgres",
  "quick-xml",

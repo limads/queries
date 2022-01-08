@@ -19,6 +19,13 @@ use gtk4::glib;
 use gtk4::subclass::prelude::*;
 // use gtk4::gdk;
 use serde_json;
+use serde::{Serialize, Deserialize};
+
+//#[derive(Debug, Clone, Serialize, Deserialize)]
+//pub enum FormAction {
+//    Table(DBObject),
+//    FnCall(DBObject),
+//}
 
 /*pub trait View {
 
@@ -190,8 +197,8 @@ impl SchemaTree {
         menu.append(Some("Import"), Some("win.import"));
         menu.append(Some("Call"), Some("win.call"));
 
-        //let call_menu = gio::Menu::new();\
-        //let item = gio::MenuItem::new(Some("Field"), Some("win.field"));
+        // let call_menu = gio::Menu::new();\
+        // let item = gio::MenuItem::new(Some("Field"), Some("win.field"));
         // item.
         // call_menu.append_item()
         // menu.append_section(Some("Call"), &call_menu);
@@ -256,9 +263,13 @@ impl SchemaTree {
         gesture_click.connect_pressed({
             let schema_popover = schema_popover.clone();
             let tree_view = tree_view.clone();
+            let scroll = scroll.clone();
             move |gesture, n_press, x, y| {
                 if let Some((Some(opt_path), Some(opt_col), _, _)) = tree_view.path_at_pos(x as i32, y as i32) {
-                    let area = tree_view.cell_area(Some(&opt_path), Some(&opt_col));
+                    let mut area = tree_view.cell_area(Some(&opt_path), Some(&opt_col));
+                    // let alloc = scroll.parent().unwrap().allocation();
+                    // area.width = alloc.width.min(area.width);
+                    // area.height = alloc.height.min(area.height);
                     schema_popover.set_pointing_to(&area);
                     schema_popover.popup();
                 }
@@ -297,8 +308,13 @@ impl SchemaTree {
                     let s = state.get::<String>().unwrap();
                     if !s.is_empty() {
                         let obj : DBObject = serde_json::from_str(&s[..]).unwrap();
-                        form.update_from_table(&obj);
-                        form.dialog.show();
+                        //match form_action {
+                        //    FormAction::Insert(obj) => {
+                            form.update_from_table(&obj);
+                            form.dialog.show();
+                        //    },
+                        //    _ => { }
+                        // }
                     }
                 }
             }
@@ -310,10 +326,31 @@ impl SchemaTree {
                     let s = state.get::<String>().unwrap();
                     if !s.is_empty() {
                         let obj : DBObject = serde_json::from_str(&s[..]).unwrap();
-                        form.update_from_function(&obj);
-                        form.dialog.show();
+                        //match form_action {
+                        //    FormAction::Call(obj) => {
+                            form.update_from_function(&obj);
+                            form.dialog.show();
+                        // },
+                        //    _ => { }
+                        // }
                     }
                 }
+            }
+        });
+        form.btn_cancel.connect_clicked({
+            let dialog = form.dialog.clone();
+            move |_| {
+                dialog.close();
+            }
+        });
+        form.dialog.connect_close({
+            let insert_action = insert_action.clone();
+            let call_action = call_action.clone();
+            let entries = form.entries.clone();
+            move |_| {
+                insert_action.set_state(&String::new().to_variant());
+                call_action.set_state(&String::new().to_variant());
+                entries.iter().for_each(|e| e.set_visible(false) );
             }
         });
         Self{
@@ -380,7 +417,11 @@ impl SchemaTree {
             DBObject::Function { name, args, ret, .. } => {
                 let schema_pos = model.append(parent);
                 let args_str = args.iter().map(|a| a.to_string() ).collect::<Vec<_>>().join(",");
-                let sig = format!("{}({}) {}", name, args_str, ret );
+                let sig = if let Some(ret) = &ret {
+                    format!("{}({}) {}", name, args_str, ret)
+                } else {
+                    format!("{}({})", name, args_str)
+                };
                 model.set(&schema_pos, &[(0, &self.fn_icon.to_value()), (1, &sig.to_value())]);
             },
             DBObject::View { name } => {

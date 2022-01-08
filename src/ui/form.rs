@@ -23,7 +23,7 @@ impl Form {
         let bx = Box::new(Orientation::Vertical, 0);
 
         let entries_bx = Box::new(Orientation::Vertical, 0);
-        let entries : [Entry; 16]= Default::default();
+        let entries : [Entry; 16] = Default::default();
         for ix in 0..16 {
             entries_bx.append(&entries[ix]);
             entries[ix].set_width_request(320);
