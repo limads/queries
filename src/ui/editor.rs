@@ -10,6 +10,12 @@ use sourceview5::prelude::*;
 use crate::ui::ExecButton;
 use std::boxed;
 use crate::client::OpenedFile;
+use std::cell::RefCell;
+use std::rc::Rc;
+use sourceview5::{SearchContext, SearchSettings};
+use sourceview5::Buffer;
+use sourceview5::*;
+use sourceview5::prelude::*;
 
 #[derive(Debug, Clone)]
 pub struct QueriesEditor {
@@ -648,4 +654,357 @@ impl React<MainMenu> for ExportDialog {
         });
     }
 
+}
+
+#[derive(Debug, Clone)]
+pub struct FindDialog {
+    pub dialog  : Dialog,
+    pub find_entry : Entry,
+    pub search_up_btn : Button,
+    pub search_down_btn : Button,
+    pub replace_entry : Entry,
+    pub find_btn : Button,
+    pub replace_btn : Button,
+    pub replace_all_btn : Button,
+    pub matches_lbl : Label,
+    pub find_action : gio::SimpleAction,
+    pub replace_action : gio::SimpleAction,
+    pub replace_all_action : gio::SimpleAction,
+    // pub open_find_action : gio::SimpleAction
+}
+
+impl FindDialog {
+
+    pub fn build() -> Self {
+        let dialog = Dialog::new();
+
+        let find_bx = Box::new(Orientation::Horizontal, 0);
+        find_bx.style_context().add_class("linked");
+        let find_entry = Entry::builder().primary_icon_name("edit-find-symbolic").build();
+        let search_up_btn = Button::builder().icon_name("go-up-symbolic").build();
+        let search_down_btn = Button::builder().icon_name("go-down-symbolic").build();
+        find_bx.append(&Label::new(Some("Find")));
+        find_bx.append(&find_entry);
+        find_bx.append(&search_up_btn);
+        find_bx.append(&search_down_btn);
+
+        let replace_bx = Box::new(Orientation::Horizontal, 0);
+        let replace_entry = Entry::builder().primary_icon_name("edit-find-replace-symbolic").build();
+        replace_bx.append(&Label::new(Some("Replace with")));
+        replace_bx.append(&replace_entry);
+
+        let btn_bx = Box::new(Orientation::Horizontal, 0);
+        btn_bx.style_context().add_class("linked");
+        let replace_btn = Button::builder().label("Replace").build();
+        let replace_all_btn = Button::builder().label("Replace all").build();
+        let find_btn = Button::builder().label("Find").build();
+        btn_bx.append(&find_btn);
+        btn_bx.append(&replace_btn);
+        btn_bx.append(&replace_all_btn);
+
+        let matches_lbl = Label::new(Some("Matches : 0"));
+        let bx = Box::new(Orientation::Vertical, 0);
+        bx.append(&find_bx);
+        bx.append(&replace_bx);
+        bx.append(&matches_lbl);
+        bx.append(&btn_bx);
+        dialog.set_child(Some(&bx));
+        super::configure_dialog(&dialog);
+        dialog.set_modal(false);
+
+        let find_action = gio::SimpleAction::new_stateful("find", None, &(-1i32).to_variant());
+        let replace_action = gio::SimpleAction::new_stateful("replace", None, &(-1i32).to_variant());
+        let replace_all_action = gio::SimpleAction::new_stateful("replace_all", None, &(-1i32).to_variant());
+
+        find_btn.connect_clicked({
+            let find_action = find_action.clone();
+            move |btn| {
+                find_action.activate(None);
+            }
+        });
+        replace_btn.connect_clicked({
+            let replace_action = replace_action.clone();
+            move |btn| {
+                replace_action.activate(None);
+            }
+        });
+        replace_all_btn.connect_clicked({
+            let replace_all_action = replace_all_action.clone();
+            move |btn| {
+                replace_all_action.activate(None);
+            }
+        });
+        // find_btn.set_action_name(Some("app.find_action"));
+        // replace_btn.set_action_name(Some("app.replace_action"));
+        // replace_all_btn.set_action_name(Some("app.replace_all_action"));
+
+        // let open_find_action = gio::SimpleAction::new("find", None);
+        Self {
+            dialog,
+            find_entry,
+            search_up_btn,
+            search_down_btn,
+            replace_entry,
+            find_btn,
+            replace_btn,
+            replace_all_btn,
+            matches_lbl,
+            find_action,
+            replace_action,
+            replace_all_action
+            // open_find_action
+        }
+    }
+
+}
+
+impl React<MainMenu> for FindDialog {
+
+    fn react(&self, menu : &MainMenu) {
+        menu.action_find_replace.connect_activate({
+            let dialog = self.dialog.clone();
+            move |_, _| {
+                dialog.show();
+            }
+        });
+    }
+
+}
+
+impl React<QueriesEditor> for FindDialog {
+
+    fn react(&self, editor : &QueriesEditor) {
+        let ctx : Rc<RefCell<Option<(SearchContext, Option<TextIter>, Option<TextIter>)>>> = Default::default();
+        {
+            let ctx = ctx.clone();
+            let views = editor.views.clone();
+            let matches_lbl = self.matches_lbl.clone();
+            let find_action = self.find_action.clone();
+            self.search_down_btn.connect_clicked(move |_| {
+                if let Some(ix) = get_index(&find_action) {
+                    move_match(&views[ix], &ctx, &matches_lbl, true);
+                }
+            });
+        }
+
+        {
+            let ctx = ctx.clone();
+            let views = editor.views.clone();
+            let matches_lbl = self.matches_lbl.clone();
+            let find_action = self.find_action.clone();
+            self.search_up_btn.connect_clicked(move |_| {
+                if let Some(ix) = get_index(&find_action) {
+                    move_match(&views[ix], &ctx, &matches_lbl, false);
+                }
+            });
+        }
+
+        {
+            let views = editor.views.clone();
+            let find_entry = self.find_entry.clone();
+            let ctx = ctx.clone();
+            let matches_lbl = self.matches_lbl.clone();
+            let (replace_btn, replace_all_btn) = (self.replace_btn.clone(), self.replace_all_btn.clone());
+            self.find_action.connect_activate(move |action, _| {
+                println!("Find activated");
+                if let Some(ix) = get_index(&action) {
+                    println!("Index = {}", ix);
+                    if let Ok(mut ctx) = ctx.try_borrow_mut() {
+                        let txt = find_entry.text().to_string();
+                        if let Some(new_ctx) = start_search(&views[ix], &txt) {
+                            *ctx = Some((new_ctx, None, None));
+                        } else {
+                            println!("Unable to get text buffer to create search context");
+                        }
+                    } else {
+                        println!("Unable to borrow search context");
+                    }
+
+                    let n_found = move_match(&views[ix], &ctx, &matches_lbl, true);
+                    let sensitive = if let Some(n_found) = n_found {
+                        n_found >= 1
+                    } else {
+                        false
+                    };
+                    replace_btn.set_sensitive(sensitive);
+                    replace_all_btn.set_sensitive(sensitive);
+                } else {
+                    println!("No index available");
+                }
+            });
+        }
+
+        {
+            let ctx = ctx.clone();
+            let replace_entry = self.replace_entry.clone();
+            let matches_lbl = self.matches_lbl.clone();
+            self.replace_action.connect_activate(move |action, _| {
+                let new_txt = replace_entry.text().to_string();
+                let mut ctx = ctx.borrow_mut();
+                if let Some((ref ctx, Some(ref mut start), Some(ref mut end))) = &mut *ctx {
+                    ctx.replace(start, end, &new_txt[..]);
+                }
+                *ctx = None;
+                matches_lbl.set_text(NO_MATCHES);
+            });
+        }
+
+        {
+            let ctx = ctx.clone();
+            let replace_all_entry = self.replace_entry.clone();
+            let matches_lbl = self.matches_lbl.clone();
+            self.replace_all_action.connect_activate(move |action, _| {
+                let new_txt = replace_all_entry.text().to_string();
+                let mut ctx = ctx.borrow_mut();
+                if let Some((ref ctx, _, _)) = &*ctx {
+                    match ctx.replace_all(&new_txt[..]) {
+                        Ok(_n) => { },
+                        Err(e) => { println!("{}", e) }
+                    }
+                }
+                *ctx = None;
+                matches_lbl.set_text(NO_MATCHES);
+            });
+        }
+
+        {
+            let find_btn = self.find_btn.clone();
+            let replace_btn = self.replace_btn.clone();
+            let replace_all_btn = self.replace_all_btn.clone();
+            self.find_entry.connect_changed(move |entry| {
+                let txt = entry.text().to_string();
+                let sensitive = txt.len() >= 1;
+                find_btn.set_sensitive(sensitive);
+                replace_btn.set_sensitive(false);
+                replace_all_btn.set_sensitive(false);
+            });
+        }
+
+        {
+            let ctx = ctx.clone();
+            let matches_lbl = self.matches_lbl.clone();
+            let find_entry = self.find_entry.clone();
+            let replace_entry = self.replace_entry.clone();
+            let (find_btn, replace_btn, replace_all_btn) = (self.find_btn.clone(), self.replace_btn.clone(), self.replace_all_btn.clone());
+            self.dialog.connect_close(move |_| {
+                *(ctx.borrow_mut()) = None;
+                matches_lbl.set_text(NO_MATCHES);
+                find_btn.set_sensitive(false);
+                replace_btn.set_sensitive(false);
+                replace_all_btn.set_sensitive(false);
+
+                // It might be useful to keep a memory of the last editing values.
+                // We can put a button to invert the text in the the find/replace entries,
+                // which is useful if the user is editing a query for which he wants to
+                // test different placeholder values and wants to get back to the placeholders
+                // afterward.
+                // find_entry.set_text("");
+                // replace_entry.set_text("");
+            });
+        }
+    }
+
+}
+
+impl React<OpenedScripts> for FindDialog {
+
+    fn react(&self, scripts : &OpenedScripts) {
+        let find_action = self.find_action.clone();
+        let replace_action = self.replace_action.clone();
+        let replace_all_action = self.replace_all_action.clone();
+        scripts.connect_selected(move |opt_file| {
+            if let Some(ix) = opt_file.map(|f| f.index ) {
+                find_action.set_state(&(ix as i32).to_variant());
+                replace_action.set_state(&(ix as i32).to_variant());
+                replace_all_action.set_state(&(ix as i32).to_variant());
+            } else {
+                find_action.set_state(&(-1i32).to_variant());
+                replace_action.set_state(&(-1i32).to_variant());
+                replace_all_action.set_state(&(-1i32).to_variant());
+            }
+        });
+    }
+
+}
+
+const NO_MATCHES : &'static str = "Matches : 0";
+
+fn start_search(view : &View, txt : &str) -> Option<SearchContext> {
+    let buffer = view.buffer();
+    let settings = SearchSettings::new();
+    settings.set_search_text(Some(&txt));
+    settings.set_wrap_around(true);
+
+    // With gtk4=0.3.0 and sourceview5=0.3.0 I'm getting
+    // the trait `gtk4::prelude::IsA<Buffer>` is not implemented for `TextBuffer`
+    // which seems like a problem with the implementation. Must remove the transmute
+    // when this is solved.
+
+    let downcasted_buffer : Buffer = buffer.clone().downcast().unwrap();
+    // unsafe { std::mem::transmute::<_, &Buffer>(&buffer) }
+    let new_ctx = SearchContext::new(&downcasted_buffer, Some(&settings));
+    Some(new_ctx)
+}
+
+fn move_match(
+    view : &View,
+    ctx : &Rc<RefCell<Option<(SearchContext, Option<TextIter>, Option<TextIter>)>>>,
+    matches_label : &Label,
+    is_forward : bool
+) -> Option<usize> {
+    let buffer = view.buffer();
+    if let Ok(mut ctx) = ctx.try_borrow_mut() {
+        if let Some(ref mut ctx) = *ctx {
+            let (ctx, start, end) = (&ctx.0, &mut ctx.1, &mut ctx.2);
+            let start_search = match (is_forward, start.clone(), end.clone()) {
+                (_, None, None) => {
+                    buffer.start_iter()
+                },
+                (true, Some(start), Some(end)) => {
+                    end.clone()
+                },
+                (false, Some(start), Some(end)) => {
+                    start.clone()
+                },
+                _ => { println!("No start buffer"); return None; }
+            };
+            let next_match = if is_forward {
+                // ctx.forward2(&start_search)
+                ctx.forward(&start_search)
+            } else {
+                // ctx.backward2(&start_search)
+                ctx.backward(&start_search)
+            };
+            if let Some((t1, t2, _)) = next_match {
+                buffer.select_range(&t1, &t2);
+                let mark = buffer.get_insert();
+                buffer.move_mark(&mark, &t1);
+                view.scroll_mark_onscreen(&mark);
+                let pos = ctx.occurrence_position(&t1, &t2);
+                let count = ctx.occurrences_count();
+                matches_label.set_text(&format!("Match : {}/{}", pos, count));
+                *start = Some(t1);
+                *end = Some(t2);
+                if count >= 0 {
+                    Some(count as usize)
+                } else {
+                    None
+                }
+            } else {
+                println!("No search available");
+                None
+            }
+        } else {
+            println!("Unable to borrow context");
+            None
+        }
+    } else {
+        println!("Unabele to borrow search context");
+        None
+    }
+}
+
+fn get_index(action : &gio::SimpleAction) -> Option<usize> {
+    action.state().unwrap().get::<i32>()
+        .and_then(|ix| if ix == -1 { None } else { Some(ix as usize) })
 }

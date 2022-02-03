@@ -113,6 +113,12 @@ impl React<Environment> for QueriesContent {
                 overlay.add_toast(&libadwaita::Toast::builder().title(&msg[..]).build());
             }
         });
+        env.connect_table_error({
+            let overlay = self.overlay.clone();
+            move |msg| {
+                overlay.add_toast(&libadwaita::Toast::builder().title(&msg[..]).build());
+            }
+        });
     }
 
 }
@@ -301,19 +307,24 @@ pub struct QueriesWindow {
     pub titlebar : QueriesTitlebar,
     pub sidebar : QueriesSidebar,
     pub content : QueriesContent,
-    pub settings : QueriesSettings
+    pub settings : QueriesSettings,
+    pub find_dialog : FindDialog
 }
 
 impl QueriesWindow {
 
     pub fn from(window : ApplicationWindow) -> Self {
+
         let sidebar = QueriesSidebar::build();
         let titlebar = QueriesTitlebar::build();
         let content = QueriesContent::build();
+        let find_dialog = FindDialog::build();
+
         content.editor.save_dialog.dialog.set_transient_for(Some(&window));
         content.editor.open_dialog.dialog.set_transient_for(Some(&window));
         content.editor.export_dialog.dialog.set_transient_for(Some(&window));
         sidebar.schema_tree.form.dialog.set_transient_for(Some(&window));
+        find_dialog.dialog.set_transient_for(Some(&window));
 
         titlebar.header.set_title_widget(Some(&content.switcher));
 
@@ -343,6 +354,7 @@ impl QueriesWindow {
         window.add_action(&titlebar.main_menu.action_new);
         window.add_action(&titlebar.main_menu.action_open);
         window.add_action(&titlebar.main_menu.action_save);
+        window.add_action(&titlebar.main_menu.action_find_replace);
         window.add_action(&titlebar.main_menu.action_save_as);
         window.add_action(&titlebar.main_menu.action_export);
         window.add_action(&titlebar.main_menu.action_settings);
@@ -380,7 +392,7 @@ impl QueriesWindow {
         // sidebar.schema_tree.schema_popover.set_default_widget(Some(&window));
         // sidebar.schema_tree.schema_popover.set_child(Some(&window));
 
-        Self { paned, sidebar, titlebar, content, window, settings }
+        Self { paned, sidebar, titlebar, content, window, settings, find_dialog }
     }
 }
 

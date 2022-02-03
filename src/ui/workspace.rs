@@ -4,7 +4,7 @@ use crate::client::Environment;
 use crate::React;
 use libadwaita;
 use super::table::*;
-use crate::tables::table::Table;
+use monday::tables::table::Table;
 use crate::ui::PlotView;
 use plots::Panel;
 

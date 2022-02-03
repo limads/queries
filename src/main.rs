@@ -187,13 +187,20 @@ fn main() {
             queries_win.titlebar.exec_btn.react(&client.scripts);
             queries_win.titlebar.exec_btn.react(&client.active_conn);
             queries_win.titlebar.exec_btn.react(&queries_win.content);
+            queries_win.titlebar.main_menu.react(&client.scripts);
             queries_win.content.react(&client.env);
 
             queries_win.content.results.overview.detail_bx.react(&client.active_conn);
 
-
             queries_win.react(&queries_win.titlebar);
             queries_win.react(&client.scripts);
+            queries_win.find_dialog.react(&queries_win.titlebar.main_menu);
+            queries_win.find_dialog.react(&queries_win.content.editor);
+            queries_win.find_dialog.react(&client.scripts);
+
+            queries_win.window.add_action(&queries_win.find_dialog.find_action);
+            queries_win.window.add_action(&queries_win.find_dialog.replace_action);
+            queries_win.window.add_action(&queries_win.find_dialog.replace_all_action);
 
             // It is important to make this call to add scripts and connections
             // only after all signals have been setup, to guarantee the GUI will update

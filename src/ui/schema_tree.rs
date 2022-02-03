@@ -115,7 +115,8 @@ pub struct SchemaTree {
     pub insert_action : gio::SimpleAction,
     pub import_action : gio::SimpleAction,
     pub call_action : gio::SimpleAction,
-    pub form : super::Form
+    pub form : super::Form,
+    pub import_dialog : ImportDialog
 }
 
 const ALL_TYPES : [DBType; 15] = [
@@ -353,6 +354,13 @@ impl SchemaTree {
                 entries.iter().for_each(|e| e.set_visible(false) );
             }
         });
+        let import_dialog = ImportDialog::build();
+        import_action.connect_activate({
+            let import_dialog = import_dialog.clone();
+            move |_, _| {
+                import_dialog.dialog.show();
+            }
+        });
         Self{
             tree_view,
             model,
@@ -370,7 +378,8 @@ impl SchemaTree {
             insert_action,
             import_action,
             call_action,
-            form
+            form,
+            import_dialog
         }
     }
 
@@ -722,6 +731,15 @@ impl React<ActiveConnection> for SchemaTree {
                         call_action.set_enabled(false);
                         call_action.set_state(&String::new().to_variant());
                     },
+                    Some(DBObject::View { .. }) => {
+                        let s = serde_json::to_string(&opt_obj.unwrap()).unwrap().to_variant();
+                        query_action.set_enabled(true);
+                        query_action.set_state(&s);
+                        for action in [&insert_action, &import_action, &call_action] {
+                            action.set_enabled(false);
+                            action.set_state(&String::new().to_variant());
+                        }
+                    },
                     Some(DBObject::Schema { .. }) => {
                         for action in [&insert_action, &query_action, &import_action, &call_action] {
                             action.set_enabled(false);
@@ -763,6 +781,7 @@ fn load_type_icons() -> Rc<HashMap<DBType, Pixbuf>> {
 fn configure_tree_view(tree_view : &TreeView) -> TreeStore {
     let model = TreeStore::new(&[Pixbuf::static_type(), Type::STRING]);
     tree_view.set_model(Some(&model));
+    // tree_view.set_selection_mode(SelectionMode::Single);
     let pix_renderer = CellRendererPixbuf::new();
     pix_renderer.set_padding(6, 6);
     // pix_renderer.set_property_height(24);
@@ -802,6 +821,38 @@ fn exec_dir() -> Result<String, &'static str> {
     let exe_dir = exe_path.as_path().parent().ok_or("CLI executable has no parent dir")?
         .to_str().ok_or("Could not convert path to str")?;
     Ok(exe_dir.to_string())
+}
+
+#[derive(Debug, Clone)]
+pub struct ImportDialog {
+    pub dialog : FileChooserDialog
+}
+
+impl ImportDialog {
+
+    pub fn build() -> Self {
+        let dialog = FileChooserDialog::new(
+            Some("Import table"),
+            None::<&Window>,
+            FileChooserAction::Open,
+            &[("Cancel", ResponseType::None), ("Open", ResponseType::Accept)]
+        );
+        dialog.connect_response(move |dialog, resp| {
+            match resp {
+                ResponseType::Reject | ResponseType::Accept | ResponseType::Yes | ResponseType::No |
+                ResponseType::None | ResponseType::DeleteEvent => {
+                    dialog.close();
+                },
+                _ => { }
+            }
+        });
+        super::configure_dialog(&dialog);
+        let filter = FileFilter::new();
+        filter.add_pattern("*.csv");
+        dialog.set_filter(&filter);
+        Self { dialog }
+    }
+
 }
 
 /*// According to the GTK 3-4 migration guide, popovers can't be attached to random

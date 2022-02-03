@@ -1,13 +1,13 @@
 use postgres;
 use crate::sql::{*, object::*};
 use rust_decimal::Decimal;
-use crate::tables::column::*;
-use crate::tables::nullable_column::*;
-use crate::tables::table::*;
+use monday::tables::column::*;
+use monday::tables::nullable_column::*;
+use monday::tables::table::*;
 use postgres::types::Type;
 use std::io::Write;
 use std::error::Error;
-use crate::tables::table::{self, Table, Align, Format, TableSettings, BoolField, NullField};
+use monday::tables::table::{self, Table, Align, Format, TableSettings, BoolField, NullField};
 // use crate::utils;
 use serde_json::Value;
 use crate::sql::object::{DBObject, DBType, DBInfo};
@@ -28,8 +28,9 @@ use postgres::NoTls;
 use postgres::Client;
 use itertools::Itertools;
 use std::path::Path;
-use crate::tables::field::Field;
+use monday::tables::field::Field;
 use crate::client::ConnectionInfo;
+use std::time::SystemTime;
 
 pub struct PostgresConnection {
 
@@ -80,7 +81,7 @@ impl Connection for PostgresConnection {
         // println!("Executing: {}", query);
         match self.conn.query(&query[..], &[]) {
             Ok(rows) => {
-                match build_table_from_postgre(&rows[..]) {
+                match Table::from_rows(&rows[..]) {
                     Ok(mut tbl) => {
                         if let Some((name, relation)) = crate::sql::table_name_from_sql(query) {
                             tbl.set_name(Some(name));
@@ -113,7 +114,11 @@ impl Connection for PostgresConnection {
 
         // TODO The postgres driver panics when the number of arguments differ from the number of required
         // substitutions with $. Must reject any query/statements containing those outside literal strings,
-        // which can be verified with the sqlparse tokenizer.
+        // which can be verified with the sqlparse tokenizer. This will happen, e.g. when the user attempts
+        // to create a function with non-named arguments, which are refered in the body with $1, $2, etc.
+        // Perhaps we can use the client.simple_query or client.batch_execute in those cases, but we should
+        // parse away create function statements to do this call instead of query and execute. But sqlparser
+        // does not recognize create function for now.
 
         let ans = match stmt {
             AnyStatement::Parsed(stmt, s) => {
@@ -142,15 +147,15 @@ impl Connection for PostgresConnection {
 
     fn info(&mut self) -> Option<DBInfo> {
         let mut top_objs = Vec::new();
-        if let Some(schemata) = get_postgre_schemata(self) {
-            println!("Obtained schemata: {:?}", schemata);
+        if let Some(schemata) = get_postgres_schemata(self) {
+            // println!("Obtained schemata: {:?}", schemata);
             for (schema, tbls) in schemata.iter() {
                 let mut tbl_objs = Vec::new();
                 for t in tbls.iter() {
-                    if let Some(tbl) = get_postgre_columns(self, &schema[..], &t[..]) {
+                    if let Some(tbl) = get_postgres_columns(self, &schema[..], &t[..]) {
                         tbl_objs.push(tbl);
                     } else {
-                        println!("Failed getting columns for {}.{}", schema, t);
+                        // println!("Failed getting columns for {}.{}", schema, t);
                         return None;
                     }
                 }
@@ -158,7 +163,11 @@ impl Connection for PostgresConnection {
                     a.obj_name().chars().next().unwrap().cmp(&b.obj_name().chars().next().unwrap())
                 });
 
+                let t = SystemTime::now();
+                println!("Getting functions");
                 let func_objs = get_postgres_functions(self, &schema[..]).unwrap_or(Vec::new());
+                println!("Got functions in {} ms", SystemTime::now().duration_since(t).unwrap().as_millis());
+
                 let view_objs = get_postgres_views(self, &schema[..]).unwrap_or(Vec::new());
                 let mut children = tbl_objs;
                 if view_objs.len() > 0 {
@@ -190,13 +199,57 @@ impl Connection for PostgresConnection {
             Some(DBInfo { schema : top_objs, details : Some(details) })
 
         } else {
-            println!("Failed retrieving database schemata");
+            // println!("Failed retrieving database schemata");
             let mut empty = Vec::new();
             empty.push(DBObject::Schema{ name : "public".to_string(), children : Vec::new() });
             Some(DBInfo { schema : empty, ..Default::default() })
             // None
         }
     }
+
+    fn import(
+        &mut self,
+        tbl : &mut Table,
+        dst : &str,
+        cols : &[String],
+        // schema : &[DBObject]
+    ) -> Result<usize, String> {
+        let client = &mut self.conn;
+        let copy_stmt = match cols.len() {
+            0 => format!("COPY {} FROM stdin with csv header quote '\"';", dst),
+            n => {
+                let mut cols_agg = String::new();
+                for i in 0..n {
+                    cols_agg += &cols[n];
+                    if i <= n-1 {
+                        cols_agg += ",";
+                    }
+                }
+                format!("COPY {} ({}) FROM stdin with csv header quote '\"';", dst, cols_agg)
+            }
+        };
+
+        // TODO filter cols
+
+        /*if !crate::sql::object::schema_has_table(dst, schema) {
+            let create = tbl.sql_table_creation(dst, cols).unwrap();
+            println!("Creating new table with {}", create);
+            client.execute(&create[..], &[])
+                .map_err(|e| format!("{}", e) )?;
+        } else {
+            println!("Uploading to existing table");
+        }*/
+
+        let mut writer = client.copy_in(&copy_stmt[..])
+            .map_err(|e| format!("{}", e) )?;
+        let tbl_content = table::full_csv_display(tbl, cols.into());
+        writer.write_all(tbl_content.as_bytes())
+            .map_err(|e| format!("Copy from stdin error: {}", e) )?;
+        writer.finish()
+            .map_err(|e| format!("Copy from stdin error: {}", e) )?;
+        Ok(tbl.shape().0)
+    }
+
 
 }
 
@@ -259,7 +312,7 @@ fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Opti
         pg_proc.proname not like '_pg%'
     order by pg_proc.oid;"#, schema);
 
-    let ans = conn.try_run(fn_query, &HashMap::new(), false).map_err(|e| println!("{}", e) ).ok()?;
+    let ans = conn.try_run(fn_query, &HashMap::new(), false) /*.map_err(|e| println!("{}", e) )*/ .ok()?;
     match ans.get(0)? {
         StatementOutput::Valid(_, fn_info) => {
             let mut fns = Vec::new();
@@ -313,18 +366,18 @@ fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Opti
             });
             Some(fns)
         },
-        StatementOutput::Invalid(msg, _) => { println!("{}", msg); None },
+        StatementOutput::Invalid(msg, _) => { /*println!("{}", msg);*/ None },
         _ => None
     }
 }
 
 /// Return HashMap of Schema->Tables
-fn get_postgre_schemata(conn : &mut PostgresConnection) -> Option<HashMap<String, Vec<String>>> {
+fn get_postgres_schemata(conn : &mut PostgresConnection) -> Option<HashMap<String, Vec<String>>> {
     let tbl_query = String::from("select schemaname::text, tablename::text \
         from pg_catalog.pg_tables \
         where schemaname != 'pg_catalog' and schemaname != 'information_schema';");
     let ans = conn.try_run(tbl_query, &HashMap::new(), false)
-        .map_err(|e| println!("{}", e) ).ok()?;
+        /*.map_err(|e| println!("{}", e) )*/ .ok()?;
     let q_res = ans.get(0)?;
     match q_res {
         StatementOutput::Valid(_, table) => {
@@ -370,7 +423,7 @@ fn get_postgres_views(conn : &mut PostgresConnection, schema : &str) -> Option<V
     from information_schema.views
     where table_schema like '{}' and table_schema not in ('information_schema', 'pg_catalog')
     order by schema_name, view_name;"#, schema);
-    let ans = conn.try_run(view_query, &HashMap::new(), false).map_err(|e| println!("{}", e) ).ok()?;
+    let ans = conn.try_run(view_query, &HashMap::new(), false) /*.map_err(|e| println!("{}", e) )*/ .ok()?;
     match ans.get(0)? {
         StatementOutput::Valid(_, view_info) => {
             let mut views = Vec::new();
@@ -381,12 +434,17 @@ fn get_postgres_views(conn : &mut PostgresConnection, schema : &str) -> Option<V
             }
             Some(views)
         },
-        StatementOutput::Invalid(msg, _) => { println!("{}", msg); None },
+        StatementOutput::Invalid(msg, _) => { /*println!("{}", msg);*/ None },
         _ => None
     }
 }
 
-fn get_postgres_pks(conn : &mut PostgresConnection, schema_name : &str, tbl_name : &str) -> Option<Vec<String>> {
+fn get_postgres_pks(
+    conn : &mut PostgresConnection,
+    schema_name :
+    &str,
+    tbl_name : &str
+) -> Option<Vec<String>> {
     let pk_query = format!("select
             cast(tc.table_schema as text) as table_schema,
             cast(tc.constraint_name as text) as constraint_name,
@@ -404,7 +462,7 @@ fn get_postgres_pks(conn : &mut PostgresConnection, schema_name : &str, tbl_name
         tbl_name,
         schema_name
     );
-    let ans = conn.try_run(pk_query, &HashMap::new(), false).map_err(|e| println!("{}", e) ).ok()?;
+    let ans = conn.try_run(pk_query, &HashMap::new(), false) /*.map_err(|e| println!("{}", e) )*/ .ok()?;
     if let Some(q_res) = ans.get(0) {
         match q_res {
             StatementOutput::Valid(_, col_info) => {
@@ -418,7 +476,7 @@ fn get_postgres_pks(conn : &mut PostgresConnection, schema_name : &str, tbl_name
             _ => None
         }
     } else {
-        println!("Database info query did not return any results");
+        // println!("Database info query did not return any results");
         None
     }
 }
@@ -445,7 +503,7 @@ fn get_postgres_relations(conn : &mut PostgresConnection, schema_name : &str, tb
         tbl_name,
         schema_name
     );
-    let ans = conn.try_run(rel_query, &HashMap::new(), false).map_err(|e| println!("{}", e) ).ok()?;
+    let ans = conn.try_run(rel_query, &HashMap::new(), false) /*().map_err(|e| println!("{}", e) ) */ .ok()?;
     if let Some(q_res) = ans.get(0) {
         match q_res {
             StatementOutput::Valid(_, col_info) => {
@@ -466,23 +524,23 @@ fn get_postgres_relations(conn : &mut PostgresConnection, schema_name : &str, tb
                         tgt_col : tgt_cols[i].clone()
                     });
                 }
-                println!("Relation vector: {:?}", rels);
+                // println!("Relation vector: {:?}", rels);
                 Some(rels)
             },
-            StatementOutput::Invalid(msg, _) => { println!("{}", msg); None },
+            StatementOutput::Invalid(msg, _) => { /*println!("{}", msg);*/ None },
             _ => None
         }
     } else {
-        println!("Database info query did not return any results");
+        // println!("Database info query did not return any results");
         None
     }
 }
 
-fn get_postgre_columns(conn : &mut PostgresConnection, schema_name : &str, tbl_name : &str) -> Option<DBObject> {
+fn get_postgres_columns(conn : &mut PostgresConnection, schema_name : &str, tbl_name : &str) -> Option<DBObject> {
     let col_query = format!("select column_name::text, data_type::text \
         from information_schema.columns where table_name = '{}' and table_schema='{}';", tbl_name, schema_name);
     let ans = conn.try_run(col_query, &HashMap::new(), false)
-        .map_err(|e| println!("{}", e) ).ok()?;
+        /*.map_err(|e| println!("{}", e) )*/ .ok()?;
     if let Some(q_res) = ans.get(0) {
         match q_res {
             StatementOutput::Valid(_, col_info) => {
@@ -497,11 +555,11 @@ fn get_postgre_columns(conn : &mut PostgresConnection, schema_name : &str, tbl_n
                 let obj = DBObject::Table{ name : tbl_name.to_string(), cols, rels };
                 Some(obj)
             },
-            StatementOutput::Invalid(msg, _) => { println!("{}", msg); None },
+            StatementOutput::Invalid(msg, _) => { /*println!("{}", msg);*/ None },
             _ => None
         }
     } else {
-        println!("Database info query did not return any results");
+        // println!("Database info query did not return any results");
         None
     }
 }
@@ -574,7 +632,7 @@ pub fn copy(
         },
         CopyTarget::To => {
             let csv_out = copy_pg_to(conn, &action)?;
-            println!("Received data from copy: {}", csv_out);
+            // println!("Received data from copy: {}", csv_out);
             if csv_out.len() == 0 {
                 return Err(format!("'COPY TO' returned no data"));
             }
@@ -630,7 +688,7 @@ pub fn copy(
     }
 }
 
-pub fn col_as_vec<'a, T>(
+/*pub fn col_as_vec<'a, T>(
     rows : &'a [postgres::row::Row],
     ix : usize
 ) -> Result<Vec<T>, &'static str>
@@ -640,53 +698,11 @@ pub fn col_as_vec<'a, T>(
     let mut data = Vec::new();
     for r in rows.iter() {
         let datum = r.try_get::<usize, T>(ix)
-            .map_err(|e| { println!("{}", e); "Unable to parse column" })?;
+            .map_err(|e| { /*println!("{}", e);*/ "Unable to parse column" })?;
         data.push(datum);
     }
     Ok(data)
-}
-
-pub fn col_as_opt_vec<'a, T>(
-    rows : &'a [postgres::row::Row],
-    ix : usize
-) -> Result<Vec<Option<T>>, &'static str>
-    where
-        T : FromSql<'a> + ToSql + Sync,
-{
-    let mut opt_data = Vec::new();
-    for r in rows.iter() {
-        let opt_datum = r.try_get::<usize, Option<T>>(ix)
-            .map_err(|e| { println!("{}", e); "Unable to parse column" })?;
-        opt_data.push(opt_datum);
-    }
-    Ok(opt_data)
-}
-
-pub fn nullable_from_rows<'a, T>(
-    rows : &'a [postgres::row::Row],
-    ix : usize
-) -> Result<NullableColumn, &'static str>
-    where
-        T : FromSql<'a> + ToSql + Sync,
-        NullableColumn : From<Vec<Option<T>>>
-{
-    let opt_data = col_as_opt_vec::<T>(rows, ix)?;
-    Ok(NullableColumn::from(opt_data))
-}
-
-pub fn as_nullable_text<'a, T>(
-    rows : &'a [postgres::row::Row],
-    ix : usize
-) -> Result<NullableColumn, &'static str>
-    where
-        T : FromSql<'a> + ToSql + Sync + ToString,
-        NullableColumn : From<Vec<Option<String>>>
-{
-    let opt_data = col_as_opt_vec::<T>(rows, ix)?;
-    let str_data : Vec<Option<String>> = opt_data.iter()
-        .map(|opt| opt.as_ref().map(|o| o.to_string()) ).collect();
-    Ok(NullableColumn::from(str_data))
-}
+}*/
 
 /*pub fn try_any_integer(rows : &[postgres::row::Row], ix : usize) -> Result<NullableColumn, String> {
     match nullable_from_rows::<i8>(rows, ix) {
@@ -713,239 +729,6 @@ pub fn try_any_float(rows : &[postgres::row::Row], ix : usize) -> Result<Nullabl
         }
     }
 }*/
-
-pub fn copy_table_to_postgres(
-    client : &mut Client,
-    tbl : &mut Table,
-    dst : &str,
-    cols : &[String],
-    schema : &[DBObject]
-) -> Result<(), String> {
-    let copy_stmt = match cols.len() {
-        0 => format!("COPY {} FROM stdin with csv header quote '\"';", dst),
-        n => {
-            let mut cols_agg = String::new();
-            for i in 0..n {
-                cols_agg += &cols[n];
-                if i <= n-1 {
-                    cols_agg += ",";
-                }
-            }
-            format!("COPY {} ({}) FROM stdin with csv header quote '\"';", dst, cols_agg)
-        }
-    };
-
-    // TODO filter cols
-
-    if !crate::sql::object::schema_has_table(dst, schema) {
-        let create = tbl.sql_table_creation(dst, cols).unwrap();
-        println!("Creating new table with {}", create);
-        client.execute(&create[..], &[])
-            .map_err(|e| format!("{}", e) )?;
-    } else {
-        println!("Uploading to existing table");
-    }
-
-    let mut writer = client.copy_in(&copy_stmt[..])
-        .map_err(|e| format!("{}", e) )?;
-    let tbl_content = table::full_csv_display(tbl, cols.into());
-    writer.write_all(tbl_content.as_bytes())
-        .map_err(|e| format!("Copy from stdin error: {}", e) )?;
-    writer.finish()
-        .map_err(|e| format!("Copy from stdin error: {}", e) )?;
-    Ok(())
-}
-
-pub enum ArrayType {
-    Float4,
-    Float8,
-    Text,
-    Int2,
-    Int4,
-    Int8,
-    Json
-}
-
-pub fn nullable_unable_to_parse<'a>(rows : &'a [postgres::row::Row], ty_name : &postgres::types::Type) -> NullableColumn {
-    let unable_to_parse : Vec<Option<String>> = rows.iter()
-        .map(|_| Some(format!("Unable to parse ({})", ty_name)))
-        .collect();
-    NullableColumn::from(unable_to_parse)
-}
-
-pub fn json_value_or_null<T>(v : Option<T>) -> Option<serde_json::Value>
-where
-    serde_json::Value : From<T>
-{
-    if let Some(v) = v {
-        Some(serde_json::Value::from(v))
-    } else {
-        Some(serde_json::Value::String(String::from("NULL")))
-    }
-}
-
-pub fn nullable_from_arr<'a>(
-    rows : &'a [postgres::row::Row],
-    ix : usize,
-    ty : ArrayType
-) -> Result<NullableColumn, &'static str> {
-    let data : Vec<Option<serde_json::Value>> = match ty {
-        ArrayType::Float4 => {
-            col_as_opt_vec::<Vec<f32>>(rows, ix)?.drain(..).map(|v| json_value_or_null(v) ).collect()
-        },
-        ArrayType::Float8 => {
-            col_as_opt_vec::<Vec<f64>>(rows, ix)?.drain(..).map(|v| json_value_or_null(v) ).collect()
-        },
-        ArrayType::Int2 => {
-            col_as_opt_vec::<Vec<i16>>(rows, ix)?.drain(..).map(|v| json_value_or_null(v) ).collect()
-        },
-        ArrayType::Int4 => {
-            col_as_opt_vec::<Vec<i32>>(rows, ix)?.drain(..).map(|v| json_value_or_null(v) ).collect()
-        },
-        ArrayType::Int8 => {
-            col_as_opt_vec::<Vec<i64>>(rows, ix)?.drain(..).map(|v| json_value_or_null(v) ).collect()
-        },
-        ArrayType::Text => {
-            col_as_opt_vec::<Vec<String>>(rows, ix)?.drain(..).map(|v| json_value_or_null(v) ).collect()
-        },
-        ArrayType::Json => {
-            col_as_opt_vec::<Vec<serde_json::Value>>(rows, ix)?.drain(..).map(|v| json_value_or_null(v) ).collect()
-        }
-    };
-    Ok(NullableColumn::from(data))
-}
-
-pub fn build_table_from_postgre(rows : &[postgres::row::Row]) -> Result<Table, &'static str> {
-    let mut names : Vec<String> = rows.get(0)
-        .map(|r| r.columns().iter().map(|c| c.name().to_string()).collect() )
-        .ok_or("No rows available")?;
-    let mut n_unnamed = 1;
-    for (ix, name) in names.iter_mut().enumerate() {
-        if &name[..] == "?column?" {
-            *name = format!("(Unnamed {})", n_unnamed);
-            n_unnamed += 1;
-        }
-    }
-    let row1 = rows.iter().next().ok_or("No first row available")?;
-    let cols = row1.columns();
-    let col_types : Vec<_> = cols.iter().map(|c| c.type_()).collect();
-    if names.len() == 0 {
-        return Err("No columns available");
-    }
-    let ncols = names.len();
-    let mut null_cols : Vec<NullableColumn> = Vec::new();
-    // println!("Column types");
-    for i in 0..ncols {
-        // println!("{:?}", col_types[i]);
-        let is_bool = col_types[i] == &Type::BOOL;
-        let is_bytea = col_types[i] == &Type::BYTEA;
-        let is_text = col_types[i] == &Type::TEXT ||
-            col_types[i] == &Type::VARCHAR ||
-            col_types[i] == &Type::BPCHAR ||
-            col_types[i] == &Type::NAME;
-        let is_char = col_types[i] == &Type::CHAR;
-        let is_double = col_types[i] == &Type::FLOAT8;
-        let is_float = col_types[i] == &Type::FLOAT4;
-        let is_int = col_types[i] == &Type::INT4;
-        let is_long = col_types[i] == &Type::INT8;
-        let is_oid = col_types[i] == &Type::OID;
-        let is_smallint = col_types[i] == &Type::INT2;
-        let is_timestamp = col_types[i] == &Type::TIMESTAMP;
-        let is_date = col_types[i] == &Type::DATE;
-        let is_time = col_types[i] == &Type::TIME;
-        let is_numeric = col_types[i] == &Type::NUMERIC;
-        let is_json = col_types[i] == &Type::JSON || col_types[i] == &Type::JSONB;
-        let is_text_arr = col_types[i] == &Type::TEXT_ARRAY;
-        let is_real_arr = col_types[i] == &Type::FLOAT4_ARRAY;
-        let is_dp_arr = col_types[i] == &Type::FLOAT8_ARRAY;
-        let is_smallint_arr = col_types[i] == &Type::INT2_ARRAY;
-        let is_int_arr = col_types[i] == &Type::INT4_ARRAY;
-        let is_bigint_arr = col_types[i] == &Type::INT8_ARRAY;
-        let is_xml = col_types[i] == &Type::XML;
-        let is_json_arr = col_types[i] == &Type::JSON_ARRAY;
-        let array_ty = match (is_text_arr, is_real_arr, is_dp_arr, is_smallint_arr, is_int_arr, is_bigint_arr, is_json_arr) {
-            (true, _, _, _, _, _, _) => Some(ArrayType::Text),
-            (_, true, _, _, _, _, _) => Some(ArrayType::Float4),
-            (_, _, true, _, _, _, _) => Some(ArrayType::Float8),
-            (_, _, _, true, _, _, _) => Some(ArrayType::Int2),
-            (_, _, _, _, true, _, _) => Some(ArrayType::Int4),
-            (_, _, _, _, _, _, true) => Some(ArrayType::Json),
-            _ => None
-        };
-
-        // Postgres Interval type is unsupported by the client driver
-        // let is_interval = col_types[i] == &Type::INTERVAL;
-
-        if is_bool {
-            null_cols.push(nullable_from_rows::<bool>(rows, i)?);
-        } else {
-            if is_bytea {
-                null_cols.push(nullable_from_rows::<Vec<u8>>(rows, i)?);
-            } else {
-                if is_text {
-                    null_cols.push(nullable_from_rows::<String>(rows, i)?);
-                } else {
-                    if is_char {
-                        null_cols.push(nullable_from_rows::<i8>(rows, i)?);
-                    } else {
-                        if is_double {
-                            null_cols.push(nullable_from_rows::<f64>(rows, i)?);
-                        } else {
-                            if is_float {
-                                null_cols.push(nullable_from_rows::<f32>(rows, i)?);
-                            } else {
-                                if is_int {
-                                    null_cols.push(nullable_from_rows::<i32>(rows, i)?);
-                                } else {
-                                    if is_smallint {
-                                        null_cols.push(nullable_from_rows::<i16>(rows, i)?);
-                                    } else {
-                                        if is_long {
-                                            null_cols.push(nullable_from_rows::<i64>(rows, i)?);
-                                        } else {
-                                            if is_oid {
-                                                null_cols.push(nullable_from_rows::<u32>(rows, i)?);
-                                            } else {
-                                                if is_timestamp {
-                                                    null_cols.push(as_nullable_text::<chrono::NaiveDateTime>(rows, i)?);
-                                                } else {
-                                                    if is_date {
-                                                        null_cols.push(as_nullable_text::<chrono::NaiveDate>(rows, i)?);
-                                                    } else {
-                                                        if is_time {
-                                                            null_cols.push(as_nullable_text::<chrono::NaiveTime>(rows, i)?);
-                                                        } else {
-                                                            if is_numeric {
-                                                                null_cols.push(nullable_from_rows::<Decimal>(rows, i)?);
-                                                            } else {
-                                                                if is_json {
-                                                                    null_cols.push(nullable_from_rows::<Value>(rows, i)?);
-                                                                } else {
-                                                                    if let Some(ty) = array_ty {
-                                                                        null_cols.push(nullable_from_arr(rows, i, ty)?);
-                                                                    } else {
-                                                                        null_cols.push(nullable_unable_to_parse(rows, col_types[i]));
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    let cols : Vec<Column> = null_cols.drain(0..names.len())
-        .map(|nc| nc.to_column()).collect();
-    Ok(Table::new(None, names, cols)?)
-}
 
 fn run_local_statement(
     local : &LocalStatement,

@@ -5,7 +5,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use crate::sql::*;
 use std::path::Path;
-use crate::tables::*;
+use monday::tables::*;
 use std::sync::{Arc, Mutex};
 use std::str::FromStr;
 use std::cmp::{Eq, PartialEq};
@@ -15,18 +15,19 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use crate::sql::object::*;
 use crate::{Callbacks, ValuedCallbacks};
-use crate::tables::table::Table;
+use monday::tables::table::Table;
 use crate::React;
 use crate::client::ActiveConnection;
 use std::boxed;
-use crate::tables::table::TableSettings;
-use crate::tables::table::Columns;
+use monday::tables::table::TableSettings;
+use monday::tables::table::Columns;
 use plots::Panel;
 use crate::ui::QueriesWorkspace;
 use std::io::Write;
 use std::thread;
 use crate::ui::ExportDialog;
 use crate::ui::QueriesSettings;
+use monday;
 
 // #[cfg(feature="arrowext")]
 // use datafusion::execution::context::ExecutionContext;
@@ -67,6 +68,8 @@ pub struct Environment {
 
     on_tbl_update : Callbacks<Vec<Table>>,
 
+    on_tbl_error : Callbacks<String>,
+
     on_export_error : Callbacks<String>
 
 }
@@ -81,11 +84,13 @@ impl Environment {
         // Replace by on_export_success and on_export_error. Exporting thread is spanwed and
         // result message is sent back to user.
         let on_export_error : Callbacks<String> = Default::default();
+        let on_tbl_error : Callbacks<String> = Default::default();
         let mut selected : Option<usize> = None;
         let mut template_path : Option<String> = None;
         recv.attach(None, {
             let on_tbl_update = on_tbl_update.clone();
             let on_export_error = on_export_error.clone();
+            let on_tbl_error = on_tbl_error.clone();
             let send = send.clone();
             move |action| {
                 match action {
@@ -98,9 +103,15 @@ impl Environment {
                         }).next().is_some();
                         if !has_error {
                             tables.update_from_query_results(results);
-                            plots.update_from_tables(&tables.tables[..]);
-                            if tables.tables.len() >= 1 {
-                                on_tbl_update.borrow().iter().for_each(|f| f(tables.tables.clone()) );
+                            match plots.update_from_tables(&tables.tables[..]) {
+                                Ok(_) => {
+                                    if tables.tables.len() >= 1 {
+                                        on_tbl_update.borrow().iter().for_each(|f| f(tables.tables.clone()) );
+                                    }
+                                },
+                                Err(e) => {
+                                    on_tbl_error.borrow().iter().for_each(|f| f(e.clone()) );
+                                }
                             }
                         }
                     },
@@ -144,7 +155,7 @@ impl Environment {
                 Continue(true)
             }
         });
-        Self { send, on_tbl_update, on_export_error }
+        Self { send, on_tbl_update, on_export_error, on_tbl_error }
     }
 
     pub fn connect_table_update<F>(&self, f : F)
@@ -159,6 +170,13 @@ impl Environment {
         F : Fn(String) + 'static
     {
         self.on_export_error.borrow_mut().push(boxed::Box::new(f));
+    }
+
+    pub fn connect_table_error<F>(&self, f : F)
+    where
+        F : Fn(String) + 'static
+    {
+        self.on_tbl_error.borrow_mut().push(boxed::Box::new(f));
     }
 
 }
@@ -248,12 +266,12 @@ fn export_to_path(item : ExportItem, path : &Path, template_path : Option<String
                     f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )
                 },
                 Some("fodt") => {
-                    let s = crate::report::ooxml::substitute_ooxml(&tbl, &read_template(template_path)?)
+                    let s = monday::report::ooxml::substitute_ooxml(&tbl, &read_template(template_path)?)
                         .map_err(|e| format!("{}", e) )?;
                     f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )
                 },
                 Some("html") => {
-                    let s = crate::report::html::substitute_html(&tbl, &read_template(template_path)?)
+                    let s = monday::report::html::substitute_html(&tbl, &read_template(template_path)?)
                         .map_err(|e| format!("{}", e) )?;
                     f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )
                 },
@@ -323,19 +341,31 @@ impl Plots {
         }
     }
 
-    pub fn update_from_tables(&mut self, tables : &[Table]) {
+    pub fn update_from_tables(&mut self, tables : &[Table]) -> Result<(), String> {
         self.clear();
         for (ix, tbl) in tables.iter().enumerate() {
             if let Some(val) = tbl.single_json_field() {
-                match Panel::new_from_json(&val.to_string()) {
-                    Ok(panel) => {
-                        self.ixs.push(ix);
-                        self.panels.push(panel);
+                match val {
+                    serde_json::Value::Object(ref map) => {
+                        let is_panel = map.contains_key("elements") && map.contains_key("layout") && map.contains_key("design");
+                        let is_plot = map.contains_key("x") && map.contains_key("y") && map.contains_key("mappings");
+                        if is_panel || is_plot {
+                            match Panel::new_from_json(&val.to_string()) {
+                                Ok(panel) => {
+                                    self.ixs.push(ix);
+                                    self.panels.push(panel);
+                                },
+                                Err(e) => {
+                                    return Err(format!("{}", e));
+                                }
+                            }
+                        }
                     },
                     _ => { }
                 }
             }
         }
+        Ok(())
     }
 
 }

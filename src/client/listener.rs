@@ -12,7 +12,12 @@ use crate::sql::parsing;
 use crate::sql::parsing::AnyStatement;
 use std::ops::Deref;
 use crate::Callbacks;
+use std::fs::File;
+use std::io::Read;
+use crate::sql::copy::*;
+use monday::tables::table::*;
 
+#[derive(Clone)]
 pub struct SqlListener {
 
     // _handle : JoinHandle<()>,
@@ -31,7 +36,7 @@ pub struct SqlListener {
 
     pub last_cmd : Arc<Mutex<Vec<String>>>,
 
-    listen_channels : Vec<String>,
+    listen_channels : Arc<Mutex<Vec<String>>>,
 
     // on_result_arrived : Option<for<Vec<StatementOutput>>,
 
@@ -41,7 +46,7 @@ pub struct SqlListener {
 impl SqlListener {
 
     pub fn update_engine(&mut self, engine : Box<dyn Connection>) -> Result<(), String> {
-        self.listen_channels.clear();
+        self.listen_channels.lock().unwrap().clear();
         if let Ok(mut old_engine) = self.engine.lock() {
             *old_engine = Some(engine);
             Ok(())
@@ -51,10 +56,10 @@ impl SqlListener {
     }
 
     pub fn listen_to_notification(&mut self, channel : &str, filter : &str) {
-        if !self.listen_channels.iter().find(|ch| &ch[..] == channel ).is_some() {
+        /*if !self.listen_channels.lock().unwrap().iter().find(|ch| &ch[..] == channel ).is_some() {
             // self.listener.listen_to_notification(channel);
             self.listen_channels.push(channel.to_string());
-        }
+        }*/
     }
 
     pub fn clear_notifications(&self) {
@@ -110,7 +115,6 @@ impl SqlListener {
         let (cmd_tx, cmd_rx) = mpsc::channel::<(String, HashMap<String, String>, bool)>();
         // let (ans_tx, ans_rx) = mpsc::channel::<Vec<StatementOutput>>();
         let engine : Arc<Mutex<Option<Box<dyn Connection>>>> = Arc::new(Mutex::new(None));
-        let listen_channels = Vec::new();
 
         // Channel listening thread
         thread::spawn({
@@ -208,7 +212,7 @@ impl SqlListener {
             cmd_sender : cmd_tx,
             engine,
             last_cmd : Arc::new(Mutex::new(Vec::new())),
-            listen_channels
+            listen_channels : Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -354,5 +358,54 @@ impl SqlListener {
         });
     }
 
+    pub fn on_import_request_done(
+        &self,
+        path : String,
+        action : crate::sql::copy::Copy,
+        f : impl Fn(Result<usize, String>)->() + Send + 'static
+    ) {
+        let engine = self.engine.clone();
+        thread::spawn(move|| {
+            if let Some(mut engine) = engine.lock().unwrap().as_mut() {
+                let ans = copy_table_from_csv(path, engine.as_mut(), action);
+                f(ans);
+            } else {
+                f(Err(String::from("No active connection")));
+            }
+        });
+    }
+
 }
+
+fn copy_table_from_csv(
+    path : String,
+    conn : &mut dyn Connection,
+    action : crate::sql::copy::Copy
+) -> Result<usize, String> {
+    assert!(action.target == CopyTarget::From);
+    if let Ok(mut f) = File::open(&path) {
+        let mut txt = String::new();
+        if let Err(e) = f.read_to_string(&mut txt) {
+            return Err(format!("{}", e));
+        }
+        match Table::new_from_text(txt) {
+            Ok(mut tbl) => {
+                conn.import(
+                    &mut tbl,
+                    &action.table[..],
+                    &action.cols[..],
+                    // false,
+                    // true
+                )
+            },
+            Err(e) => {
+                Err(format!("Error parsing table: {}", e))
+            }
+        }
+    } else {
+        Err(format!("Error opening file"))
+    }
+}
+
+
 

@@ -16,11 +16,7 @@ pub mod server;
 
 pub mod sql;
 
-pub mod tables;
-
 pub mod command;
-
-pub mod report;
 
 pub const SETTINGS_PATH : &'static str = "/home/diego/.local/share/flatpak/app/com.github.limads.queries/user.json";
 

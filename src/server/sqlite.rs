@@ -1,9 +1,9 @@
 use rusqlite;
 use std::path::PathBuf;
 use super::*;
-use crate::tables::column::*;
-use crate::tables::nullable_column::*;
-use crate::tables::table::*;
+use monday::tables::column::*;
+use monday::tables::nullable_column::*;
+use monday::tables::table::*;
 use rusqlite::types::FromSql;
 use rusqlite::Row;
 use std::fmt::{self, Display};
@@ -69,6 +69,29 @@ impl Connection for SqliteConnection {
 
     fn listen_at_channel(&mut self, channel : String) {
 
+    }
+
+    fn import(
+        &mut self,
+        tbl : &mut Table,
+        dst : &str,
+        cols : &[String],
+        // schema : &[DBObject]
+    ) -> Result<usize, String> {
+        // TODO filter cols
+        let client = &mut self.conn;
+        /*if !crate::sql::object::schema_has_table(dst, schema) {
+            let create = tbl.sql_table_creation(dst, cols).unwrap();
+            println!("{}", create);
+            let mut create_stmt = client.prepare(&create).map_err(|e| format!("{}", e) )?;
+            create_stmt.execute(rusqlite::NO_PARAMS).map_err(|e| format!("{}", e) )?;
+        }*/
+
+        let insert = tbl.sql_table_insertion(dst, cols);
+        println!("{}", insert);
+        let mut insert_stmt = client.prepare(&insert).map_err(|e| format!("{}", e) )?;
+        insert_stmt.execute(rusqlite::NO_PARAMS).map_err(|e| format!("{}", e) )?;
+        Ok(tbl.shape().0)
     }
 
     fn query(&mut self, q : &str, subs : &HashMap<String, String>) -> StatementOutput {

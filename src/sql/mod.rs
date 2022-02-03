@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::fmt;
 use std::error::Error;
-use crate::tables::table::*;
+use monday::tables::table::*;
 use std::path::PathBuf;
 use crate::sql::object::{DBObject, DBType};
 use std::convert::TryInto;
@@ -16,14 +16,14 @@ use std::rc::Rc;
 use std::mem;
 use std::cmp::{PartialEq, Eq};
 use std::ffi::OsStr;
-use crate::tables::column::Column;
+use monday::tables::column::Column;
 use itertools::Itertools;
 use std::str::FromStr;
 use either::Either;
 use std::iter::Peekable;
 use crate::sql::object::Relation;
 use std::convert::TryFrom;
-use crate::tables::field::Field;
+use monday::tables::field::Field;
 use postgres::fallible_iterator::FallibleIterator;
 use std::time::Duration;
 use sqlparser::dialect::{PostgreSqlDialect, GenericDialect};
@@ -236,7 +236,7 @@ pub fn sql2table(result : Result<Vec<Statement>, String>) -> String {
 }
 
 pub fn make_query(query : &str) -> String {
-    sql2table(parse_sql(query, &HashMap::new()))
+    sql2table(crate::sql::parse_sql(query, &HashMap::new()))
 }
 
 /*pub enum SqlEngine {
@@ -575,5 +575,18 @@ pub fn build_error_with_stmt(msg : &str, query : &str) -> String {
     };
     let ellipsis = if query.len() > 60 { "..." } else { "" };
     format!("<b>Error</b> {}\n<b>Statement</b> {}{}", msg, q, ellipsis)
+}
+
+pub fn parse_sql(sql : &str, subs : &HashMap<String, String>) -> Result<Vec<Statement>, String> {
+    let sql = substitute_if_required(sql, subs);
+    //let dialect = PostgreSqlDialect {};
+    let dialect = PostgreSqlDialect {};
+    Parser::parse_sql(&dialect, &sql[..])
+        .map_err(|e| {
+            match e {
+                ParserError::TokenizerError(s) => s,
+                ParserError::ParserError(s) => s
+            }
+        })
 }
 

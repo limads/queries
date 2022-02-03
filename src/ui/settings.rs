@@ -31,7 +31,8 @@ impl<W: IsA<Widget>> NamedBox<W> {
 
     pub fn new(name : &str, subtitle : Option<&str>, w : W) -> Self {
         let label_bx = Box::new(Orientation::Vertical, 0);
-        let label = Label::new(Some(&format!("<span font_weight='bold'>{}</span>", name)));
+        //let label = Label::new(Some(&format!("<span font_weight='bold'>{}</span>", name)));
+        let label = Label::new(Some(&format!("<span>{}</span>", name)));
         super::set_margins(&label, 6, 6);
         label.set_justify(Justification::Left);
         label.set_halign(Align::Start);
@@ -69,19 +70,31 @@ impl<W: IsA<Widget>> NamedBox<W> {
 
 #[derive(Debug, Clone)]
 pub struct EditorBox {
-    bx : Box,
+    list : ListBox,
     scheme_combo : ComboBoxText,
     font_btn : FontButton,
     line_num_switch : Switch,
     line_highlight_switch : Switch,
 }
 
+fn configure_list(list : &ListBox) {
+    list.set_halign(Align::Center);
+    list.set_valign(Align::Center);
+    list.set_hexpand(true);
+    list.set_vexpand(true);
+    list.style_context().add_class("boxed-list");
+    list.set_width_request(600);
+    // list.set_selectable(false);
+    // list.set_activatable(false);
+}
+
 impl EditorBox {
 
     pub fn build() -> Self {
-        let bx = Box::new(Orientation::Vertical, 0);
-        bx.set_halign(Align::Fill);
-        bx.set_hexpand(true);
+        //let list = Box::new(Orientation::Vertical, 0);
+        let list = ListBox::new();
+        configure_list(&list);
+
         let font_btn = FontButton::new();
         font_btn.set_use_font(true);
         font_btn.set_use_size(true);
@@ -96,28 +109,28 @@ impl EditorBox {
         for id in manager.scheme_ids() {
             scheme_combo.append_text(&id);
         }
-        bx.append(&NamedBox::new("Color scheme", None, scheme_combo.clone()).bx);
+        list.append(&NamedBox::new("Color scheme", None, scheme_combo.clone()).bx);
         /*combo.connect_changed(move |combo| {
             if let Some(txt) = combo.active_text() {
                 let s = txt.as_str();
             }
         });*/
-        bx.append(&NamedBox::new("Font", None, font_btn.clone()).bx);
+        list.append(&NamedBox::new("Font", None, font_btn.clone()).bx);
 
         let line_num_switch = Switch::new();
         let line_highlight_switch = Switch::new();
 
-        bx.append(&NamedBox::new("Show line numbers", None, line_num_switch.clone()).bx);
-        bx.append(&NamedBox::new("Highlight current line", None, line_highlight_switch.clone()).bx);
+        list.append(&NamedBox::new("Show line numbers", None, line_num_switch.clone()).bx);
+        list.append(&NamedBox::new("Highlight current line", None, line_highlight_switch.clone()).bx);
 
-        Self { bx, scheme_combo, font_btn, line_num_switch, line_highlight_switch }
+        Self { list, scheme_combo, font_btn, line_num_switch, line_highlight_switch }
     }
 
 }
 
 #[derive(Debug, Clone)]
 pub struct ExecutionBox {
-    bx : Box,
+    list : ListBox,
     row_limit_spin : SpinButton,
     col_limit_spin : SpinButton,
     schedule_scale : Scale
@@ -126,9 +139,8 @@ pub struct ExecutionBox {
 impl ExecutionBox {
 
     pub fn build() -> Self {
-        let bx = Box::new(Orientation::Vertical, 0);
-        bx.set_halign(Align::Fill);
-        bx.set_hexpand(true);
+        let list = ListBox::new();
+        configure_list(&list);
         let row_limit_spin = SpinButton::with_range(0.0, 10_000.0, 1.0);
         row_limit_spin.set_digits(0);
         row_limit_spin.set_value(500.);
@@ -141,10 +153,24 @@ impl ExecutionBox {
         schedule_scale.set_width_request(240);
         schedule_scale.set_draw_value(true);
         schedule_scale.set_value_pos(PositionType::Top);
-        bx.append(&NamedBox::new("Row limit", None, row_limit_spin.clone()).bx);
-        bx.append(&NamedBox::new("Column limit", None, col_limit_spin.clone()).bx);
-        bx.append(&NamedBox::new("Execution interval", Some("Interval (in seconds) between scheduled executions"), schedule_scale.clone()).bx);
-        Self { bx, row_limit_spin, col_limit_spin, schedule_scale }
+
+        let timeout_scale = Scale::with_range(Orientation::Horizontal, 1.0, 30.0, 1.0);
+        timeout_scale.set_width_request(240);
+        timeout_scale.set_draw_value(true);
+        timeout_scale.set_value_pos(PositionType::Top);
+
+        // let overflow_combo = ComboBoxText::new();
+        // overflow_combo.append_text("Head (first rows)");
+        // overflow_combo.append_text("Tail (last rows)");
+        // overflow_combo.append_text("Random sample (ordered)");
+
+        list.append(&NamedBox::new("Row limit", None, row_limit_spin.clone()).bx);
+        list.append(&NamedBox::new("Column limit", None, col_limit_spin.clone()).bx);
+        // list.append(&NamedBox::new("Row overflow", Some("Which rows to display when results\n extrapolate the row limit"), schedule_scale.clone()).bx);
+        list.append(&NamedBox::new("Execution interval", Some("Interval (in seconds)\nbetween scheduled executions"), schedule_scale.clone()).bx);
+        list.append(&NamedBox::new("Statement timeout", Some("Maximum time (in seconds)\nto wait for database response"), timeout_scale.clone()).bx);
+
+        Self { list, row_limit_spin, col_limit_spin, schedule_scale }
     }
 
 }
@@ -192,7 +218,6 @@ impl EditableCombo {
                 Continue(true)
             }
         });
-
         let (remove_btn, add_btn) = (bx.left_btn.clone(), bx.right_btn.clone());
         remove_btn.connect_clicked({
             let combo = combo.clone();
@@ -232,7 +257,6 @@ impl EditableCombo {
                 }
             }
         });
-
         combo_entry.connect_changed({
             let add_btn = add_btn.clone();
             let remove_btn = remove_btn.clone();
@@ -257,15 +281,14 @@ impl EditableCombo {
 
 #[derive(Debug, Clone)]
 pub struct SecurityBox {
-    bx : Box
+    list : ListBox
 }
 
 impl SecurityBox {
 
     pub fn build() -> Self {
-        let bx = Box::new(Orientation::Vertical, 0);
-        bx.set_halign(Align::Fill);
-        bx.set_hexpand(true);
+        let list = ListBox::new();
+        configure_list(&list);
 
         //btn_bx.left_btn.connect_clicked(move |_| {
         //});
@@ -288,7 +311,7 @@ impl SecurityBox {
         entry.set_completion(Some(&completion));
         //completion.add_attribute(&renderer, "text", 0);
 
-        bx.append(&NamedBox::new("Certificate", Some("Inform the TLS certificate path if the \nconnection require it"), entry).bx);
+        list.append(&NamedBox::new("Certificate", Some("Inform the TLS certificate path if the \nconnection require it"), entry).bx);
 
         // combo.connect_changed(move |combo| {
         //    if let Some(txt) = combo.active_text() {
@@ -296,25 +319,24 @@ impl SecurityBox {
         //    }
         //});
 
-        Self { bx }
+        Self { list }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct ReportingBox {
-    pub bx : Box,
+    pub list : ListBox,
     pub entry : Entry
 }
 
 impl ReportingBox {
 
     pub fn build() -> Self {
-        let bx = Box::new(Orientation::Vertical, 0);
-        bx.set_halign(Align::Fill);
-        bx.set_hexpand(true);
+        let list = ListBox::new();
+        configure_list(&list);
         let entry = Entry::new();
-        bx.append(&NamedBox::new("Template", Some("Path to html/fodt template from which\nreport will be rendered"), entry.clone()).bx);
-        Self { bx, entry }
+        list.append(&NamedBox::new("Template", Some("Path to html/fodt template from which\nreport will be rendered"), entry.clone()).bx);
+        Self { list, entry }
     }
 }
 
@@ -335,7 +357,7 @@ impl QueriesSettings {
         let paned = Paned::new(Orientation::Horizontal);
         paned.set_halign(Align::Fill);
         paned.set_hexpand(true);
-        paned.set_position(100);
+        paned.set_position(200);
 
         let list = ListBox::new();
         list.set_selection_mode(SelectionMode::Single);
@@ -343,6 +365,7 @@ impl QueriesSettings {
         list.append(&build_settings_row("Execution"));
         list.append(&build_settings_row("Security"));
         list.append(&build_settings_row("Reporting"));
+        list.set_width_request(200);
         paned.set_start_child(&list);
 
         let editor_bx = EditorBox::build();
@@ -352,10 +375,10 @@ impl QueriesSettings {
         let stack = Stack::new();
         stack.set_halign(Align::Fill);
         stack.set_hexpand(true);
-        stack.add_named(&editor_bx.bx, Some("editor"));
-        stack.add_named(&exec_bx.bx, Some("execution"));
-        stack.add_named(&security_bx.bx, Some("security"));
-        stack.add_named(&report_bx.bx, Some("reporting"));
+        stack.add_named(&editor_bx.list, Some("editor"));
+        stack.add_named(&exec_bx.list, Some("execution"));
+        stack.add_named(&security_bx.list, Some("security"));
+        stack.add_named(&report_bx.list, Some("reporting"));
 
         paned.set_end_child(&stack);
         dialog.set_child(Some(&paned));

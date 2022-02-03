@@ -92,7 +92,8 @@ impl ExecButton {
         let clear_action = gio::SimpleAction::new("clear", None);
         exec_action.set_enabled(false);
         btn.set_sensitive(false);
-        let schedule_action = gio::SimpleAction::new("schedule", None);
+        let schedule_action = gio::SimpleAction::new_stateful("schedule", None, &(false).to_variant());
+        // schedule_action.
         // btn.activate_action(&exec_action, None);
         Self { btn, exec_action, clear_action, schedule_action }
     }
@@ -167,7 +168,9 @@ impl React<QueriesContent> for ExecButton {
                         }
                     },
                     "results" => {
-                        exec_btn.set_sensitive(false);
+                        // We can't set it to insensitive here, or else the user
+                        // won't be able to cancel scheduled queries.
+                        // exec_btn.set_sensitive(false);
                     },
                     _ => { }
                 }

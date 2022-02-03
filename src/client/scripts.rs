@@ -229,7 +229,7 @@ impl OpenedScripts {
                                 match File::open(&path) {
                                     Ok(mut f) => {
                                         let mut content = String::new();
-                                        f.read_to_string(&mut content);
+                                        f.read_to_string(&mut content).unwrap();
 
                                         if content.len() > MAX_FILE_SIZE {
                                             send.send(ScriptAction::OpenError(format!("File extrapolates maximum size"))).unwrap();
@@ -621,16 +621,6 @@ impl React<MainMenu> for OpenedScripts {
 
 }
 
-impl React<ScriptList> for OpenedScripts {
-
-    fn react(&self, list : &ScriptList) {
-        let send = self.send.clone();
-        list.new_btn.connect_clicked(move |_| {
-            send.send(ScriptAction::NewRequest).unwrap();
-        });
-    }
-}
-
 impl React<OpenDialog> for OpenedScripts {
 
     fn react(&self, dialog : &OpenDialog) {
@@ -647,6 +637,16 @@ impl React<OpenDialog> for OpenedScripts {
         });
     }
 
+}
+
+impl React<ScriptList> for OpenedScripts {
+
+    fn react(&self, list : &ScriptList) {
+        let send = self.send.clone();
+        list.new_btn.connect_clicked(move |_| {
+            send.send(ScriptAction::NewRequest).unwrap();
+        });
+    }
 }
 
 impl React<FileList> for OpenedScripts {

@@ -20,6 +20,8 @@ use crate::ui::QueriesWindow;
 use crate::sql::object::DBObject;
 use crate::ui::{SchemaTree};
 use crate::sql::object::DBType;
+use crate::sql::copy::*;
+use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConnectionInfo {
@@ -338,11 +340,18 @@ pub enum ActiveConnectionAction {
 
     ExecutionRequest(String),
 
+    StartSchedule(String),
+
+    EndSchedule,
+
     ExecutionCompleted(Vec<StatementOutput>),
 
     SchemaUpdate(Option<Vec<DBObject>>),
 
     ObjectSelected(Option<Vec<usize>>),
+
+    /// Carries path to CSV file.
+    TableImport(String),
 
     Error(String)
 
@@ -379,6 +388,7 @@ impl ActiveConnection {
         let (send, recv) = glib::MainContext::channel::<ActiveConnectionAction>(glib::source::PRIORITY_DEFAULT);
         let on_schema_update : Callbacks<Option<Vec<DBObject>>> = Default::default();
         let on_object_selected : Callbacks<Option<DBObject>> = Default::default();
+        let mut active_schedule = Rc::new(RefCell::new(false));
         let mut listener = SqlListener::launch({
             let send = send.clone();
             move |results| {
@@ -439,6 +449,54 @@ impl ActiveConnection {
                             Ok(_) => { },
                             Err(e) => {
                                 on_error.borrow().iter().for_each(|f| f(e.clone()) );
+                            }
+                        }
+                    },
+                    ActiveConnectionAction::StartSchedule(stmts) => {
+                        active_schedule.replace(true);
+                        glib::timeout_add_local(Duration::from_secs(1), {
+                            let active_schedule = active_schedule.clone();
+                            let on_error = on_error.clone();
+                            let listener = listener.clone();
+                            move || {
+                                match listener.send_command(stmts.clone(), HashMap::new(), true) {
+                                    Ok(_) => { },
+                                    Err(e) => {
+                                        on_error.borrow().iter().for_each(|f| f(e.clone()) );
+                                    }
+                                }
+                                Continue(*active_schedule.borrow())
+                            }
+                        });
+                    },
+                    ActiveConnectionAction::EndSchedule => {
+                        active_schedule.replace(false);
+                    },
+                    ActiveConnectionAction::TableImport(csv_path) => {
+                        if let Some(obj) = &selected_obj {
+                            match obj {
+                                DBObject::Table { name, .. } => {
+                                    let copy = Copy {
+                                        table : name.clone(),
+                                        target : CopyTarget::From,
+                                        cols : Vec::new(),
+                                        options : String::new(),
+                                        client : CopyClient::Stdio
+                                    };
+                                    let send = send.clone();
+                                    listener.on_import_request_done(csv_path, copy, move |ans| {
+                                        match ans {
+                                            Ok(n) => {
+                                                let msg = format!("{} row(s) imported", n);
+                                                send.send(ActiveConnectionAction::ExecutionCompleted(vec![StatementOutput::Statement(msg)]));
+                                            },
+                                            Err(e) => {
+                                                send.send(ActiveConnectionAction::Error(e));
+                                            }
+                                        }
+                                    });
+                                },
+                                _ => { }
                             }
                         }
                     },
@@ -786,14 +844,29 @@ impl React<ExecButton> for ActiveConnection {
 
     fn react(&self, btn : &ExecButton) {
         let send = self.send.clone();
+        let schedule_action = btn.schedule_action.clone();
         btn.exec_action.connect_activate(move |_action, param| {
 
             // Perhaps replace by a ValuedCallback that just fetches the contents of editor.
             // Then impl React<ExecBtn> for Editor, then React<Editor> for ActiveConnection,
             // where editor exposes on_script_read(.).
             let stmts = param.unwrap().get::<String>().unwrap();
-            send.send(ActiveConnectionAction::ExecutionRequest(stmts)).unwrap();
+            let must_schedule = schedule_action.state().unwrap().get::<bool>().unwrap();
+            if must_schedule {
+                send.send(ActiveConnectionAction::StartSchedule(stmts)).unwrap();
+            } else {
+                send.send(ActiveConnectionAction::ExecutionRequest(stmts)).unwrap();
+            }
             // println!("Should execute: {}", );
+        });
+        btn.schedule_action.connect_state_notify({
+            let send = self.send.clone();
+            move |action| {
+                if !action.state().unwrap().get::<bool>().unwrap() {
+                    println!("Unscheduled");
+                    send.send(ActiveConnectionAction::EndSchedule);
+                }
+            }
         });
     }
 
@@ -831,7 +904,7 @@ impl React<SchemaTree> for ActiveConnection {
                     if !s.is_empty() {
                         let obj : DBObject = serde_json::from_str(&s).unwrap();
                         match obj {
-                            DBObject::Table { name, .. } => {
+                            DBObject::Table { name, .. } | DBObject::View { name, .. } => {
                                 send.send(ActiveConnectionAction::ExecutionRequest(format!("select * from {} limit 500;", name)));
                             },
                             _ => { }
@@ -877,6 +950,9 @@ impl React<SchemaTree> for ActiveConnection {
                         match sql_literal_tuple(&entries, &tys) {
                             Ok(tuple) => {
                                 let insert_stmt = format!("insert into {} values {};", name, tuple);
+
+                                // println!("{}", insert_stmt);
+
                                 send.send(ActiveConnectionAction::ExecutionRequest(insert_stmt));
                             },
                             Err(e) => {
@@ -884,25 +960,55 @@ impl React<SchemaTree> for ActiveConnection {
                             }
                         }
                     },
-                    DBObject::Function { name, args, .. } => {
-                        match sql_literal_tuple(&entries, &args) {
-                            Ok(tuple) => {
-                                let call_stmt = format!("select {}{};", name, tuple);
-                                send.send(ActiveConnectionAction::ExecutionRequest(call_stmt));
-                            },
-                            Err(e) => {
-                                send.send(ActiveConnectionAction::Error(e));
+                    DBObject::Function { name, args, ret, .. } => {
+                        if args.len() == 0 {
+
+                            // With no arguments, we might have a function (with return value) or
+                            // a procedure. The syntax is slightly different for procedures.
+                            let call_stmt = if ret.is_some() {
+                                format!("select {}();", name)
+                            } else {
+                                format!("call {}();", name)
+                            };
+
+                            send.send(ActiveConnectionAction::ExecutionRequest(call_stmt));
+                        } else {
+                            match sql_literal_tuple(&entries, &args) {
+                                Ok(tuple) => {
+                                    let call_stmt = format!("select {}{};", name, tuple);
+                                    send.send(ActiveConnectionAction::ExecutionRequest(call_stmt));
+                                },
+                                Err(e) => {
+                                    send.send(ActiveConnectionAction::Error(e));
+                                }
                             }
                         }
                     },
                     _ => { }
                 }
 
+                entries.iter().for_each(|e| e.set_text("") );
+
                //     },
                //     FormAction::FnCall(obj) => {
                         // send.send(ActiveConnectionAction::ExecutionRequest(format!("select * from {} limit 500;", name)));
                //     },
                // }
+            }
+        });
+
+        let send = self.send.clone();
+        tree.import_dialog.dialog.connect_response({
+            move |dialog, resp| {
+                match resp {
+                    ResponseType::Accept => {
+                        if let Some(path) = dialog.file().and_then(|f| f.path() ) {
+                            send.send(ActiveConnectionAction::TableImport(path.to_str().unwrap().to_string())).unwrap();
+                            println!("Asked to save to path {:?}", path);
+                        }
+                    },
+                    _ => { }
+                }
             }
         });
     }
@@ -912,6 +1018,11 @@ fn sql_literal_tuple(entries : &[Entry], tys : &[DBType]) -> Result<String, Stri
     let mut ix = 0;
     let mut tuple = String::from("(");
     for (entry, col) in entries.iter().zip(tys) {
+
+        // if EntryExt::is_visible(entry) {
+        //    return Err(String::from("Entry should be visible"));
+        // }
+
         match text_to_sql_literal(&entry, &col) {
             Ok(txt) => {
                 tuple += &txt;
@@ -939,7 +1050,12 @@ fn text_to_sql_literal(entry : &Entry, ty : &DBType) -> Result<String, String> {
     } else {
         let desired_lit = match ty {
             DBType::Text | DBType::Date | DBType::Time | DBType::Bytes |
-            DBType::Json | DBType::Xml | DBType::Array => {
+            DBType::Json | DBType::Xml | DBType::Array | DBType::Bool => {
+
+                if entry_s.contains("'") {
+                    return Err(String::from("Invalid character (') at entry"));
+                }
+
                 format!("'{}'", entry_s)
             },
             _ => format!("{}", entry_s)

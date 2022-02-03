@@ -3,6 +3,7 @@ use crate::sql::*;
 use crate::sql::object::{DBObject, DBInfo};
 use crate::sql::parsing::AnyStatement;
 use sqlparser::ast::*;
+use monday::tables::table::Table;
 
 mod pg;
 
@@ -28,6 +29,14 @@ where
     fn listen_at_channel(&mut self, channel : String);
 
     fn info(&mut self) -> Option<DBInfo>;
+
+    fn import(
+        &mut self,
+        tbl : &mut Table,
+        dst : &str,
+        cols : &[String],
+        // schema : &[DBObject]
+    ) -> Result<usize, String>;
 
     /// It is important that every time this method is called,
     /// at least one query result is pushed into the queue, or else

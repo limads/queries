@@ -8,10 +8,12 @@ use crate::sql::StatementOutput;
 use crate::client::OpenedScripts;
 use crate::sql::object::{DBObject, DBType};
 
+pub const MAX_ENTRIES : usize = 32;
+
 #[derive(Debug, Clone)]
 pub struct Form {
     pub bx : Box,
-    pub entries : [Entry; 16],
+    pub entries : [Entry; MAX_ENTRIES],
     pub btn_cancel : Button,
     pub btn_ok : Button,
     pub dialog : Dialog
@@ -23,8 +25,8 @@ impl Form {
         let bx = Box::new(Orientation::Vertical, 0);
 
         let entries_bx = Box::new(Orientation::Vertical, 0);
-        let entries : [Entry; 16] = Default::default();
-        for ix in 0..16 {
+        let entries : [Entry; MAX_ENTRIES] = Default::default();
+        for ix in 0..MAX_ENTRIES {
             entries_bx.append(&entries[ix]);
             entries[ix].set_width_request(320);
             entries[ix].set_visible(false);
@@ -50,6 +52,12 @@ impl Form {
         let dialog = Dialog::new();
         super::configure_dialog(&dialog);
         dialog.set_child(Some(&bx));
+        dialog.connect_close({
+            let entries = entries.clone();
+            move |_dialog| {
+                entries.iter().for_each(|e| e.set_text("") );
+            }
+        });
         Self { bx, entries, btn_cancel, btn_ok, dialog }
     }
 

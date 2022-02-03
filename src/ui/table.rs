@@ -2,7 +2,7 @@ use gtk4::*;
 use gtk4::prelude::*;
 use std::rc::Rc;
 use std::cell::RefCell;
-use crate::tables::table::Table;
+use monday::tables::table::Table;
 // use gdk::prelude::*;
 // use gdk::{Cursor, CursorType};
 use std::iter::ExactSizeIterator;
