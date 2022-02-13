@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use crate::sql::*;
 use crate::sql::object::{DBObject, DBInfo};
-use crate::sql::parsing::AnyStatement;
+use crate::sql::parsing::{AnyStatement, SQLError};
 use sqlparser::ast::*;
 use monday::tables::table::Table;
 
@@ -35,7 +35,6 @@ where
         tbl : &mut Table,
         dst : &str,
         cols : &[String],
-        // schema : &[DBObject]
     ) -> Result<usize, String>;
 
     /// It is important that every time this method is called,
@@ -56,12 +55,16 @@ where
                 Ok(stmts) => {
                     self.run_parsed_sql(stmts, &subs)
                 },
-                Err(e) => {
-                    println!("Parsing error: {}", e);
+                Err(SQLError::Lexing(err)) => {
+                    Err(err)
+                },
+                Err(SQLError::Parsing(err)) => {
                     self.run_unparsed_sql(query_seq, &subs)
                 }
             },
-            false => self.run_unparsed_sql(query_seq, &subs)
+            false => {
+                self.run_unparsed_sql(query_seq, &subs)
+            }
         }
     }
 
@@ -96,10 +99,10 @@ where
                 },
                 AnyStatement::Local(local) => {
                     // Self::run_local_statement(&local, conn, exec, &mut results)?;
-                    unimplemented!()
+                    return Err(String::from("Unsupported statement: COPY"));
                 },
                 AnyStatement::Raw(_, r, _) => {
-                    panic!("Tried to run raw statement, but required parsed");
+                    return Err(String::from("Tried to run raw statement, but required parsed"));
                 }
             }
         }
@@ -107,7 +110,7 @@ where
         Ok(results)
     }
 
-    /// Runs the informed query sequence without client-side parsing.
+    /// Runs the informed query sequence without client-side parsing (Just tokenization).
     fn run_unparsed_sql(
         &mut self,
         query_seq : String,
@@ -128,7 +131,8 @@ where
                 },
                 AnyStatement::Local(local) => {
                     // Self::run_local_statement(&local, conn, exec, &mut results)?;
-                    unimplemented!()
+                    // unimplemented!()
+                    return Err(String::from("Unsupported statement: COPY"));
                 },
                 AnyStatement::Parsed(_, _) => {
                     return Err(format!("Tried to execute parsed statement (expected unparsed)"));

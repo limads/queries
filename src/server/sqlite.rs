@@ -94,22 +94,22 @@ impl Connection for SqliteConnection {
         Ok(tbl.shape().0)
     }
 
-    fn query(&mut self, q : &str, subs : &HashMap<String, String>) -> StatementOutput {
-        let query = substitute_if_required(q, subs);
+    fn query(&mut self, query : &str, subs : &HashMap<String, String>) -> StatementOutput {
+        // let query = substitute_if_required(q, subs);
         match self.conn.prepare(&query[..]) {
             Ok(mut prep_stmt) => {
                 match prep_stmt.query(rusqlite::NO_PARAMS) {
                     Ok(rows) => {
                         match build_table_from_sqlite(rows) {
                             Ok(mut tbl) => {
-                                if let Some((name, relation)) = crate::sql::table_name_from_sql(q) {
+                                if let Some((name, relation)) = crate::sql::table_name_from_sql(query) {
                                     tbl.set_name(Some(name));
                                     if !relation.is_empty() {
                                         tbl.set_relation(Some(relation));
                                     }
                                 }
                                 if tbl.names().iter().unique().count() == tbl.names().len() {
-                                    StatementOutput::Valid(q.to_string(), tbl)
+                                    StatementOutput::Valid(query.to_string(), tbl)
                                 } else {
                                     StatementOutput::Invalid(crate::sql::build_error_with_stmt("Non-unique column names", &query), false)
                                 }
@@ -135,9 +135,9 @@ impl Connection for SqliteConnection {
         let ans = match stmt {
             AnyStatement::Parsed(stmt, s) => {
                 let s = format!("{}", stmt);
-                self.conn.execute(&substitute_if_required(&s, subs)[..], rusqlite::NO_PARAMS)
+                self.conn.execute(&s, rusqlite::NO_PARAMS)
             },
-            AnyStatement::Raw(_, s, _) => self.conn.execute(&substitute_if_required(&s, subs)[..], rusqlite::NO_PARAMS),
+            AnyStatement::Raw(_, s, _) => self.conn.execute(&s, rusqlite::NO_PARAMS),
             AnyStatement::Local(_) => panic!("Tried to execute local statement remotely")
         };
         match ans {

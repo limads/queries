@@ -1,5 +1,5 @@
 use super::*;
-use sqlparser::dialect::{PostgreSqlDialect, GenericDialect};
+use sqlparser::dialect::{PostgreSqlDialect};
 use sqlparser::ast::{Statement, Function, Select, Value, Expr, SetExpr, SelectItem, Ident, TableFactor, Join, JoinOperator};
 use sqlparser::parser::{Parser, ParserError};
 use sqlparser::dialect::keywords::Keyword;
@@ -175,8 +175,8 @@ fn filter_single_function_out(stmt : &Statement) -> (Statement, Option<Substitut
 // TODO SQL parser is not accepting PostgreSQL double precision types
 // Use this if client-side parsing is desired.
 pub fn parse_sql(sql : &str, subs : &HashMap<String, String>) -> Result<Vec<Statement>, String> {
-    let sql = substitute_if_required(sql, subs);
-    //let dialect = PostgreSqlDialect {};
+    // let sql = substitute_if_required(sql, subs);
+    // let dialect = PostgreSqlDialect {};
     let dialect = PostgreSqlDialect {};
     Parser::parse_sql(&dialect, &sql[..])
         .map_err(|e| {
@@ -194,71 +194,118 @@ pub fn is_token_whitespace(token : &Token) -> bool {
     }
 }
 
-pub fn split_statement_tokens(mut tokens : Vec<Token>) -> Vec<Vec<Token>> {
+fn add_token(stmt_tokens : &mut Option<Vec<Token>>, tk : Token) {
+    match stmt_tokens {
+        Some(ref mut stmt_tokens) => stmt_tokens.push(tk),
+        None => {
+            *stmt_tokens = Some(vec![tk])
+        },
+    }
+}
+
+/// Splits Vec<Token>  into Vec<Vec<Token>>, where each inner vector is a separate SQL
+/// statement.
+pub fn split_statement_tokens(mut tokens : Vec<Token>) -> Result<Vec<Vec<Token>>, String> {
+
     // Each inner vector stores the tokens for a separated statement
     let mut split_tokens : Vec<Vec<Token>> = Vec::new();
 
     // Stores the tokens of the current statement.
     let mut stmt_tokens : Option<Vec<Token>> = None;
-    for tk in tokens.drain(0..) {
-        // println!("new token = {}", tk);
-        // println!("vec tokens = {:?}", stmt_tokens);
-        match tk {
 
+    let mut last_tk_is_dollar = false;
+    let mut inside_dollar_quote = false;
+
+    // Reject dollar+number patterns such as $1, $2, which postgres::Client expect to be
+    // query parameters. This will be lexed into Char('$') Number(1) using sqlparser.
+    // Unless this is done at the tokenization stage, the database thread
+    // will panic when we execute the non-parametrized query. We must make an effort here
+    // to parse away the substitutions before the client is made aware of the SQL, to avoid
+    // any panics. This is clearly a sub-optimal way to do it, but sqlparser does not recognize
+    // dollar-quoted strings as its own kind of token.
+    for tk in tokens.drain(0..) {
+
+        // println!("TK = {:?}, Inside dollar = {} Last is dollar = {}", tk, inside_dollar_quote, last_tk_is_dollar);
+
+        match &tk {
             // Clear current token group and push as a new inner statement tokens vector
             Token::SemiColon => {
-                if let Some(mut group) = stmt_tokens.take() {
-                    group.push(Token::SemiColon);
-                    split_tokens.push(group);
+
+                if inside_dollar_quote {
+                    add_token(&mut stmt_tokens, tk.clone());
+                } else {
+                    if let Some(mut group) = stmt_tokens.take() {
+                        group.push(Token::SemiColon);
+                        split_tokens.push(group);
+                    }
                 }
+
+                last_tk_is_dollar = false;
+            },
+
+            Token::Char('$') => {
+
+                if inside_dollar_quote {
+                    if last_tk_is_dollar {
+                        inside_dollar_quote = false;
+                    }
+                } else {
+                    if last_tk_is_dollar {
+                        inside_dollar_quote = true;
+                    }
+                }
+
+                add_token(&mut stmt_tokens, tk.clone());
+                last_tk_is_dollar = true;
+
             },
 
             Token::Whitespace(Whitespace::SingleLineComment{ .. }) => {
                 // A single line comment starting a statement block
                 // is preventing Parser::new(.) of returning a valid select statement,
                 // so they are parsed away here.
+                last_tk_is_dollar = false;
+            },
+            Token::Number(n, _) => {
+
+                if last_tk_is_dollar && !inside_dollar_quote {
+                    return Err(format!("Invalid SQL token: ${}", n));
+                }
+
+                add_token(&mut stmt_tokens, tk.clone());
+                last_tk_is_dollar = false;
             },
             other => {
-                match stmt_tokens {
-                    Some(ref mut stmt_tokens) => stmt_tokens.push(other),
-                    None => stmt_tokens = Some(vec![other]),
-                }
+                add_token(&mut stmt_tokens, tk.clone());
+                last_tk_is_dollar = false;
             }
         }
+    }
+
+    if inside_dollar_quote {
+        return Err(format!("Unclosed dollar quote"));
     }
 
     if let Some(last_tokens) = stmt_tokens {
         split_tokens.push(last_tokens);
     }
 
-    /* if last_tokens.len() > 0 {
-            let all_whitespace = last.iter()
-                .all(|tk| match tk {
-                    Token::Whitespace(_) => true,
-                    _ => false
-                });
-            if !all_whitespace {
-
-            }
-        }
-    }*/
-
-    /*for i in 0..split_tokens.len() {
-        let all_ws = split_tokens[i].iter()
-            .all(|tk| match tk { Token::Whitespace(_) => true, _ => false });
-        if all_ws {
-            split_tokens.remove(i);
-        }
-    }*/
-
-    // Remove token groups which have only whitespaces
+    // Remove token groups which have only whitespaces. Sequences of empty spaces separated
+    // by semicolons are legal SQL statements, but we do not need to send them to the server
+    // since they will not change the output.
     let non_ws_token_groups : Vec<_> = split_tokens.drain(0..)
         .filter(|group| !group.iter().all(|tk| is_token_whitespace(&tk)) )
         .collect();
 
-    // println!("Remaining tokens: {:?}", non_ws_token_groups);
+    Ok(non_ws_token_groups)
+}
 
-    non_ws_token_groups
+pub enum SQLError {
+
+    Lexing(String),
+
+    Parsing(String)
+
 }
 
 /// Parse this query sequence, first splitting the token vector
@@ -268,28 +315,32 @@ pub fn split_statement_tokens(mut tokens : Vec<Token>) -> Vec<Vec<Token>> {
 pub fn partially_parse_sql(
     sql : &str,
     subs : &HashMap<String, String>
-) -> Result<Vec<AnyStatement>, String> {
+) -> Result<Vec<AnyStatement>, SQLError> {
 
-    let mut tokens = extract_postgres_tokens(&sql)?;
-    let split_tokens = split_statement_tokens(tokens);
+    let mut tokens = extract_postgres_tokens(&sql).map_err(|e| SQLError::Lexing(e) )?;
 
-    // println!("Split tokens = {:?}", split_tokens);
+    println!("{:?}", tokens);
+
+    let split_tokens = split_statement_tokens(tokens).map_err(|e| SQLError::Lexing(e) )?;
 
     let dialect = dialect::PostgreSqlDialect{};
 
     let mut any_stmts = Vec::new();
     for token_group in split_tokens {
+
+        // Reconstruct the statement to send it to the parser. This will capitalize the SQL sent by the user.
         let mut orig = String::new();
         for tk in token_group.iter() {
             orig += &tk.to_string()[..];
         }
         let orig = orig.trim().to_string();
+
         // println!("Recovered orig = {:?}", orig);
 
-        // Make substitutions ONLY on the current token group string
+        /*// Make substitutions ONLY on the current token group string
         // We need to make this sutitution or else sqlparser won't be able
         // to parse the substitution tokens.
-        let sub = substitute_if_required(&orig, subs);
+        let sub = substitute_if_required(&orig, subs);*/
 
         // TODO group begin ... commit; together here, since we separated
         // tokens at ; before parsing.
@@ -300,13 +351,18 @@ pub fn partially_parse_sql(
         // error, which does not happen in this case.
 
         // let mut parser = Parser::new(token_group, &dialect::PostgreSqlDialect{});
-        match Parser::parse_sql(&dialect, &sub[..]) {
-            Ok(stmts) => {
-                if stmts.len() > 1 {
-                    return Err(format!("Found {} statements (expected 1)", stmts.len()));
-                }
-                match stmts.get(0) {
-                    Some(Statement::Copy{ table_name, columns, .. }) => {
+        match Parser::new(token_group.clone(), &dialect::PostgreSqlDialect{}).parse_statement() {
+            Ok(stmt) => {
+
+                // Parsing each group of tokens should yield exactly one statement.
+                // Whitespace-only token groups should already have been filtered at
+                // split_tokens.
+                // if stmts.len() != 1 {
+                //    return Err(SQLError::Parsing(format!("Found {} statements (expected 1)", stmts.len())));
+                // }
+
+                match stmt {
+                    Statement::Copy{ table_name, columns, .. } => {
 
                         // sqlparser::parse_copy (0.9.0) is only accepting the copy (..) from stdin sequence.
                         // In this case, hard-code the copy statement here. We use a custom type for copy
@@ -321,24 +377,25 @@ pub fn partially_parse_sql(
                          })));
 
                     },
-                    Some(other_stmt) => {
+                    other_stmt => {
                         any_stmts.push(AnyStatement::Parsed(other_stmt.clone(), orig));
                     },
-                    None => {
-                        println!("No first statement could be parsed");
-                    }
+                    // None => {
+                    //    return Err(SQLError::Parsing(format!("Found {} statements (expected 1)", stmts.len())));
+                    // }
                 }
             },
             Err(e) => {
+
                 // Sqlparser (0.9.0) will fail when the full PostgreSQL 'copy' command is
                 // invoked in full form. Do custom parsing in this case, adding a copy command
                 // and parsing the remaining statements.
-                match local_statement_or_tokens(&mut token_group.iter().peekable())? {
+                match local_statement_or_tokens(&mut token_group.iter().peekable()).map_err(|e| SQLError::Parsing(e) )? {
                     Some(Either::Left(local)) => {
                         any_stmts.push(AnyStatement::Local(local));
                     },
                     Some(Either::Right(_)) => {
-                        return Err(format!("Error parsing SQL statement: {}", e));
+                        return Err(SQLError::Parsing(format!("Error parsing SQL statement: {}", e)));
                     },
                     None => { }
                 }
@@ -600,7 +657,7 @@ where
 pub fn extract_postgres_tokens(stmt : &str) -> Result<Vec<Token>, String> {
     let dialect = PostgreSqlDialect{};
     let mut tokenizer = Tokenizer::new(&dialect, stmt);
-    tokenizer.tokenize().map_err(|e| format!("{:?}", e) )
+    tokenizer.tokenize().map_err(|e| format!("{}", e) )
 }
 
 /*/// Remove the content from all string literals from a SQL query.
@@ -676,8 +733,8 @@ pub fn define_if_select(tk : &Token, might_be_select : &mut bool, is_select : &m
 pub fn split_unparsed_statements(sql_text : String) -> Result<Vec<AnyStatement>, String> {
     let mut unparsed_stmts = Vec::new();
     let tokens = extract_postgres_tokens(&sql_text)?;
-    // println!("Tokens: {:?}", tokens);
-    let split_tokens = split_statement_tokens(tokens);
+    println!("Tokens: {:?}", tokens);
+    let split_tokens = split_statement_tokens(tokens)?;
     for stmt_tokens in split_tokens {
         let mut token_iter = stmt_tokens.iter().peekable();
         let mut stmt_string = String::new();

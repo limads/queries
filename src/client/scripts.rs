@@ -37,27 +37,27 @@ pub enum ScriptAction {
     // File position and whether the request is "forced" (i.e. asks for user confirmation).
     CloseRequest(usize, bool),
 
-    CloseConfirm(usize),
+    // CloseConfirm(usize),
 
     SaveRequest(Option<String>),
 
     SaveSuccess(usize, String),
 
-    Opened(String),
+    SaveError(String),
 
-    Closed(String),
+    // Opened(String),
+
+    // Closed(String),
 
     NewRequest,
 
-    ActiveTextChanged(Option<String>),
+    // ActiveTextChanged(Option<String>),
 
     WindowCloseRequest,
 
     SetSaved(usize, bool),
 
     Select(Option<usize>),
-
-    // CloseWindow
 
 }
 
@@ -69,7 +69,7 @@ pub struct OpenedScripts {
 
     on_open : Callbacks<OpenedFile>,
 
-    on_open_error : Callbacks<String>,
+    on_error : Callbacks<String>,
 
     on_save : Callbacks<OpenedFile>,
 
@@ -131,7 +131,7 @@ impl OpenedScripts {
         let on_save_unknown_path : Callbacks<String> = Default::default();
         let on_buffer_read_request : ValuedCallbacks<usize, String> = Default::default();
         let on_name_changed : Callbacks<(usize, String)> = Default::default();
-        let on_open_error : Callbacks<String> = Default::default();
+        let on_error : Callbacks<String> = Default::default();
         let on_added : Callbacks<OpenedFile> = Default::default();
 
         // Holds the files opened at the editor the user seeds on the side panel
@@ -166,7 +166,7 @@ impl OpenedScripts {
             );
             let on_added = on_added.clone();
             let on_name_changed = on_name_changed.clone();
-            let on_open_error = on_open_error.clone();
+            let on_error = on_error.clone();
             let mut file_open_handle : Option<JoinHandle<()>> = None;
 
             let mut last_closed_file : Option<OpenedFile> = None;
@@ -178,6 +178,7 @@ impl OpenedScripts {
                 match action {
                     ScriptAction::NewRequest => {
                         if files.len() == 16 {
+                            send.send(ScriptAction::OpenError(format!("Maximum number of files opened"))).unwrap();
                             return Continue(true);
                         }
                         let n_untitled = files.iter().filter(|f| f.name.starts_with("Untitled") )
@@ -193,7 +194,6 @@ impl OpenedScripts {
                             dt : Local::now().to_string()
                         };
                         files.push(new_file.clone());
-                        // println!("{:?}", files);
                         on_new.borrow().iter().for_each(|f| f(new_file.clone()) );
                     },
                     ScriptAction::Add(file) => {
@@ -222,36 +222,7 @@ impl OpenedScripts {
                             handle.join().unwrap();
                         }
 
-                        let handle = thread::spawn({
-                            let send = send.clone();
-                            let n_files = files.len();
-                            move || {
-                                match File::open(&path) {
-                                    Ok(mut f) => {
-                                        let mut content = String::new();
-                                        f.read_to_string(&mut content).unwrap();
-
-                                        if content.len() > MAX_FILE_SIZE {
-                                            send.send(ScriptAction::OpenError(format!("File extrapolates maximum size"))).unwrap();
-                                            return;
-                                        }
-
-                                        let new_file = OpenedFile {
-                                            path : Some(path.clone()),
-                                            name : path.clone(),
-                                            saved : true,
-                                            content : Some(content),
-                                            index : n_files,
-                                            dt : Local::now().to_string()
-                                        };
-                                        send.send(ScriptAction::OpenSuccess(new_file)).unwrap();
-                                    },
-                                    Err(e) => {
-                                        send.send(ScriptAction::OpenError(format!("{}", e ))).unwrap();
-                                    }
-                                }
-                            }
-                        });
+                        let handle = spawn_open_file(send.clone(), path, files.len());
                         file_open_handle = Some(handle);
                     },
                     ScriptAction::CloseRequest(ix, force) => {
@@ -309,6 +280,9 @@ impl OpenedScripts {
                         }
                         send.send(ScriptAction::SetSaved(ix, true));
                     },
+                    ScriptAction::SaveError(e) => {
+                        on_error.borrow().iter().for_each(|f| f(e.clone()) );
+                    },
                     ScriptAction::SetSaved(ix, saved) => {
 
                         // SetSaved will be called when a buffer is cleared after a file is closed,
@@ -337,7 +311,7 @@ impl OpenedScripts {
                         }
                     },
                     ScriptAction::OpenError(msg) => {
-                        on_open_error.borrow().iter().for_each(|f| f(msg.clone()) );
+                        on_error.borrow().iter().for_each(|f| f(msg.clone()) );
                     },
                     ScriptAction::Select(opt_ix) => {
                         selected = opt_ix;
@@ -352,10 +326,8 @@ impl OpenedScripts {
                         }
                         final_state.replace(recent_files.clone());
                     },
-                    // ScriptAction::CloseWindow => {
-                    //    final_state.borrow_mut().set(recent_files.clone());
-                    // }
-                    _ => { }
+                    // ScriptAction::CloseConfirm(_) | ScriptAction::Opened(_) | ScriptAction::Closed(_) => {
+                    //}
                 }
                 Continue(true)
             }
@@ -398,7 +370,7 @@ impl OpenedScripts {
             on_buffer_read_request,
             on_save_unknown_path,
             on_name_changed,
-            on_open_error,
+            on_error,
             on_added,
             final_state
         }
@@ -460,11 +432,11 @@ impl OpenedScripts {
         self.on_file_persisted.borrow_mut().push(boxed::Box::new(f));
     }
 
-    pub fn connect_open_error<F>(&self, f : F)
+    pub fn connect_error<F>(&self, f : F)
     where
         F : Fn(String) + 'static
     {
-        self.on_open_error.borrow_mut().push(boxed::Box::new(f));
+        self.on_error.borrow_mut().push(boxed::Box::new(f));
     }
 
     pub fn connect_on_active_text_changed<F>(&self, f : F)
@@ -543,18 +515,61 @@ fn remove_file(files : &mut Vec<OpenedFile>, ix : usize) -> OpenedFile {
     files.remove(ix)
 }
 
-fn spawn_save_file(path : String, index : usize, content : String, send : glib::Sender<ScriptAction>) -> JoinHandle<bool> {
+fn spawn_save_file(
+    path : String,
+    index : usize,
+    content : String,
+    send : glib::Sender<ScriptAction>
+) -> JoinHandle<bool> {
     thread::spawn(move || {
-        if let Ok(mut f) = File::create(&path) {
-            if f.write_all(content.as_bytes()).is_ok() {
-                send.send(ScriptAction::SaveSuccess(index, path));
-                true
-            } else {
+        match File::create(&path) {
+            Ok(mut f) => {
+                match f.write_all(content.as_bytes()) {
+                    Ok(_) => {
+                        send.send(ScriptAction::SaveSuccess(index, path));
+                        true
+                    },
+                    Err(e) => {
+                        send.send(ScriptAction::SaveError(format!("{}", e)));
+                        false
+                    }
+                }
+            },
+            Err(e) => {
+                send.send(ScriptAction::SaveError(format!("{}", e)));
                 false
             }
-        } else {
-            println!("Unable to write into file");
-            false
+        }
+    })
+}
+
+fn spawn_open_file(send : glib::Sender<ScriptAction>, path : String, n_files : usize) -> JoinHandle<()> {
+    thread::spawn(move || {
+        match File::open(&path) {
+            Ok(mut f) => {
+                let mut content = String::new();
+                if let Err(e) = f.read_to_string(&mut content) {
+                    send.send(ScriptAction::OpenError(format!("{}", e)));
+                }
+
+                if content.len() > MAX_FILE_SIZE {
+                    send.send(ScriptAction::OpenError(format!("File extrapolates maximum size"))).unwrap();
+                    return;
+                }
+
+                let new_file = OpenedFile {
+                    path : Some(path.clone()),
+                    name : path.clone(),
+                    saved : true,
+                    content : Some(content),
+                    index : n_files,
+                    dt : Local::now().to_string()
+                };
+                send.send(ScriptAction::OpenSuccess(new_file)).unwrap();
+            },
+            Err(e) => {
+                send.send(ScriptAction::OpenError(format!("{}", e ))).unwrap();
+            }
         }
     })
 }

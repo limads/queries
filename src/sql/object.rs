@@ -42,7 +42,9 @@ impl FromStr for DBType {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.starts_with("_") {
+        // The underline prefix to array types is set by the return of proargtypes join typename,
+        // the bracket postfix is the return of pg_get_function_identity_arguments.
+        if s.starts_with("_") || s.ends_with("[]") {
             return Ok(Self::Array)
         }
         match s {
@@ -58,7 +60,7 @@ impl FromStr for DBType {
             "dp" | "double precision" | "float8" => Ok(Self::F64),
             "blob" | "BLOB" | "bytea" => Ok(Self::Bytes),
             "time" | "time with time zone" | "time without time zone" |
-            "timestamp with time zone" | "timestamp without time zone" => Ok(Self::Time),
+            "timestamp with time zone" | "timestamp without time zone" | "time with time zone" | "time without time zone" => Ok(Self::Time),
             "xml" => Ok(Self::Xml),
             "anyarray" | "array" | "ARRAY" => Ok(Self::Array),
             "trigger" => Ok(Self::Trigger),

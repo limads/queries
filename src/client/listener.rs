@@ -38,6 +38,8 @@ pub struct SqlListener {
 
     listen_channels : Arc<Mutex<Vec<String>>>,
 
+    handle : Arc<JoinHandle<()>>
+
     // on_result_arrived : Option<for<Vec<StatementOutput>>,
 
     //loader : Arc<Mutex<FunctionLoader>>
@@ -113,10 +115,9 @@ impl SqlListener {
         F : Fn(Vec<StatementOutput>) + 'static + Send
     {
         let (cmd_tx, cmd_rx) = mpsc::channel::<(String, HashMap<String, String>, bool)>();
-        // let (ans_tx, ans_rx) = mpsc::channel::<Vec<StatementOutput>>();
         let engine : Arc<Mutex<Option<Box<dyn Connection>>>> = Arc::new(Mutex::new(None));
 
-        // Channel listening thread
+        /*// Channel listening thread
         thread::spawn({
             let engine = engine.clone();
             move|| {
@@ -134,53 +135,11 @@ impl SqlListener {
                 thread::sleep(Duration::from_millis(16));
             }*/
             }
-        });
-
+        });*/
         // let on_results_arrived : Callbacks<&'a [StatementOutput]> = Default::default();
 
         // Statement listening thread.
-        thread::spawn({
-            let engine = engine.clone();
-            move ||  {
-                //let loader = loader.clone();
-                loop {
-                    // TODO perhaps move SQL parsing to here so loader is passed to
-                    // try_run iff there are local functions matching the query.
-                    match cmd_rx.recv() {
-                        Ok((cmd, subs, parse)) => {
-                            match **engine.lock().as_mut().unwrap() {
-                                Some(ref mut eng) => {
-                                    let result = eng.try_run(cmd, &subs, parse,  /*Some(&loader)*/ );
-                                    let res = match result {
-                                        Ok(ans) => {
-                                            ans
-                                            //{
-                                            // if let Err(e) = ans_tx.send(ans) {
-                                            //    println!("{}", e);
-                                            // }
-                                        },
-                                        Err(e) => {
-                                            vec![StatementOutput::Invalid( e.to_string(), false )]
-                                        }
-                                    };
-                                    result_cb(res);
-                                    // if let Err(e) = ans_tx.send(res) {
-                                    //    println!("{}", e);
-                                    // }
-                                },
-                                None => {
-
-                                },
-                            }
-                        },
-                        Err(e) => {
-                            // println!("Receiver on SQL engine thread found a closed channel");
-                            return;
-                        }
-                    }
-                }
-            }
-        });
+        let handle = spawn_listener_thread(engine.clone(), result_cb, cmd_rx);
 
         /*let (info_sender, info_r) = mpsc::channel::<()>();
         let (info_s, info_recv) = mpsc::channel::<Option<DBInfo>>();
@@ -213,6 +172,7 @@ impl SqlListener {
             engine,
             last_cmd : Arc::new(Mutex::new(Vec::new())),
             listen_channels : Arc::new(Mutex::new(Vec::new())),
+            handle : Arc::new(handle)
         }
     }
 
@@ -222,13 +182,18 @@ impl SqlListener {
     /// error to the user.
     pub fn send_command(&self, sql : String, subs : HashMap<String, String>, parse : bool) -> Result<(), String> {
 
+        // Before sending a command, it might be interesting to check if self.handle.is_running()
+        // when this stabilizes at the stdlib. If it is not running (i.e. there is a panic at the
+        // database connection thread), we re-launch it. To do that, we must establish a new command
+        // (receiver, sender) pair, since the original sender will be de-allocated if the database
+        // thread panics.
+
         if sql.chars().all(|c| c.is_whitespace() ) {
             return Err(String::from("Empty statement sequence"));
         }
 
-        if let Ok(mut last_cmd) = self.last_cmd.lock() {
+        /*if let Ok(mut last_cmd) = self.last_cmd.lock() {
             last_cmd.clear();
-            // self.clear_results();
             match parse {
                 true => {
                     match crate::sql::parsing::parse_sql(&sql[..], &subs) {
@@ -273,9 +238,18 @@ impl SqlListener {
             }
         } else {
             return Err(format!("Unable to acquire lock over last commands"));
+        }*/
+
+        match self.cmd_sender.send((sql.clone(), subs, parse)) {
+            Ok(_) => {
+
+            },
+            Err(e) => {
+                // Most likely, a panic when running the client caused this.
+                return Err(format!("Database connection thread is down.\nPlease restart the application."));
+            }
         }
-        self.cmd_sender.send((sql.clone(), subs, parse))
-            .expect("Error sending SQL command over channel");
+
         Ok(())
     }
 
@@ -315,14 +289,14 @@ impl SqlListener {
         }
     }*/
 
-    pub fn last_commands(&self) -> Vec<String> {
+    /*pub fn last_commands(&self) -> Vec<String> {
         if let Ok(cmds) = self.last_cmd.lock() {
             cmds.clone()
         } else {
             println!("Unable to acquire lock over last commands");
             Vec::new()
         }
-    }
+    }*/
 
     // pub fn request_db_info(&self) {
     //    self.info_sender.send(());
@@ -375,6 +349,47 @@ impl SqlListener {
         });
     }
 
+}
+
+fn spawn_listener_thread<F>(
+    engine : Arc<Mutex<Option<Box<dyn Connection>>>>,
+    result_cb : F,
+    cmd_rx : Receiver<(String, HashMap<String, String>, bool)>
+) -> JoinHandle<()>
+where
+    F : Fn(Vec<StatementOutput>) + 'static + Send
+{
+    thread::spawn(move ||  {
+        loop {
+            match cmd_rx.recv() {
+                Ok((cmd, subs, parse)) => {
+                    match **engine.lock().as_mut().unwrap() {
+                        Some(ref mut eng) => {
+                            let result = eng.try_run(cmd, &subs, parse);
+                            let res = match result {
+                                Ok(ans) => {
+                                    ans
+                                },
+                                Err(e) => {
+                                    vec![StatementOutput::Invalid( e.to_string(), false )]
+                                }
+                            };
+                            result_cb(res);
+                        },
+                        None => {
+                            result_cb(vec![StatementOutput::Invalid(format!("Database connection is down. Please restart the connection"), false)]);
+                        },
+                    }
+                },
+                Err(e) => {
+                    println!("Command receiver thread closed");
+
+                    // At this point, the main thread is down. There is nothing to do except break the loop.
+                    break;
+                }
+            }
+        }
+    })
 }
 
 fn copy_table_from_csv(

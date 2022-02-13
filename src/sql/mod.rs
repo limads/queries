@@ -292,25 +292,49 @@ pub fn build_statement_result(any_stmt : &AnyStatement, n : usize) -> StatementO
             _ => StatementOutput::Statement(format!("Statement executed"))
         },
         AnyStatement::Raw(_, s, _) => {
-            if s.contains("create table") || s.contains("CREATE TABLE") {
-                return StatementOutput::Modification(format!("Create table"));
+
+            // Process statements that make sense to PostgreSQL but for some reason were not parsed by sqlparser.
+
+            let mut prefix : (Option<String>, Option<String>, Option<String>) = (None, None, None);
+            let mut split = s.split_whitespace();
+            prefix.0 = split.next().map(|s| s.trim().to_lowercase().to_string() );
+            prefix.1 = split.next().map(|s| s.trim().to_lowercase().to_string() );
+            prefix.2 = split.next().map(|s| s.trim().to_lowercase().to_string() );
+
+            if let (Some(p1), Some(p2), Some(p3)) = prefix {
+                match (&p1[..], &p2[..], &p3[..]) {
+                    ("create", "table", _) | ("create", "virtual", "table") | ("create", "temporary", "table") => {
+                        return StatementOutput::Modification(format!("Create table"));
+                    },
+                    ("drop", "table", _) => {
+                        return StatementOutput::Modification(format!("Drop table"));
+                    },
+                    ("alter", "table", _) => {
+                        return StatementOutput::Modification(format!("Alter table"));
+                    },
+                    ("create", "schema", _) => {
+                        return StatementOutput::Modification(format!("Create schema"));
+                    },
+                    ("create",  "function", _) => {
+                        return StatementOutput::Modification(format!("Create function"));
+                    },
+                    ("drop", "function", _) => {
+                        return StatementOutput::Modification(format!("Drop function"));
+                    },
+                    ("insert", _, _) => {
+                        return StatementOutput::Statement(format!("{} row(s) inserted", n));
+                    },
+                    ("update", _, _) => {
+                        return StatementOutput::Statement(format!("{} row(s) updated", n));
+                    },
+                    ("delete", _, _) => {
+                        return StatementOutput::Statement(format!("{} row(s) deleted", n));
+                    },
+                    _ => { }
+                }
             }
-            if s.contains("create virtual table") || s.contains("CREATE VIRTUAL TABLE") {
-                return StatementOutput::Modification(format!("Create table"));
-            }
-            if s.contains("create temporary table") || s.contains("CREATE TEMPORARY TABLE") {
-                return StatementOutput::Modification(format!("Create table"));
-            }
-            if s.contains("drop table") || s.contains("DROP TABLE") {
-                return StatementOutput::Modification(format!("Drop table"));
-            }
-            if s.contains("alter table") || s.contains("ALTER TABLE") {
-                return StatementOutput::Modification(format!("Alter table"));
-            }
-            if s.contains("create schema") || s.contains("CREATE SCHEMA") {
-                return StatementOutput::Modification(format!("Create schema"));
-            }
-            StatementOutput::Statement(format!("{} row(s) modified", n))
+
+            StatementOutput::Statement(format!("Statement executed"))
         },
         AnyStatement::Local(local) => {
             match local {

@@ -168,7 +168,7 @@ impl React<OpenedScripts> for QueriesContent {
                 overlay.add_toast(&toast);
             }
         });
-        scripts.connect_open_error({
+        scripts.connect_error({
             let overlay = self.overlay.clone();
             move |msg| {
                 overlay.add_toast(&libadwaita::Toast::builder().title(&msg[..]).build());

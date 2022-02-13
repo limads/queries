@@ -273,6 +273,22 @@ from uptime;
     // let role_query = "select rolinherit, rolcanlogin, rolsuper, from pg_catalog.pg_roles";
 // }
 
+/*fn split_on_type<'a>(s : &'a str) -> impl Iterator<Item=&'a str> +'a {
+
+    let mut splits = Vec::new();
+
+
+    "double precision"
+    "timestamp with time zone"
+    "timestamp without time zone"
+    "time with time zone"
+    "time without time zone"
+
+    let mut ix =
+
+    split.drain(..)
+}*/
+
 // pg_proc.prokind codes: f = function; p = procedure; a = aggregate; w = window
 // To retrieve source: case when pg_language.lanname = 'internal' then pg_proc.prosrc else pg_get_functiondef(pg_proc.oid) end as source
 // -- pg_language.lanname not like 'internal' and
@@ -283,7 +299,9 @@ from uptime;
 // TODO the generate_series seems to be slowing the query down, making the connection startup
 // unreasonably slow. But removing it makes the arguments be unnested at the incorrect order.
 fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Option<Vec<DBObject>> {
-    let fn_query = format!(r#"
+
+    // This version is slower, and does not make use of pg_get_function_arguments.
+    /*let fn_query = format!(r#"
     with arguments as (
         with arg_types as (select pg_proc.oid as proc_oid,
             unnest(proargtypes) as arg_oid,
@@ -310,20 +328,40 @@ fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Opti
         pg_namespace.nspname like '{}' and
         pg_proc.proname not like 'ts_debug' and
         pg_proc.proname not like '_pg%'
-    order by pg_proc.oid;"#, schema);
+    order by pg_proc.oid;"#, schema);*/
+
+    // Use this to collect names and types from first method.
+    // let arg_types = (0..names.len()).map(|ix| fn_info.get_column(1).unwrap().at(ix) ).collect::<Vec<_>>();
+    // let arg_names = (0..names.len()).map(|ix| fn_info.get_column(2).unwrap().at(ix) ).collect::<Vec<_>>();
+
+    // This version is much faster (since it does not require subqueries),
+    // but assumes pg_get_function_arguments function is
+    // registered at catalog. Also, we must parse the names from types from the textual result.
+    // This might be fine if the strategy shows to be stable across postgres versions.
+    let fn_query = format!(r#"
+        select cast (pg_proc.proname as text),
+           pg_get_function_identity_arguments(pg_proc.oid) as args,
+           cast(pg_type.typname as text) as ret_typename
+        from pg_proc
+        left join pg_namespace on pg_proc.pronamespace = pg_namespace.oid
+        left join pg_type on pg_type.oid = pg_proc.prorettype
+        where pg_namespace.nspname like '{}' and
+            pg_namespace.nspname not in ('pg_catalog', 'information_schema')
+        order by proname;
+        "#, schema);
 
     let ans = conn.try_run(fn_query, &HashMap::new(), false) /*.map_err(|e| println!("{}", e) )*/ .ok()?;
     match ans.get(0)? {
         StatementOutput::Valid(_, fn_info) => {
             let mut fns = Vec::new();
-            let names = Vec::<String>::try_from(fn_info.get_column(2).unwrap().clone()).ok()?;
-            let arg_types = (0..names.len()).map(|ix| fn_info.get_column(3).unwrap().at(ix) ).collect::<Vec<_>>();
-            // println!("Retrieved args = {:?}", args);
-            let ret = Vec::<String>::try_from(fn_info.get_column(4).unwrap().clone()).ok()?;
-            let arg_names = (0..names.len()).map(|ix| fn_info.get_column(5).unwrap().at(ix) ).collect::<Vec<_>>();
-            let fn_iter = names.iter().zip(arg_names.iter().zip(arg_types.iter().zip(ret.iter())));
-            for (name, (arg_ns, (arg_tys, ret))) in fn_iter {
-                let args = match arg_tys {
+            let names = Vec::<String>::try_from(fn_info.get_column(0).unwrap().clone()).ok()?;
+            let full_args = Vec::<String>::try_from(fn_info.get_column(1).unwrap().clone()).ok()?;
+            let rets = Vec::<String>::try_from(fn_info.get_column(2).unwrap().clone()).ok()?;
+            //let fn_iter = names.iter().zip(arg_names.iter().zip(arg_types.iter().zip(ret.iter())));
+            //for (name, (arg_ns, (arg_tys, ret))) in fn_iter {
+            for (name, (arg, ret)) in names.iter().zip(full_args.iter().zip(rets.iter())) {
+
+                /*let args = match arg_tys {
                     Some(Field::Json(serde_json::Value::Array(arg_names))) => {
                         arg_names.iter().map(|arg| match arg {
                             serde_json::Value::String(s) => DBType::from_str(&s[..]).unwrap_or(DBType::Unknown),
@@ -333,11 +371,7 @@ fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Opti
                     _ => {
                         Vec::new()
                     }
-                };
-                let ret = match &ret[..] {
-                    "VOID" | "void" => None,
-                    _ => Some(DBType::from_str(ret).unwrap_or(DBType::Unknown))
-                };
+                }
                 let mut func_arg_names = Vec::new();
                 if let Some(ns) = arg_ns {
                     match ns {
@@ -352,7 +386,63 @@ fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Opti
                         },
                         _ => { }
                     }
+                };*/
+                let mut func_arg_names = Vec::new();
+                let mut args = Vec::new();
+                let mut split_arg = Vec::new();
+                if !arg.is_empty() {
+                    for arg_str in arg.split(",") {
+                        split_arg = arg_str.split(" ").filter(|s| !s.is_empty() ).collect::<Vec<_>>();
+
+                        println!("Func: '{}', Full: '{}'; Split: {:?}", name, arg, split_arg);
+
+                        // Some SQL types such as double precision and timestamp with time zone have spaces,
+                        // which is why the name is the first field, the type the second..last.
+                        match split_arg.len() {
+                            1 => {
+                                args.push(DBType::from_str(&split_arg[0].trim()).unwrap_or(DBType::Unknown));
+                            },
+                            2 => {
+                                if split_arg[0].trim() == "double" && split_arg[1].trim() == "precision" {
+                                    args.push(DBType::F64);
+                                } else {
+                                    func_arg_names.push(split_arg[0].to_string());
+                                    args.push(DBType::from_str(&split_arg[1].trim()).unwrap_or(DBType::Unknown));
+                                }
+                            },
+                            3 => {
+                                if split_arg[1].trim() == "double" && split_arg[2].trim() == "precision" {
+                                    func_arg_names.push(split_arg[0].to_string());
+                                    args.push(DBType::F64);
+                                } else {
+                                    args.push(DBType::from_str(&arg_str[..]).unwrap_or(DBType::Unknown));
+                                }
+                            },
+                            4 => {
+                                // timestamp with time zone | timestamp without time zone will have 4 splits but no arg name
+                                args.push(DBType::from_str(&arg_str[..]).unwrap_or(DBType::Unknown));
+                            },
+                            5 => {
+                                // timestamp with time zone | timestamp without time zone will have 4 splits but and a type name
+                                if split_arg[1].trim() == "time" || split_arg[1].trim() == "timestamp" {
+                                    func_arg_names.push(split_arg[0].to_string());
+                                    args.push(DBType::Time);
+                                }
+                            },
+                            n => {
+                                args.push(DBType::from_str(&arg_str[..]).unwrap_or(DBType::Unknown));
+                            }
+                        }
+                    }
+                } else {
+                    split_arg.clear();
                 }
+
+                let ret = match &ret[..] {
+                    "VOID" | "void" => None,
+                    _ => Some(DBType::from_str(ret).unwrap_or(DBType::Unknown))
+                };
+
                 let opt_func_arg_names = if func_arg_names.len() > 0 && func_arg_names.len() == args.len() {
                     Some(func_arg_names)
                 } else {

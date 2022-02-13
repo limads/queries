@@ -1,4 +1,4 @@
 /target
 .buildconfig
 .cargo
-
+/.flatpak-builder
