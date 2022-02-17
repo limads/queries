@@ -11,6 +11,9 @@ use sourceview5;
 use std::thread;
 use std::path::Path;
 use std::sync::mpsc;
+use libadwaita::prelude::*;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub struct QueriesSettings {
@@ -33,19 +36,19 @@ impl<W: IsA<Widget>> NamedBox<W> {
         let label_bx = Box::new(Orientation::Vertical, 0);
         //let label = Label::new(Some(&format!("<span font_weight='bold'>{}</span>", name)));
         let label = Label::new(Some(&format!("<span>{}</span>", name)));
-        super::set_margins(&label, 6, 6);
+        // super::set_margins(&label, 6, 6);
         label.set_justify(Justification::Left);
         label.set_halign(Align::Start);
         label.set_use_markup(true);
         label_bx.append(&label);
 
         if let Some(subtitle) = subtitle {
-            let label = Label::new(Some(&format!("<span font_size='small'>{}</span>", subtitle)));
+            let label = Label::new(Some(&format!("<span font_size='small' foreground='grey'>{}</span>", subtitle)));
             label.set_use_markup(true);
             label.set_justify(Justification::Left);
             label.set_halign(Align::Start);
             label_bx.append(&label);
-            super::set_margins(&label, 6, 6);
+            // super::set_margins(&label, 6, 6);
         }
 
         label_bx.set_halign(Align::Start);
@@ -56,7 +59,7 @@ impl<W: IsA<Widget>> NamedBox<W> {
 
         bx.append(&label_bx);
         bx.append(&w);
-        super::set_margins(&bx, 18, 18);
+        super::set_margins(&bx, 6, 6);
 
         w.set_halign(Align::End);
         w.set_hexpand(true);
@@ -284,6 +287,10 @@ pub struct SecurityBox {
     list : ListBox
 }
 
+fn validate((host, cert) : &(String, String)) -> bool {
+    !host.is_empty() && cert.chars().count() > 4 && cert.ends_with(".crt")
+}
+
 impl SecurityBox {
 
     pub fn build() -> Self {
@@ -295,7 +302,12 @@ impl SecurityBox {
         //btn_bx.right_btn.connect-clicked(move |_| {
         //});
         let combo_bx = EditableCombo::build();
-        // bx.append(&NamedBox::new("Certificate", Some("Inform the TLS certificate path if the \nconnection require it"), combo_bx.bx).bx);
+
+        let save_switch = Switch::new();
+        let save_row = ListBoxRow::new();
+        save_row.set_selectable(false);
+        let save_bx = NamedBox::new("Remember credentials", Some("Store credentials (except passwords)\nand load them at future sessions"), save_switch);
+        save_row.set_child(Some(&save_bx.bx));
 
         let entry = Entry::new();
         let model = ListStore::new(&[glib::types::Type::STRING]);
@@ -311,7 +323,170 @@ impl SecurityBox {
         entry.set_completion(Some(&completion));
         //completion.add_attribute(&renderer, "text", 0);
 
-        list.append(&NamedBox::new("Certificate", Some("Inform the TLS certificate path if the \nconnection require it"), entry).bx);
+        // list.append(&NamedBox::new("Certificate", Some("Inform the TLS certificate path if the \nconnection require it"), entry).bx);
+
+        let exp_row = libadwaita::ExpanderRow::new();
+        exp_row.set_title("Certificates");
+        exp_row.set_subtitle("Associate TLS/SSL certificates to\ndatabase cluster hosts");
+
+        let add_row = ListBoxRow::new();
+        let add_bx = Box::new(Orientation::Horizontal, 0);
+        add_row.set_child(Some(&add_bx));
+        let host_entry = Entry::new();
+        host_entry.set_hexpand(true);
+        host_entry.set_halign(Align::Fill);
+        host_entry.set_primary_icon_name(Some("preferences-system-network-proxy-symbolic"));
+        host_entry.set_placeholder_text(Some("Host"));
+
+        let cert_entry = Entry::new();
+        cert_entry.set_primary_icon_name(Some("application-certificate-symbolic"));
+        cert_entry.set_placeholder_text(Some("Certificate path (.crt file)"));
+        cert_entry.set_hexpand(true);
+        cert_entry.set_halign(Align::Fill);
+
+        add_bx.append(&host_entry);
+        add_bx.append(&cert_entry);
+        add_bx.style_context().add_class("linked");
+
+        let add_btn = Button::new();
+        add_btn.style_context().add_class("flat");
+        add_btn.set_icon_name("list-add-symbolic");
+        add_btn.set_sensitive(false);
+        super::set_margins(&add_bx, 12, 12);
+
+        let cert = Rc::new(RefCell::new((String::new(), String::new())));
+        host_entry.connect_changed({
+            let cert = cert.clone();
+            let add_btn = add_btn.clone();
+            move |entry| {
+                let txt = entry.buffer().text().to_string();
+                if txt.is_empty() {
+                    add_btn.set_sensitive(false);
+                } else {
+                    let mut cert = cert.borrow_mut();
+                    cert.0 = txt;
+                    if validate(&cert) {
+                        add_btn.set_sensitive(true);
+                    }
+                }
+            }
+        });
+        cert_entry.connect_changed({
+            let cert = cert.clone();
+            let add_btn = add_btn.clone();
+            move |entry| {
+                let txt = entry.buffer().text().to_string();
+                if txt.is_empty() {
+                    add_btn.set_sensitive(false);
+                } else {
+                    let mut cert = cert.borrow_mut();
+                    cert.1 = entry.buffer().text().to_string();
+                    if validate(&cert) {
+                        add_btn.set_sensitive(true);
+                    }
+                }
+            }
+        });
+
+        add_btn.connect_clicked({
+            let cert = cert.clone();
+            let exp_row = exp_row.clone();
+            let (host_entry, cert_entry) = (host_entry.clone(), cert_entry.clone());
+            move |_| {
+                let cert = cert.borrow();
+                let lbl_host = Label::new(Some(&cert.0));
+                let lbl_cert = Label::new(Some(&cert.1));
+                super::set_margins(&lbl_host, 0, 12);
+                super::set_margins(&lbl_cert, 0, 12);
+                host_entry.set_text("");
+                cert_entry.set_text("");
+
+                let host_img = Image::from_icon_name(Some("preferences-system-network-proxy-symbolic"));
+                let cert_img = Image::from_icon_name(Some("application-certificate-symbolic"));
+                super::set_margins(&host_img, 12, 0);
+                super::set_margins(&cert_img, 12, 0);
+
+                let row = ListBoxRow::new();
+                let bx = Box::new(Orientation::Horizontal, 0);
+                let bx_left = Box::new(Orientation::Horizontal, 0);
+                bx_left.append(&host_img);
+                bx_left.append(&lbl_host);
+
+                bx_left.set_hexpand(true);
+                bx_left.set_halign(Align::Start);
+                let bx_right = Box::new(Orientation::Horizontal, 0);
+
+                bx_right.append(&cert_img);
+                bx_right.append(&lbl_cert);
+                bx_right.set_hexpand(true);
+                bx_right.set_halign(Align::Start);
+
+                bx.append(&bx_left);
+                bx.append(&bx_right);
+                // super::set_margins(&bx_left, 6, 6);
+                // super::set_margins(&bx_right, 6, 6);
+                row.set_child(Some(&bx));
+                exp_row.add_row(&row);
+
+                let ev = EventControllerMotion::new();
+                let exclude_btn = Button::builder().icon_name("user-trash-symbolic").build();
+                exclude_btn.set_hexpand(false);
+                exclude_btn.set_halign(Align::End);
+
+                exclude_btn.style_context().add_class("flat");
+                bx.append(&exclude_btn);
+
+                // Account for exclude btn space
+                lbl_cert.set_margin_end(34);
+                exclude_btn.set_visible(false);
+
+                ev.connect_enter({
+                    let exclude_btn = exclude_btn.clone();
+                    let lbl_cert = lbl_cert.clone();
+                    move |_, _, _| {
+                        exclude_btn.set_visible(true);
+                        lbl_cert.set_margin_end(0);
+                    }
+                });
+                ev.connect_leave({
+                    let exclude_btn = exclude_btn.clone();
+                    let lbl_cert = lbl_cert.clone();
+                    move |_| {
+                        let w = exclude_btn.allocation().width;
+                        exclude_btn.set_visible(false);
+                        lbl_cert.set_margin_end(w);
+                    }
+                });
+                row.add_controller(&ev);
+                exclude_btn.connect_clicked({
+                let exp_row = exp_row.clone();
+                    move |_| {
+                        exp_row.remove(&row);
+                    }
+                });
+            }
+        });
+
+
+        let rem_btn = Button::new();
+        rem_btn.style_context().add_class("flat");
+        rem_btn.set_icon_name("list-remove-symbolic");
+
+        rem_btn.connect_clicked({
+
+            move |_| {
+
+            }
+        });
+
+        add_bx.append(&add_btn);
+        // add_bx.append(&rem_btn);
+
+        exp_row.add_row(&add_row);
+        exp_row.set_selectable(false);
+
+        list.append(&save_row);
+        list.append(&exp_row);
 
         // combo.connect_changed(move |combo| {
         //    if let Some(txt) = combo.active_text() {

@@ -22,14 +22,24 @@ use crate::ui::{SchemaTree};
 use crate::sql::object::DBType;
 use crate::sql::copy::*;
 use std::time::Duration;
+use std::hash::Hash;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct ConnectionInfo {
+
     pub host : String,
+
     pub user : String,
+
     pub database : String,
+
     pub details : Option<DBDetails>,
+
+    // Optional path to certificate
+    pub cert : Option<String>,
+
     pub dt : String
+
 }
 
 impl ConnectionInfo {
@@ -53,7 +63,8 @@ impl Default for ConnectionInfo {
             user : String::from("User"),
             database : String::from("Database"),
             dt : Local::now().to_string(),
-            details : None
+            details : None,
+            cert : None
         }
     }
 

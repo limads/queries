@@ -12,17 +12,129 @@ use std::thread;
 use gtk4::*;
 use gtk4::prelude::*;
 use crate::client::QueriesClient;
+use std::convert::TryInto;
+// use sha2::Digest;
+use std::hash::Hash;
+use std::path::Path;
+use base64;
+
+// use_litcrypt!("key");
+// lc!("String name")
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct UserState {
+
     pub main_handle_pos : i32,
+
     pub side_handle_pos : i32,
+
     pub window_width : i32,
+
     pub window_height : i32,
+
     pub scripts : Vec<OpenedFile>,
+
+    #[serde(serialize_with = "ser_conns")]
+    #[serde(deserialize_with = "deser_conns")]
     pub conns : Vec<ConnectionInfo>,
+
     pub templates : Vec<String>,
+
     pub selected_template : usize
+
+}
+
+use serde::Deserializer;
+use serde::Serializer;
+
+const KEY : [u8; 32] = [
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8)
+];
+
+const NONCE : [u8; 24] = [
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8)
+];
+
+fn ser_conns<S>(conns : &Vec<ConnectionInfo>, ser : S) -> Result<S::Ok, S::Error>
+    where S: Serializer
+{
+    use chacha20poly1305::aead::NewAead;
+    use chacha20poly1305::aead::Aead;
+    let plain = serde_json::to_string(conns).unwrap();
+    let cipher = chacha20poly1305::XChaCha20Poly1305::new((&KEY).into());
+    let enc : Vec<u8> = cipher
+        .encrypt((&NONCE).into(), plain.as_ref())
+        .unwrap();
+    let enc_base64 : String = base64::encode(enc);
+    enc_base64.serialize(ser)
+}
+
+fn deser_conns<'de, D>(deser : D) -> Result<Vec<ConnectionInfo>, D::Error>
+    where D: Deserializer<'de>
+{
+    use chacha20poly1305::aead::NewAead;
+    use chacha20poly1305::aead::Aead;
+    let enc_base64 : String = <String as Deserialize>::deserialize(deser)?;
+    let enc_bytes : Vec<u8> = base64::decode(enc_base64).unwrap();
+    let cipher = chacha20poly1305::XChaCha20Poly1305::new((&KEY).into());
+    let dec : Vec<u8> = cipher.decrypt((&NONCE).into(), enc_bytes.as_ref()).unwrap();
+    let plain = String::from_utf8(dec).unwrap();
+    let out : Vec<ConnectionInfo> = serde_json::from_str(&plain).unwrap();
+    Ok(out)
 }
 
 #[derive(Clone)]
@@ -77,7 +189,7 @@ pub fn persist_user_preferences(user_state : &SharedUserState, path : &str) -> t
 
     thread::spawn(move|| {
         if let Ok(f) = File::create(&path) {
-            serde_json::to_writer(f, &state).is_ok()
+            serde_json::to_writer_pretty(f, &state).is_ok()
         } else {
             false
         }

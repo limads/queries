@@ -3,7 +3,7 @@ use std::str::FromStr;
 use std::fmt;
 use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct DBDetails {
     pub uptime : String,
     pub server : String,
