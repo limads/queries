@@ -22,10 +22,10 @@ pub struct TableWidget {
 
 impl TableWidget {
 
-    pub fn new_from_table(tbl : &Table) -> Self {
+    pub fn new_from_table(tbl : &Table, max_nrows : usize, max_ncols : usize) -> Self {
         let mut tbl_wid = Self::new();
         println!("Table created");
-        let data = tbl.text_rows();
+        let data = tbl.text_rows(Some(max_nrows), Some(max_ncols));
         tbl_wid.update_data(data);
         println!("Table populated");
         tbl_wid
@@ -240,7 +240,7 @@ impl TableWidget {
         }
     }*/
 
-    pub fn update_data<I, S>(&mut self, mut data : Vec<I>)
+    fn update_data<I, S>(&mut self, mut data : Vec<I>)
     where
         I : ExactSizeIterator<Item=S>,
         S : AsRef<str>
@@ -249,7 +249,7 @@ impl TableWidget {
         if data.len() == 0 {
             return;
         }
-        let nrows = data.len().min(200);
+        let nrows = data.len(); /*.min(200);*/
         let mut ncols = 0;
         for (i, mut row) in data.iter_mut().enumerate().take(nrows) {
             if i == 0 {
@@ -257,68 +257,31 @@ impl TableWidget {
                 if ncols == 0 {
                     return;
                 }
-                // *(self.dims.borrow_mut()) = (nrows, ncols);
                 self.update_table_dimensions(nrows as i32, ncols as i32);
             }
             for (j, col) in row.enumerate() {
                 if i == 0 {
                     let header_cell = self.create_data_cell(col.as_ref(), i, j, nrows, ncols);
-                    // self.grid.append(&header_cell);
-                    // header_cell.set_selectable(true);
-                    /*ev_box.realize();
-                    if let Some(win) = ev_box.get_window() {
-                        let disp = win.get_display();
-                        let cur = Cursor::new_for_display(&disp, CursorType::Hand2);
-                        win.set_cursor(Some(&cur));
-                        let mut ev_mask = ev_box.get_events();
-                        ev_mask.set(gdk::EventMask::BUTTON_PRESS_MASK, true);
-                        ev_mask.set(gdk::EventMask::POINTER_MOTION_MASK, true); //GDK_2BUTTON_PRESS
-                        {
-                            let selected = self.selected.clone();
-                            let grid = self.grid.clone();
-                            ev_box.connect_button_press_event(move |bx, ev| {
-                                if let Some(child) = bx.get_children().get(0) {
-                                    let label : Label = child.clone().downcast().unwrap();
-                                    let txt = label.get_text().to_string();
-                                    if let Ok(mut sel) = selected.try_borrow_mut() {
-                                        if ev.get_button() == 1 {
-                                            if ev.get_click_count() == Some(1) {
-                                                if let Some(pos) = sel.iter_mut().position(|c| &c.0[..] == &txt[..] ) {
-                                                    Self::switch_selected(grid.clone(), &mut sel[..], pos);
-                                                } else {
-                                                    println!("Invalid column name");
-                                                }
-                                            } else {
-                                                Self::switch_all(grid.clone(), &mut sel[..]);
-                                            }
-                                        }
-                                    } else {
-                                       println!("Selected vector mutably borrowed");
-                                       return glib::signal::Inhibit(false);
-                                    }
-                                } else {
-                                    println!("Label not present inside event box");
-                                }
-                                glib::signal::Inhibit(false)
-                            });
-                        }
-                    }*/
                     self.grid.attach(&header_cell, j as i32, i as i32, 1, 1);
-                    // self.grid.attach(&header_cell, j as i32, i as i32);
                 } else {
                     let cell = self.create_data_cell(col.as_ref(), i, j, nrows, ncols);
-                    // self.grid.add(&cell);
                     self.grid.attach(&cell, j as i32, i as i32, 1, 1);
-                    // self.grid.attach(&cell, j as i32, i as i32);
                 }
             }
         }
-        // self.grid.show_all();
-        // self.grid.queue_draw();
     }
 
-    fn clear_table(&self,) {
-        // while self.grid.get_children().len() > 0 {
+    fn clear_tail(&self, remaining_rows : usize) {
+        while self.grid.child_at(0, (remaining_rows-1) as i32).is_some() {
+            self.grid.remove_row((remaining_rows-1) as i32);
+        }
+    }
+
+    fn grow_tail(&self, new_sz : usize) {
+
+    }
+
+    fn clear_table(&self) {
         while self.grid.child_at(0, 0).is_some() {
             self.grid.remove_row(0);
         }

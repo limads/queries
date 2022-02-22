@@ -8,7 +8,6 @@ use postgres::types::Type;
 use std::io::Write;
 use std::error::Error;
 use monday::tables::table::{self, Table, Align, Format, TableSettings, BoolField, NullField};
-// use crate::utils;
 use serde_json::Value;
 use crate::sql::object::{DBObject, DBType, DBInfo};
 use crate::sql::parsing::AnyStatement;
@@ -17,7 +16,7 @@ use super::Connection;
 use std::sync::{Arc, Mutex};
 use crate::command::Executor;
 use std::collections::HashMap;
-use std::fs::File;
+use std::fs::{self, File};
 use std::ffi::OsStr;
 use postgres::types::{FromSql, ToSql};
 use std::convert::{TryFrom, TryInto};
@@ -49,20 +48,46 @@ pub struct PostgresConnection {
 impl PostgresConnection {
 
     pub fn try_new(conn_str : String, info : ConnectionInfo) -> Result<Self, String> {
-        let tls_mode = NoTls{ };
-        //println!("{}", conn_str);
-        match Client::connect(&conn_str[..], tls_mode) {
-            Ok(conn) => Ok(Self{
-                conn_str,
-                conn,
-                exec : Arc::new(Mutex::new((Executor::new(), String::new()))) ,
-                channel : None,
-                info
-            }),
-            Err(e) => {
-                let mut e = e.to_string();
-                format_pg_string(&mut e);
-                Err(e)
+
+        if let Some(cert) = info.cert.as_ref() {
+
+            use native_tls::{Certificate, TlsConnector};
+            use postgres_native_tls::MakeTlsConnector;
+
+            let cert_content = fs::read(cert).map_err(|e| format!("{}", e) )?;
+            let cert = Certificate::from_pem(&cert_content).map_err(|e| format!("{}", e) )?;
+            let connector = TlsConnector::builder()
+                .add_root_certificate(cert)
+                .build().map_err(|e| format!("{}", e) )?;
+            let connector = MakeTlsConnector::new(connector);
+            match Client::connect(&conn_str, connector) {
+                Ok(conn) => Ok(Self{
+                    conn_str,
+                    conn,
+                    exec : Arc::new(Mutex::new((Executor::new(), String::new()))) ,
+                    channel : None,
+                    info
+                }),
+                Err(e) => {
+                    let mut e = e.to_string();
+                    format_pg_string(&mut e);
+                    Err(e)
+                }
+            }
+        } else {
+            match Client::connect(&conn_str[..], NoTls{ }) {
+                Ok(conn) => Ok(Self{
+                    conn_str,
+                    conn,
+                    exec : Arc::new(Mutex::new((Executor::new(), String::new()))) ,
+                    channel : None,
+                    info
+                }),
+                Err(e) => {
+                    let mut e = e.to_string();
+                    format_pg_string(&mut e);
+                    Err(e)
+                }
             }
         }
     }

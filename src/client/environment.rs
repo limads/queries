@@ -28,6 +28,8 @@ use std::thread;
 use crate::ui::ExportDialog;
 use crate::ui::QueriesSettings;
 use monday;
+use crate::client::ExecutionSettings;
+use crate::client::SharedUserState;
 
 // #[cfg(feature="arrowext")]
 // use datafusion::execution::context::ExecutionContext;
@@ -57,6 +59,8 @@ pub enum EnvironmentAction {
     ExportRequest(String),
 
     ChangeTemplate(String),
+
+    ChangeSetting(ExecutionSettings),
 
     ExportError(String)
 
@@ -142,6 +146,9 @@ impl Environment {
                     },
                     EnvironmentAction::ExportError(msg) => {
                         on_export_error.borrow().iter().for_each(|f| f(msg.clone()) );
+                    },
+                    EnvironmentAction::ChangeSetting(setting) => {
+
                     },
                     EnvironmentAction::ChangeTemplate(path) => {
                         if !path.is_empty() {
@@ -1391,6 +1398,14 @@ impl Tables {
             println!("Unable to retrieve lock over SQL listener");
         }
     }*/
+
+}
+
+impl<'a> React<QueriesSettings> for (&'a Environment, &'a SharedUserState) {
+
+    fn react(&self, settings : &QueriesSettings) {
+
+    }
 
 }
 

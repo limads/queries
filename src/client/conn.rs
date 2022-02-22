@@ -23,6 +23,7 @@ use crate::sql::object::DBType;
 use crate::sql::copy::*;
 use std::time::Duration;
 use std::hash::Hash;
+use crate::client::SharedUserState;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct ConnectionInfo {
@@ -118,7 +119,9 @@ impl ConnectionSet {
 
     pub fn add_connections(&self, conns : &[ConnectionInfo]) {
         for conn in conns.iter() {
-            self.send.send(ConnectionAction::Add(Some(conn.clone())));
+            if !conn.host.is_empty() && !conn.database.is_empty() && !conn.user.is_empty() {
+                self.send.send(ConnectionAction::Add(Some(conn.clone())));
+            }
         }
     }
 
@@ -392,7 +395,7 @@ pub struct ActiveConnection {
 
 impl ActiveConnection {
 
-    pub fn new() -> Self {
+    pub fn new(user_state : &SharedUserState) -> Self {
         let (on_connected, on_disconnected, on_error) : ActiveConnCallbacks = Default::default();
         let on_exec_result : Callbacks<Vec<StatementOutput>> = Default::default();
         let on_conn_failure : Callbacks<String> = Default::default();
@@ -419,6 +422,7 @@ impl ActiveConnection {
             let on_conn_failure = on_conn_failure.clone();
             let on_object_selected = on_object_selected.clone();
             let on_schema_update = on_schema_update.clone();
+            let user_state = (*user_state).clone();
             move |action| {
                 match action {
                     ActiveConnectionAction::ConnectRequest(mut conn_info, conn_str) => {
@@ -456,7 +460,7 @@ impl ActiveConnection {
                         on_disconnected.borrow().iter().for_each(|f| f(()) );
                     },
                     ActiveConnectionAction::ExecutionRequest(stmts) => {
-                        match listener.send_command(stmts, HashMap::new(), true) {
+                        match listener.send_command(stmts, HashMap::new(), true, user_state.borrow().execution.statement_timeout as usize) {
                             Ok(_) => { },
                             Err(e) => {
                                 on_error.borrow().iter().for_each(|f| f(e.clone()) );
@@ -465,12 +469,13 @@ impl ActiveConnection {
                     },
                     ActiveConnectionAction::StartSchedule(stmts) => {
                         active_schedule.replace(true);
-                        glib::timeout_add_local(Duration::from_secs(1), {
+                        glib::timeout_add_local(Duration::from_secs(user_state.borrow().execution.execution_interval as u64), {
                             let active_schedule = active_schedule.clone();
                             let on_error = on_error.clone();
                             let listener = listener.clone();
+                            let user_state = user_state.clone();
                             move || {
-                                match listener.send_command(stmts.clone(), HashMap::new(), true) {
+                                match listener.send_command(stmts.clone(), HashMap::new(), true, user_state.borrow().execution.statement_timeout as usize) {
                                     Ok(_) => { },
                                     Err(e) => {
                                         on_error.borrow().iter().for_each(|f| f(e.clone()) );
@@ -547,11 +552,9 @@ impl ActiveConnection {
                         match (&schema, obj_ixs) {
                             (Some(schema), Some(ixs)) => {
                                 selected_obj = crate::sql::object::index_db_object(&schema[..], ixs);
-                                // println!("{:?}", selected_obj);
                             },
                             _ => {
                                 selected_obj = None;
-                                // println!("{:?}", selected_obj);
                             }
                         }
                         on_object_selected.borrow().iter().for_each(|f| f(selected_obj.clone()) );
@@ -643,9 +646,10 @@ impl ActiveConnection {
     });
 }*/
 
-impl React<ConnectionBox> for ActiveConnection {
+impl<'a> React<(&'a ConnectionBox, &'a SharedUserState)> for ActiveConnection {
 
-    fn react(&self, conn_bx : &ConnectionBox) {
+    fn react(&self, r : &(&'a ConnectionBox, &'a SharedUserState)) {
+        let conn_bx = r.0;
         let (host_entry, db_entry, user_entry, password_entry) = (
             conn_bx.host.entry.clone(),
             conn_bx.db.entry.clone(),
@@ -653,6 +657,7 @@ impl React<ConnectionBox> for ActiveConnection {
             conn_bx.password.entry.clone()
         );
         let send = self.send.clone();
+        let state = r.1.clone();
         conn_bx.switch.connect_state_set(move |switch, _state| {
 
             if switch.is_active() {
@@ -661,7 +666,28 @@ impl React<ConnectionBox> for ActiveConnection {
                 }
 
                 match generate_conn_str(&host_entry, &db_entry, &user_entry, &password_entry) {
-                    Ok((info, conn_str)) => {
+                    Ok((mut info, conn_str)) => {
+
+                        let mut state = state.borrow_mut();
+                        for c in state.conns.iter() {
+                            if c.host == info.host {
+                                if let Some(cert) = c.cert.as_ref() {
+                                    info.cert = Some(cert.to_string());
+                                }
+                            }
+                        }
+
+                        if info.cert.is_none() {
+                            for c in state.unmatched_certs.clone().iter() {
+                                if c.host == info.host {
+                                    info.cert = Some(c.cert.to_string());
+                                    while let Some(ix) = state.conns.iter().cloned().position(|conn| conn.host == c.host ) {
+                                        state.conns[ix].cert = Some(c.cert.to_string());
+                                    }
+                                }
+                            }
+                        }
+
                         send.send(ActiveConnectionAction::ConnectRequest(info, conn_str)).unwrap();
                     },
                     Err(e) => {
@@ -856,21 +882,37 @@ impl React<ExecButton> for ActiveConnection {
     fn react(&self, btn : &ExecButton) {
         let send = self.send.clone();
         let schedule_action = btn.schedule_action.clone();
+        let mut is_scheduled = Rc::new(RefCell::new(false));
+        let exec_btn = btn.btn.clone();
         btn.exec_action.connect_activate(move |_action, param| {
 
             // Perhaps replace by a ValuedCallback that just fetches the contents of editor.
             // Then impl React<ExecBtn> for Editor, then React<Editor> for ActiveConnection,
             // where editor exposes on_script_read(.).
-            let stmts = param.unwrap().get::<String>().unwrap();
-            let must_schedule = schedule_action.state().unwrap().get::<bool>().unwrap();
-            if must_schedule {
-                send.send(ActiveConnectionAction::StartSchedule(stmts)).unwrap();
+
+            let mut is_scheduled = is_scheduled.borrow_mut();
+
+            if *is_scheduled {
+                exec_btn.set_icon_name("download-db-symbolic");
+                *is_scheduled = false;
+                send.send(ActiveConnectionAction::EndSchedule);
             } else {
-                send.send(ActiveConnectionAction::ExecutionRequest(stmts)).unwrap();
+
+                let stmts = param.unwrap().get::<String>().unwrap();
+                let must_schedule = schedule_action.state().unwrap().get::<bool>().unwrap();
+                if must_schedule {
+                    exec_btn.set_icon_name("clock-app-symbolic");
+                    *is_scheduled = true;
+                    send.send(ActiveConnectionAction::StartSchedule(stmts)).unwrap();
+                } else {
+                    send.send(ActiveConnectionAction::ExecutionRequest(stmts)).unwrap();
+                }
             }
+
             // println!("Should execute: {}", );
         });
-        btn.schedule_action.connect_state_notify({
+
+        /*btn.schedule_action.connect_state_notify({
             let send = self.send.clone();
             move |action| {
                 if !action.state().unwrap().get::<bool>().unwrap() {
@@ -878,7 +920,7 @@ impl React<ExecButton> for ActiveConnection {
                     send.send(ActiveConnectionAction::EndSchedule);
                 }
             }
-        });
+        });*/
     }
 
 }

@@ -108,8 +108,7 @@ fn main() {
         Default::default()
     };
 
-    let client = QueriesClient::new();
-    client.update(&user_state);
+    let client = QueriesClient::new(&user_state);
 
     // Take shared ownership of the client state, because they will be needed to
     // persist the client state before the application closes (which is done outside
@@ -151,7 +150,7 @@ fn main() {
             client.conn_set.react(&queries_win.content.results.overview.conn_list);
             client.conn_set.react(&client.active_conn);
             client.conn_set.react(&queries_win);
-            client.active_conn.react(&queries_win.content.results.overview.conn_bx);
+            client.active_conn.react(&(&queries_win.content.results.overview.conn_bx, &user_state));
             client.active_conn.react(&queries_win.titlebar.exec_btn);
             client.active_conn.react(&queries_win.sidebar.schema_tree);
 
@@ -166,7 +165,7 @@ fn main() {
             queries_win.content.results.overview.conn_list.react(&client.conn_set);
             queries_win.content.results.overview.conn_list.react(&client.active_conn);
             queries_win.content.results.overview.conn_bx.react(&client.active_conn);
-            queries_win.content.results.workspace.react(&client.env);
+            queries_win.content.results.workspace.react(&(&client.env, &user_state));
 
             queries_win.sidebar.schema_tree.react(&client.active_conn);
             queries_win.sidebar.file_list.react(&client.scripts);
@@ -202,10 +201,15 @@ fn main() {
             queries_win.window.add_action(&queries_win.find_dialog.replace_action);
             queries_win.window.add_action(&queries_win.find_dialog.replace_all_action);
 
+            (&queries_win.content.editor, &user_state).react(&queries_win.settings);
+            (&client.env, &user_state).react(&queries_win.settings);
+
             // It is important to make this call to add scripts and connections
             // only after all signals have been setup, to guarantee the GUI will update
             // when the client updates.
             crate::client::set_client_state(&user_state, &client);
+
+            queries_win.content.editor.configure(&user_state.borrow().editor);
 
             queries_win.window.show();
         }

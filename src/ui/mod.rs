@@ -8,6 +8,7 @@ use crate::sql::StatementOutput;
 use crate::client::OpenedScripts;
 use crate::sql::object::{DBObject, DBType};
 mod overview;
+use crate::client::EditorSettings;
 
 pub use overview::*;
 
@@ -365,6 +366,9 @@ impl QueriesWindow {
         window.add_action(&titlebar.exec_btn.exec_action);
         window.add_action(&titlebar.exec_btn.clear_action);
         window.add_action(&titlebar.exec_btn.schedule_action);
+        window.add_action(&titlebar.exec_btn.single_action);
+        window.add_action(&titlebar.exec_btn.return_action);
+
         window.add_action(&sidebar.file_list.close_action);
 
         window.add_action(&sidebar.schema_tree.query_action);
@@ -388,6 +392,8 @@ impl QueriesWindow {
         settings.dialog.set_transient_for(Some(&window));
 
         settings.react(&titlebar.main_menu);
+        //window.add_action(&settings.secutity_bx.cert_added);
+        window.add_action(&settings.security_bx.cert_removed);
 
         // sidebar.schema_tree.schema_popover.set_default_widget(Some(&window));
         // sidebar.schema_tree.schema_popover.set_child(Some(&window));
@@ -581,6 +587,15 @@ pub fn title_label(txt : &str) -> Label {
         .build();
     set_margins(&lbl, 0, 12);
     lbl
+}
+
+pub fn get_sibling_by_index<U, W>(w : &U, pos : usize) -> W
+where
+    U : WidgetExt,
+    W : IsA<glib::Object>
+{
+    let parent = w.parent().clone().unwrap().downcast::<Box>().unwrap();
+    get_child_by_index::<W>(&parent, pos)
 }
 
 pub fn get_child_by_index<W>(w : &Box, pos : usize) -> W

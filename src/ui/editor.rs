@@ -16,6 +16,10 @@ use sourceview5::{SearchContext, SearchSettings};
 use sourceview5::Buffer;
 use sourceview5::*;
 use sourceview5::prelude::*;
+use crate::client::SharedUserState;
+use crate::ui::QueriesSettings;
+use crate::client::EditorSettings;
+use regex::Regex;
 
 #[derive(Debug, Clone)]
 pub struct QueriesEditor {
@@ -39,7 +43,7 @@ impl QueriesEditor {
         stack.add_named(&script_list.bx, Some("list"));
         let views : [sourceview5::View; 16]= Default::default();
         for ix in 0..16 {
-            configure_view(&views[ix]);
+            configure_view(&views[ix], &EditorSettings::default());
             let scroll = ScrolledWindow::new();
             scroll.set_child(Some(&views[ix]));
             stack.add_named(&scroll, Some(&format!("editor{}", ix)));
@@ -47,6 +51,12 @@ impl QueriesEditor {
         open_dialog.react(&script_list);
         let ignore_file_save_action = gio::SimpleAction::new("ignore_file_save", Some(&i32::static_variant_type()));
         Self { views, stack, script_list, save_dialog, open_dialog, ignore_file_save_action, export_dialog }
+    }
+
+    pub fn configure(&self, settings : &EditorSettings) {
+        for ix in 0..16 {
+            configure_view(&self.views[ix], &settings);
+        }
     }
 
 }
@@ -485,15 +495,20 @@ mod completion {
 
 }*/
 
-fn configure_view(view : &View) {
+fn configure_view(view : &View, settings : &EditorSettings) {
     let buffer = view.buffer()
         .downcast::<sourceview5::Buffer>().unwrap();
     let manager = sourceview5::StyleSchemeManager::new();
-    let scheme = manager.scheme("Adwaita").unwrap();
-    buffer.set_style_scheme(Some(&scheme));
+    if let Some(scheme) = manager.scheme(&settings.scheme) {
+        buffer.set_style_scheme(Some(&scheme));
+    }
+
     buffer.set_highlight_syntax(true);
     let provider = CssProvider::new();
-    provider.load_from_data(b"textview { font-family: \"Ubuntu Mono\"; font-size: 13pt; }");
+
+    let font = format!("textview {{ font-family: \"{}\"; font-size: {}pt; }}", settings.font_family, settings.font_size);
+    provider.load_from_data(font.as_bytes());
+
     let ctx = view.style_context();
     ctx.add_provider(&provider, 800);
     let lang_manager = sourceview5::LanguageManager::default().unwrap();
@@ -504,7 +519,8 @@ fn configure_view(view : &View) {
     view.set_indent_width(4);
     view.set_auto_indent(true);
     view.set_insert_spaces_instead_of_tabs(true);
-    view.set_highlight_current_line(false);
+    view.set_highlight_current_line(settings.highlight_current_line);
+    view.set_show_line_numbers(settings.show_line_numbers);
     view.set_indent_on_tab(true);
     view.set_show_line_marks(true);
     view.set_enable_snippets(true);
@@ -1008,3 +1024,62 @@ fn get_index(action : &gio::SimpleAction) -> Option<usize> {
     action.state().unwrap().get::<i32>()
         .and_then(|ix| if ix == -1 { None } else { Some(ix as usize) })
 }
+
+impl<'a> React<QueriesSettings> for (&'a QueriesEditor, &'a SharedUserState) {
+
+    fn react(&self, settings : &QueriesSettings) {
+        settings.editor_bx.scheme_combo.connect_changed({
+            let state = self.1.clone();
+            let editor = self.0.clone();
+            move|combo| {
+                if let Some(txt) = combo.active_text() {
+                    let mut state = state.borrow_mut();
+                    state.editor.scheme = txt.to_string();
+                    editor.configure(&state.editor);
+                }
+            }
+        });
+        settings.editor_bx.font_btn.connect_font_set({
+            let mut state = self.1.clone();
+            let editor = self.0.clone();
+            move |btn| {
+                if let Some(s) = btn.title() {
+                    let digits_pattern = Regex::new(r"\d{2}$|\d{2}$").unwrap();
+                    if let Some(sz_match) = digits_pattern.find(&s) {
+                        let sz_txt = sz_match.as_str();
+                        if let Ok(font_size) = sz_txt.parse::<i32>() {
+                            let font_family = s.trim_end_matches(sz_txt).to_string();
+                            let mut state = state.borrow_mut();
+                            state.editor.font_family = font_family;
+                            state.editor.font_size = font_size;
+                            editor.configure(&state.editor);
+                        }
+                    }
+                }
+            }
+        });
+        settings.editor_bx.line_num_switch.connect_state_set({
+            let state = self.1.clone();
+            let editor = self.0.clone();
+            move |switch, _| {
+                let mut state = state.borrow_mut();
+                state.editor.show_line_numbers = switch.is_active();
+                editor.configure(&state.editor);
+                Inhibit(false)
+            }
+        });
+        settings.editor_bx.line_highlight_switch.connect_state_set({
+            let state = self.1.clone();
+            let editor = self.0.clone();
+            move |switch, _| {
+                let mut state = state.borrow_mut();
+                state.editor.highlight_current_line = switch.is_active();
+                editor.configure(&state.editor);
+                Inhibit(false)
+            }
+        });
+    }
+
+}
+
+

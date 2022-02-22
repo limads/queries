@@ -14,6 +14,8 @@ use std::sync::mpsc;
 use libadwaita::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
+use serde::{Serialize, Deserialize};
+use crate::client::SharedUserState;
 
 #[derive(Debug, Clone)]
 pub struct QueriesSettings {
@@ -73,11 +75,11 @@ impl<W: IsA<Widget>> NamedBox<W> {
 
 #[derive(Debug, Clone)]
 pub struct EditorBox {
-    list : ListBox,
-    scheme_combo : ComboBoxText,
-    font_btn : FontButton,
-    line_num_switch : Switch,
-    line_highlight_switch : Switch,
+    pub list : ListBox,
+    pub scheme_combo : ComboBoxText,
+    pub font_btn : FontButton,
+    pub line_num_switch : Switch,
+    pub line_highlight_switch : Switch,
 }
 
 fn configure_list(list : &ListBox) {
@@ -133,10 +135,10 @@ impl EditorBox {
 
 #[derive(Debug, Clone)]
 pub struct ExecutionBox {
-    list : ListBox,
-    row_limit_spin : SpinButton,
-    col_limit_spin : SpinButton,
-    schedule_scale : Scale
+    pub list : ListBox,
+    pub row_limit_spin : SpinButton,
+    pub col_limit_spin : SpinButton,
+    pub schedule_scale : Scale
 }
 
 impl ExecutionBox {
@@ -282,13 +284,109 @@ impl EditableCombo {
 
 }
 
-#[derive(Debug, Clone)]
-pub struct SecurityBox {
-    list : ListBox
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Certificate {
+    pub host : String,
+    pub cert : String
 }
 
-fn validate((host, cert) : &(String, String)) -> bool {
-    !host.is_empty() && cert.chars().count() > 4 && cert.ends_with(".crt")
+#[derive(Debug, Clone)]
+pub struct SecurityBox {
+    pub list : ListBox,
+    pub cert_added : gio::SimpleAction,
+    pub cert_removed : gio::SimpleAction,
+    pub exp_row : libadwaita::ExpanderRow,
+    pub rows : Rc<RefCell<Vec<ListBoxRow>>>
+}
+
+fn validate((host, cert) : &(String, String), rows : &[ListBoxRow]) -> bool {
+
+    // let list = exp_row.observe_children().item(1 as u32).unwrap().clone().downcast::<ListBox>().unwrap();
+
+    for row in rows.iter() {
+        let bx = row.child().unwrap().clone().downcast::<Box>().unwrap();
+        let bx_left = super::get_child_by_index::<Box>(&bx, 0);
+        let lbl = super::get_child_by_index::<Label>(&bx_left, 1);
+        if &lbl.text()[..] == &host[..] {
+            return false;
+        }
+    }
+
+    // let lbl_left = super::get_child_by_index::<Label>(&bx_left, 1);
+
+    !host.is_empty() && cert.chars().count() > 4 /*&& cert.ends_with(".crt") || cert.ends_with(".pem") */
+}
+
+// TODO remove the rows list if/when libadwaita API allows recovering the ExpanderRow rows.
+pub fn append_certificate_row(exp_row : libadwaita::ExpanderRow, host : &str, cert : &str, rows : &Rc<RefCell<Vec<ListBoxRow>>>) {
+
+    let lbl_host = Label::new(Some(host));
+    let lbl_cert = Label::new(Some(cert));
+
+    super::set_margins(&lbl_host, 0, 12);
+    super::set_margins(&lbl_cert, 0, 12);
+    let host_img = Image::from_icon_name(Some("preferences-system-network-proxy-symbolic"));
+    let cert_img = Image::from_icon_name(Some("application-certificate-symbolic"));
+    super::set_margins(&host_img, 12, 0);
+    super::set_margins(&cert_img, 12, 0);
+
+    let row = ListBoxRow::new();
+    let bx = Box::new(Orientation::Horizontal, 0);
+    let bx_left = Box::new(Orientation::Horizontal, 0);
+    bx_left.append(&host_img);
+    bx_left.append(&lbl_host);
+
+    bx_left.set_hexpand(true);
+    bx_left.set_halign(Align::Start);
+    let bx_right = Box::new(Orientation::Horizontal, 0);
+
+    bx_right.append(&cert_img);
+    bx_right.append(&lbl_cert);
+    bx_right.set_hexpand(true);
+    bx_right.set_halign(Align::Start);
+
+    bx.append(&bx_left);
+    bx.append(&bx_right);
+    row.set_child(Some(&bx));
+    exp_row.add_row(&row);
+    rows.borrow_mut().push(row.clone());
+
+    let ev = EventControllerMotion::new();
+    let exclude_btn = Button::builder().icon_name("user-trash-symbolic").build();
+    exclude_btn.set_hexpand(false);
+    exclude_btn.set_halign(Align::End);
+
+    exclude_btn.style_context().add_class("flat");
+    bx.append(&exclude_btn);
+
+    // Account for exclude btn space
+    lbl_cert.set_margin_end(34);
+    exclude_btn.set_visible(false);
+
+    ev.connect_enter({
+        let exclude_btn = exclude_btn.clone();
+        let lbl_cert = lbl_cert.clone();
+        move |_, _, _| {
+            exclude_btn.set_visible(true);
+            lbl_cert.set_margin_end(0);
+        }
+    });
+    ev.connect_leave({
+        let exclude_btn = exclude_btn.clone();
+        let lbl_cert = lbl_cert.clone();
+        move |_| {
+            let w = exclude_btn.allocation().width;
+            exclude_btn.set_visible(false);
+            lbl_cert.set_margin_end(w);
+        }
+    });
+    row.add_controller(&ev);
+    exclude_btn.connect_clicked({
+    let exp_row = exp_row.clone();
+        move |_| {
+            exp_row.remove(&row);
+        }
+    });
 }
 
 impl SecurityBox {
@@ -340,7 +438,7 @@ impl SecurityBox {
 
         let cert_entry = Entry::new();
         cert_entry.set_primary_icon_name(Some("application-certificate-symbolic"));
-        cert_entry.set_placeholder_text(Some("Certificate path (.crt file)"));
+        cert_entry.set_placeholder_text(Some("Certificate path (.crt or .pem file)"));
         cert_entry.set_hexpand(true);
         cert_entry.set_halign(Align::Fill);
 
@@ -354,10 +452,13 @@ impl SecurityBox {
         add_btn.set_sensitive(false);
         super::set_margins(&add_bx, 12, 12);
 
+        let mut rows : Rc<RefCell<Vec<ListBoxRow>>> = Rc::new(RefCell::new(Vec::new()));
         let cert = Rc::new(RefCell::new((String::new(), String::new())));
         host_entry.connect_changed({
             let cert = cert.clone();
             let add_btn = add_btn.clone();
+            let exp_row = exp_row.clone();
+            let rows = rows.clone();
             move |entry| {
                 let txt = entry.buffer().text().to_string();
                 if txt.is_empty() {
@@ -365,8 +466,10 @@ impl SecurityBox {
                 } else {
                     let mut cert = cert.borrow_mut();
                     cert.0 = txt;
-                    if validate(&cert) {
+                    if validate(&cert, rows.borrow().as_ref()) {
                         add_btn.set_sensitive(true);
+                    } else {
+                        add_btn.set_sensitive(false);
                     }
                 }
             }
@@ -374,6 +477,8 @@ impl SecurityBox {
         cert_entry.connect_changed({
             let cert = cert.clone();
             let add_btn = add_btn.clone();
+            let exp_row = exp_row.clone();
+            let rows = rows.clone();
             move |entry| {
                 let txt = entry.buffer().text().to_string();
                 if txt.is_empty() {
@@ -381,101 +486,60 @@ impl SecurityBox {
                 } else {
                     let mut cert = cert.borrow_mut();
                     cert.1 = entry.buffer().text().to_string();
-                    if validate(&cert) {
+                    if validate(&cert, rows.borrow().as_ref()) {
                         add_btn.set_sensitive(true);
+                    } else {
+                        add_btn.set_sensitive(false);
                     }
                 }
             }
         });
 
+        let cert_added = gio::SimpleAction::new("cert_add", Some(&String::static_variant_type()));
+        let cert_removed = gio::SimpleAction::new("cert_remove", Some(&String::static_variant_type()));
+
         add_btn.connect_clicked({
             let cert = cert.clone();
             let exp_row = exp_row.clone();
             let (host_entry, cert_entry) = (host_entry.clone(), cert_entry.clone());
-            move |_| {
-                let cert = cert.borrow();
-                let lbl_host = Label::new(Some(&cert.0));
-                let lbl_cert = Label::new(Some(&cert.1));
-                super::set_margins(&lbl_host, 0, 12);
-                super::set_margins(&lbl_cert, 0, 12);
+            let cert_added = cert_added.clone();
+            let rows = rows.clone();
+            move |btn| {
+                let mut cert = cert.borrow_mut();
                 host_entry.set_text("");
                 cert_entry.set_text("");
-
-                let host_img = Image::from_icon_name(Some("preferences-system-network-proxy-symbolic"));
-                let cert_img = Image::from_icon_name(Some("application-certificate-symbolic"));
-                super::set_margins(&host_img, 12, 0);
-                super::set_margins(&cert_img, 12, 0);
-
-                let row = ListBoxRow::new();
-                let bx = Box::new(Orientation::Horizontal, 0);
-                let bx_left = Box::new(Orientation::Horizontal, 0);
-                bx_left.append(&host_img);
-                bx_left.append(&lbl_host);
-
-                bx_left.set_hexpand(true);
-                bx_left.set_halign(Align::Start);
-                let bx_right = Box::new(Orientation::Horizontal, 0);
-
-                bx_right.append(&cert_img);
-                bx_right.append(&lbl_cert);
-                bx_right.set_hexpand(true);
-                bx_right.set_halign(Align::Start);
-
-                bx.append(&bx_left);
-                bx.append(&bx_right);
-                // super::set_margins(&bx_left, 6, 6);
-                // super::set_margins(&bx_right, 6, 6);
-                row.set_child(Some(&bx));
-                exp_row.add_row(&row);
-
-                let ev = EventControllerMotion::new();
-                let exclude_btn = Button::builder().icon_name("user-trash-symbolic").build();
-                exclude_btn.set_hexpand(false);
-                exclude_btn.set_halign(Align::End);
-
-                exclude_btn.style_context().add_class("flat");
-                bx.append(&exclude_btn);
-
-                // Account for exclude btn space
-                lbl_cert.set_margin_end(34);
-                exclude_btn.set_visible(false);
-
-                ev.connect_enter({
-                    let exclude_btn = exclude_btn.clone();
-                    let lbl_cert = lbl_cert.clone();
-                    move |_, _, _| {
-                        exclude_btn.set_visible(true);
-                        lbl_cert.set_margin_end(0);
-                    }
-                });
-                ev.connect_leave({
-                    let exclude_btn = exclude_btn.clone();
-                    let lbl_cert = lbl_cert.clone();
-                    move |_| {
-                        let w = exclude_btn.allocation().width;
-                        exclude_btn.set_visible(false);
-                        lbl_cert.set_margin_end(w);
-                    }
-                });
-                row.add_controller(&ev);
-                exclude_btn.connect_clicked({
-                let exp_row = exp_row.clone();
-                    move |_| {
-                        exp_row.remove(&row);
-                    }
-                });
+                append_certificate_row(exp_row.clone(), &cert.0, &cert.1, &rows);
+                let c = Certificate { host : cert.0.clone(), cert : cert.1.clone() };
+                cert_added.activate(Some(&serde_json::to_string(&c).unwrap().to_variant()));
+                btn.set_sensitive(false);
+                cert.0 = String::new();
+                cert.1 = String::new();
             }
         });
-
 
         let rem_btn = Button::new();
         rem_btn.style_context().add_class("flat");
         rem_btn.set_icon_name("list-remove-symbolic");
 
         rem_btn.connect_clicked({
+            let cert_removed = cert_removed.clone();
+            let exp_row = exp_row.clone();
+            let rows = rows.clone();
+            move |btn| {
+                let bx_left = super::get_sibling_by_index::<_, Box>(btn, 0);
+                let bx_right = super::get_sibling_by_index::<_, Box>(btn, 1);
+                let lbl_left = super::get_child_by_index::<Label>(&bx_left, 1);
+                let lbl_right = super::get_child_by_index::<Label>(&bx_right, 1);
+                let parent_bx = bx_left.parent().clone().unwrap().downcast::<Box>().unwrap();
+                let row = parent_bx.parent().clone().unwrap().downcast::<ListBoxRow>().unwrap();
+                exp_row.remove(&row);
 
-            move |_| {
+                let mut rows = rows.borrow_mut();
+                if let Some(ix) = rows.iter().position(|r| r == &row) {
+                    rows.remove(ix);
+                }
 
+                cert_removed.activate(Some(&serde_json::to_string(&Certificate { host : lbl_left.text().to_string(), cert : lbl_right.text().to_string() }).unwrap().to_variant()));
             }
         });
 
@@ -494,7 +558,7 @@ impl SecurityBox {
         //    }
         //});
 
-        Self { list }
+        Self { list, cert_added, cert_removed, exp_row, rows }
     }
 }
 
@@ -598,6 +662,10 @@ fn build_settings_row(name : &str) -> ListBoxRow {
         .justify(Justification::Left)
         .build();
     ListBoxRow::builder().child(&lbl).height_request(42).build()
+}
+
+pub fn load_settings(win : &QueriesSettings, state : &SharedUserState) {
+
 }
 
 

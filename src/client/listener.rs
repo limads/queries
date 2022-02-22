@@ -28,9 +28,9 @@ pub struct SqlListener {
 
     // info_sender : Sender<()>,
 
-    /// Carries a query sequence; sequence substitutions; and whether this query should be parsed at the client
+    /// Carries a query sequence; sequence substitutions; and whether this query should be parsed at the client; and a timeout in seconds.
 
-    cmd_sender : Sender<(String, HashMap<String, String>, bool)>,
+    cmd_sender : Sender<(String, HashMap<String, String>, bool, usize)>,
 
     pub engine : Arc<Mutex<Option<Box<dyn Connection>>>>,
 
@@ -114,7 +114,7 @@ impl SqlListener {
     where
         F : Fn(Vec<StatementOutput>) + 'static + Send
     {
-        let (cmd_tx, cmd_rx) = mpsc::channel::<(String, HashMap<String, String>, bool)>();
+        let (cmd_tx, cmd_rx) = mpsc::channel::<(String, HashMap<String, String>, bool, usize)>();
         let engine : Arc<Mutex<Option<Box<dyn Connection>>>> = Arc::new(Mutex::new(None));
 
         /*// Channel listening thread
@@ -180,7 +180,7 @@ impl SqlListener {
     /// are correctly parsed, send the SQL to the server. If sequence is not
     /// correctly parsed, do not send anything to the server, and return the
     /// error to the user.
-    pub fn send_command(&self, sql : String, subs : HashMap<String, String>, parse : bool) -> Result<(), String> {
+    pub fn send_command(&self, sql : String, subs : HashMap<String, String>, parse : bool, timeout : usize) -> Result<(), String> {
 
         // Before sending a command, it might be interesting to check if self.handle.is_running()
         // when this stabilizes at the stdlib. If it is not running (i.e. there is a panic at the
@@ -240,7 +240,7 @@ impl SqlListener {
             return Err(format!("Unable to acquire lock over last commands"));
         }*/
 
-        match self.cmd_sender.send((sql.clone(), subs, parse)) {
+        match self.cmd_sender.send((sql.clone(), subs, parse, timeout)) {
             Ok(_) => {
 
             },
@@ -354,7 +354,7 @@ impl SqlListener {
 fn spawn_listener_thread<F>(
     engine : Arc<Mutex<Option<Box<dyn Connection>>>>,
     result_cb : F,
-    cmd_rx : Receiver<(String, HashMap<String, String>, bool)>
+    cmd_rx : Receiver<(String, HashMap<String, String>, bool, usize)>
 ) -> JoinHandle<()>
 where
     F : Fn(Vec<StatementOutput>) + 'static + Send
@@ -362,7 +362,7 @@ where
     thread::spawn(move ||  {
         loop {
             match cmd_rx.recv() {
-                Ok((cmd, subs, parse)) => {
+                Ok((cmd, subs, parse, _timeout)) => {
                     match **engine.lock().as_mut().unwrap() {
                         Some(ref mut eng) => {
                             let result = eng.try_run(cmd, &subs, parse);

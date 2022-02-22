@@ -78,36 +78,91 @@ pub struct ExecButton {
     // It carries the content of the SQL file as its state.
     pub exec_action : gio::SimpleAction,
     pub clear_action : gio::SimpleAction,
-    pub schedule_action : gio::SimpleAction
+    pub schedule_action : gio::SimpleAction,
+    pub single_action : gio::SimpleAction,
+    pub return_action : gio::SimpleAction
 }
 
 impl ExecButton {
 
     fn build() -> Self {
         let exec_menu = gio::Menu::new();
-        exec_menu.append(Some("Clear"), Some("win.clear"));
-        exec_menu.append(Some("Schedule"), Some("win.schedule"));
+
+        let exec_section = gio::Menu::new();
+        exec_section.append(Some("Immediate"), Some("win.single"));
+        exec_section.append(Some("Scheduled"), Some("win.schedule"));
+        exec_menu.append_section(Some("Execution mode"), &exec_section);
+
+        let workspace_section = gio::Menu::new();
+        workspace_section.append(Some("Previous"), Some("win.return"));
+        workspace_section.append(Some("Clear"), Some("win.clear"));
+        exec_menu.append_section(Some("Workspace"), &workspace_section);
+
         let btn = SplitButton::builder().icon_name("download-db-symbolic").menu_model(&exec_menu).sensitive(false).build();
         let exec_action = gio::SimpleAction::new_stateful("execute", Some(&String::static_variant_type()), &(-1i32).to_variant());
         let clear_action = gio::SimpleAction::new("clear", None);
+        let return_action = gio::SimpleAction::new("return", None);
         exec_action.set_enabled(false);
+        clear_action.set_enabled(false);
+        return_action.set_enabled(false);
+
         btn.set_sensitive(false);
         let schedule_action = gio::SimpleAction::new_stateful("schedule", None, &(false).to_variant());
+        let single_action = gio::SimpleAction::new_stateful("single", None, &(true).to_variant());
+
+        single_action.connect_activate({
+            let schedule_action = schedule_action.clone();
+            move |action, _| {
+                action.set_state(&true.to_variant());
+                schedule_action.set_state(&false.to_variant());
+            }
+        });
+
+        schedule_action.connect_activate({
+            let single_action = single_action.clone();
+            move |action, _| {
+                action.set_state(&true.to_variant());
+                single_action.set_state(&false.to_variant());
+            }
+        });
+
+        // single_action.set_enabled(true);
         // schedule_action.
         // btn.activate_action(&exec_action, None);
-        Self { btn, exec_action, clear_action, schedule_action }
+        Self { btn, exec_action, clear_action, return_action, schedule_action, single_action }
     }
+
 }
 
 impl React<FileList> for ExecButton {
 
     fn react(&self, file_list : &FileList) {
         let btn = self.btn.clone();
+        let exec_action = self.exec_action.clone();
+
+        // What happens if the user selects a file (depending on exec_action state)
         file_list.list.connect_row_selected(move |_, opt_row| {
-            if opt_row.is_some() {
+            if opt_row.is_some() && exec_action.is_enabled() {
                 btn.set_sensitive(true);
             } else {
                 btn.set_sensitive(false);
+            }
+        });
+
+        // What happens if the user disconnects, then connects, but a SQL file remains selected.
+        self.exec_action.connect_enabled_notify({
+            let btn = self.btn.clone();
+            let list = file_list.list.clone();
+            move|action| {
+                if action.is_enabled() {
+                    if list.selected_row().is_some() {
+                        btn.set_sensitive(true);
+                    } else {
+                        btn.set_sensitive(false);
+                    }
+                } else {
+                    btn.set_sensitive(false);
+                }
             }
         });
     }
@@ -118,6 +173,8 @@ impl React<OpenedScripts> for ExecButton {
 
     fn react(&self, scripts : &OpenedScripts) {
         let action = self.exec_action.clone();
+
+        // Sets the index of the SQL file to be executed.
         scripts.connect_selected(move |opt_file| {
             if let Some(ix) = opt_file.map(|f| f.index ) {
                 action.set_state(&(ix as i32).to_variant());

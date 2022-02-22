@@ -9,13 +9,15 @@ pub struct QueriesClient {
 
 impl QueriesClient {
 
-    pub fn new() -> Self {
-        Self {
+    pub fn new(user_state : &SharedUserState) -> Self {
+        let client = Self {
             conn_set : ConnectionSet::new(),
-            active_conn : ActiveConnection::new(),
+            active_conn : ActiveConnection::new(user_state),
             env : Environment::new(),
             scripts : OpenedScripts::new(),
-        }
+        };
+        client.update(&user_state);
+        client
     }
 
     pub fn update(&self, state : &SharedUserState) {

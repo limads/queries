@@ -17,11 +17,56 @@ use std::convert::TryInto;
 use std::hash::Hash;
 use std::path::Path;
 use base64;
+use crate::ui::Certificate;
 
 // use_litcrypt!("key");
 // lc!("String name")
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EditorSettings {
+    pub scheme : String,
+    pub font_family : String,
+    pub font_size : i32,
+    pub show_line_numbers : bool,
+    pub highlight_current_line : bool
+}
+
+impl Default for EditorSettings {
+
+    fn default() -> Self {
+        Self {
+            scheme : String::from("Adwaita"),
+            font_family : String::from("Ubuntu Mono"),
+            font_size : 16,
+            show_line_numbers : false,
+            highlight_current_line : false
+        }
+    }
+
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionSettings {
+    pub row_limit : i32,
+    pub column_limit : i32,
+    pub execution_interval : i32,
+    pub statement_timeout : i32
+}
+
+impl Default for ExecutionSettings {
+
+    fn default() -> Self {
+        Self {
+            row_limit : 500,
+            column_limit : 25,
+            execution_interval : 1,
+            statement_timeout : 5
+        }
+    }
+
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct UserState {
 
     pub main_handle_pos : i32,
@@ -40,7 +85,14 @@ pub struct UserState {
 
     pub templates : Vec<String>,
 
-    pub selected_template : usize
+    pub selected_template : usize,
+
+    #[serde(skip)]
+    pub unmatched_certs : Vec<Certificate>,
+
+    pub editor : EditorSettings,
+
+    pub execution : ExecutionSettings
 
 }
 
@@ -131,10 +183,19 @@ fn deser_conns<'de, D>(deser : D) -> Result<Vec<ConnectionInfo>, D::Error>
     let enc_base64 : String = <String as Deserialize>::deserialize(deser)?;
     let enc_bytes : Vec<u8> = base64::decode(enc_base64).unwrap();
     let cipher = chacha20poly1305::XChaCha20Poly1305::new((&KEY).into());
-    let dec : Vec<u8> = cipher.decrypt((&NONCE).into(), enc_bytes.as_ref()).unwrap();
-    let plain = String::from_utf8(dec).unwrap();
-    let out : Vec<ConnectionInfo> = serde_json::from_str(&plain).unwrap();
-    Ok(out)
+    match cipher.decrypt((&NONCE).into(), enc_bytes.as_ref()) {
+        Ok(dec) => {
+            let plain = String::from_utf8(dec).unwrap();
+            let out : Vec<ConnectionInfo> = serde_json::from_str(&plain).unwrap();
+            Ok(out)
+        },
+        Err(_) => {
+            // The decoding should fail whenever queries is re-built, since a
+            // new random key will be generated. Just clean the user connection
+            // state in this case.
+            Ok(Vec::new())
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -158,10 +219,8 @@ impl Default for SharedUserState {
             side_handle_pos : 400,
             window_width : 1024,
             window_height : 768,
-            scripts : Vec::new(),
-            conns : Vec::new(),
-            templates : Vec::new(),
-            selected_template : 0
+            selected_template : 0,
+            ..Default::default()
         })))
     }
 
@@ -311,6 +370,38 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
                 }
             }
         });
+        win.settings.security_bx.cert_added.connect_activate({
+            let state = self.clone();
+            move |_, param| {
+                if let Some(s) = param {
+                    let cert : Certificate = serde_json::from_str(&s.get::<String>().unwrap()).unwrap();
+                    let mut state = state.borrow_mut();
+
+                    let mut updated = false;
+                    while let Some(ix) = state.conns.iter().position(|c| c.host == cert.host ) {
+                        state.conns[ix].cert = Some(cert.cert.clone());
+                        updated = true;
+                    }
+
+                    if !updated {
+                        state.unmatched_certs.push(cert);
+                    }
+
+                }
+            }
+        });
+        win.settings.security_bx.cert_removed.connect_activate({
+            let state = self.clone();
+            move |_, param| {
+                if let Some(s) = param {
+                    let cert : Certificate = serde_json::from_str(&s.get::<String>().unwrap()).unwrap();
+                    let mut state = state.borrow_mut();
+                    while let Some(ix) = state.conns.iter().position(|c| c.host == cert.host ) {
+                        state.conns[ix].cert = None;
+                    }
+                }
+            }
+        });
     }
 
 }
@@ -320,6 +411,17 @@ pub fn set_window_state(user_state : &SharedUserState, queries_win : &QueriesWin
     queries_win.paned.set_position(state.main_handle_pos);
     queries_win.sidebar.paned.set_position(state.side_handle_pos);
     queries_win.window.set_default_size(state.window_width, state.window_height);
+
+    for conn in state.conns.iter() {
+        if let Some(cert) = conn.cert.as_ref() {
+            crate::ui::append_certificate_row(
+                queries_win.settings.security_bx.exp_row.clone(),
+                &conn.host,
+                cert,
+                &queries_win.settings.security_bx.rows
+            );
+        }
+    }
 }
 
 pub fn set_client_state(user_state : &SharedUserState, client : &QueriesClient) {

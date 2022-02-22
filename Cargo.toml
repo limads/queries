@@ -10,8 +10,9 @@ gtk4 = "0.3.0"
 sourceview5 = { version = "0.3.0" }
 libadwaita = "0.1.0-beta-1"
 postgres = { version = "0.19.2", features = [ "with-chrono-0_4", "with-serde_json-1" ] }
-postgres-openssl = "0.5.0"
+# postgres-openssl = "0.5.0"
 postgres-native-tls = "0.5.0"
+native-tls = "0.2"
 sqlparser = "0.14.0"
 regex = { version = "1.4.2" }
 rusqlite = { version="0.24.2", features=["load_extension", "csvtab", "vtab", "functions", "serde_json", "backup", "column_decltype" ] }
