@@ -112,7 +112,7 @@ impl EditorBox {
         let manager = sourceview5::StyleSchemeManager::new();
         let scheme_combo = ComboBoxText::new();
         for id in manager.scheme_ids() {
-            scheme_combo.append_text(&id);
+            scheme_combo.append(Some(&id), &id);
         }
         list.append(&NamedBox::new("Color scheme", None, scheme_combo.clone()).bx);
         /*combo.connect_changed(move |combo| {
@@ -138,7 +138,8 @@ pub struct ExecutionBox {
     pub list : ListBox,
     pub row_limit_spin : SpinButton,
     pub col_limit_spin : SpinButton,
-    pub schedule_scale : Scale
+    pub schedule_scale : Scale,
+    pub timeout_scale : Scale
 }
 
 impl ExecutionBox {
@@ -175,7 +176,7 @@ impl ExecutionBox {
         list.append(&NamedBox::new("Execution interval", Some("Interval (in seconds)\nbetween scheduled executions"), schedule_scale.clone()).bx);
         list.append(&NamedBox::new("Statement timeout", Some("Maximum time (in seconds)\nto wait for database response"), timeout_scale.clone()).bx);
 
-        Self { list, row_limit_spin, col_limit_spin, schedule_scale }
+        Self { list, row_limit_spin, col_limit_spin, schedule_scale, timeout_scale }
     }
 
 }
@@ -296,7 +297,13 @@ pub struct SecurityBox {
     pub cert_added : gio::SimpleAction,
     pub cert_removed : gio::SimpleAction,
     pub exp_row : libadwaita::ExpanderRow,
+    pub save_switch : Switch,
+
+    // TODO remove the rows list if/when libadwaita API allows recovering the ExpanderRow rows.
+    // While this is not possible, we must keep a shared reference to the rows to remove
+    // them.
     pub rows : Rc<RefCell<Vec<ListBoxRow>>>
+
 }
 
 fn validate((host, cert) : &(String, String), rows : &[ListBoxRow]) -> bool {
@@ -317,7 +324,6 @@ fn validate((host, cert) : &(String, String), rows : &[ListBoxRow]) -> bool {
     !host.is_empty() && cert.chars().count() > 4 /*&& cert.ends_with(".crt") || cert.ends_with(".pem") */
 }
 
-// TODO remove the rows list if/when libadwaita API allows recovering the ExpanderRow rows.
 pub fn append_certificate_row(exp_row : libadwaita::ExpanderRow, host : &str, cert : &str, rows : &Rc<RefCell<Vec<ListBoxRow>>>) {
 
     let lbl_host = Label::new(Some(host));
@@ -404,7 +410,7 @@ impl SecurityBox {
         let save_switch = Switch::new();
         let save_row = ListBoxRow::new();
         save_row.set_selectable(false);
-        let save_bx = NamedBox::new("Remember credentials", Some("Store credentials (except passwords)\nand load them at future sessions"), save_switch);
+        let save_bx = NamedBox::new("Remember credentials", Some("Store credentials (except passwords)\nand load them at future sessions"), save_switch.clone());
         save_row.set_child(Some(&save_bx.bx));
 
         let entry = Entry::new();
@@ -539,7 +545,12 @@ impl SecurityBox {
                     rows.remove(ix);
                 }
 
-                cert_removed.activate(Some(&serde_json::to_string(&Certificate { host : lbl_left.text().to_string(), cert : lbl_right.text().to_string() }).unwrap().to_variant()));
+                cert_removed.activate(
+                    Some(&serde_json::to_string(&Certificate {
+                        host : lbl_left.text().to_string(),
+                        cert : lbl_right.text().to_string()
+                    }).unwrap().to_variant())
+                );
             }
         });
 
@@ -558,7 +569,7 @@ impl SecurityBox {
         //    }
         //});
 
-        Self { list, cert_added, cert_removed, exp_row, rows }
+        Self { list, cert_added, cert_removed, exp_row, rows, save_switch }
     }
 }
 
@@ -664,8 +675,28 @@ fn build_settings_row(name : &str) -> ListBoxRow {
     ListBoxRow::builder().child(&lbl).height_request(42).build()
 }
 
-pub fn load_settings(win : &QueriesSettings, state : &SharedUserState) {
+pub fn load_settings(settings : &QueriesSettings, state : &SharedUserState) {
 
+    // TODO missing statement timeout (perhaps just disconnect when timeout is reached).
+    let state = state.borrow();
+    settings.exec_bx.row_limit_spin.adjustment().set_value(state.execution.row_limit as f64);
+    settings.exec_bx.col_limit_spin.adjustment().set_value(state.execution.column_limit as f64);
+    settings.exec_bx.schedule_scale.adjustment().set_value(state.execution.execution_interval as f64);
+    settings.exec_bx.timeout_scale.adjustment().set_value(state.execution.statement_timeout as f64);
+
+    let font = format!("{} {}", state.editor.font_family, state.editor.font_size);
+    settings.editor_bx.scheme_combo.set_active_id(Some(&state.editor.scheme));
+    settings.editor_bx.font_btn.set_title(&font);
+    settings.editor_bx.line_num_switch.set_active(state.editor.show_line_numbers);
+    settings.editor_bx.line_highlight_switch.set_active(state.editor.highlight_current_line);
+    settings.security_bx.save_switch.set_active(state.security.save_conns);
+
+    // Already done at set_window_state
+    /*for conn in state.conns.iter() {
+        if let Some(cert) = &conn.cert {
+            append_certificate_row(settings.security_bx.exp_row.clone(), &conn.host, &cert, &settings.security_bx.rows);
+        }
+    }*/
 }
 
 

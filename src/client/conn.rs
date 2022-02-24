@@ -460,6 +460,14 @@ impl ActiveConnection {
                         on_disconnected.borrow().iter().for_each(|f| f(()) );
                     },
                     ActiveConnectionAction::ExecutionRequest(stmts) => {
+
+                        if listener.is_working() {
+                            // This shouldn't happen. The user is prevented from sending statements
+                            // when the engine is working.
+                            on_error.borrow().iter().for_each(|f| f(format!("Previous statement not completed yet.")) );
+                            return glib::Continue(true);
+                        }
+
                         match listener.send_command(stmts, HashMap::new(), true, user_state.borrow().execution.statement_timeout as usize) {
                             Ok(_) => { },
                             Err(e) => {
@@ -475,7 +483,20 @@ impl ActiveConnection {
                             let listener = listener.clone();
                             let user_state = user_state.clone();
                             move || {
-                                match listener.send_command(stmts.clone(), HashMap::new(), true, user_state.borrow().execution.statement_timeout as usize) {
+
+                                // Just ignore this schedule step if the previous statement is not
+                                // executed yet. Queries will try to execute it again at the next timeout interval.
+                                if listener.is_working() {
+                                    return Continue(true);
+                                }
+
+                                let send_ans = listener.send_command(
+                                    stmts.clone(),
+                                    HashMap::new(),
+                                    true,
+                                    user_state.borrow().execution.statement_timeout as usize
+                                );
+                                match send_ans {
                                     Ok(_) => { },
                                     Err(e) => {
                                         on_error.borrow().iter().for_each(|f| f(e.clone()) );

@@ -302,6 +302,10 @@ impl SqlListener {
     //    self.info_sender.send(());
     // }
 
+    pub fn is_working(&self) -> bool {
+        self.engine.try_lock().is_err()
+    }
+
     pub fn db_info(&self) -> Option<DBInfo> {
         /*match self.info_recv.try_recv() {
             Ok(info) => Ok(info),
@@ -363,22 +367,31 @@ where
         loop {
             match cmd_rx.recv() {
                 Ok((cmd, subs, parse, _timeout)) => {
-                    match **engine.lock().as_mut().unwrap() {
-                        Some(ref mut eng) => {
-                            let result = eng.try_run(cmd, &subs, parse);
-                            let res = match result {
-                                Ok(ans) => {
-                                    ans
-                                },
-                                Err(e) => {
-                                    vec![StatementOutput::Invalid( e.to_string(), false )]
-                                }
-                            };
-                            result_cb(res);
+                    match engine.lock() {
+                        Ok(mut opt_eng) => match &mut *opt_eng {
+                            Some(ref mut eng) => {
+                                let result = eng.try_run(cmd, &subs, parse);
+                                let res = match result {
+                                    Ok(ans) => {
+                                        ans
+                                    },
+                                    Err(e) => {
+                                        vec![StatementOutput::Invalid( e.to_string(), false )]
+                                    }
+                                };
+                                result_cb(res);
+                            },
+                            None => {
+                                result_cb(vec![StatementOutput::Invalid(format!("Database connection is down. Please restart the connection"), false)]);
+                            }
                         },
-                        None => {
-                            result_cb(vec![StatementOutput::Invalid(format!("Database connection is down. Please restart the connection"), false)]);
-                        },
+                        Err(_) => {
+
+                            // This is only reachable if the mutex is poisoned.
+                            println!("Unable to acquire lock over database engine.");
+
+                            break;
+                        }
                     }
                 },
                 Err(e) => {

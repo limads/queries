@@ -1044,16 +1044,11 @@ impl<'a> React<QueriesSettings> for (&'a QueriesEditor, &'a SharedUserState) {
             let editor = self.0.clone();
             move |btn| {
                 if let Some(s) = btn.title() {
-                    let digits_pattern = Regex::new(r"\d{2}$|\d{2}$").unwrap();
-                    if let Some(sz_match) = digits_pattern.find(&s) {
-                        let sz_txt = sz_match.as_str();
-                        if let Ok(font_size) = sz_txt.parse::<i32>() {
-                            let font_family = s.trim_end_matches(sz_txt).to_string();
-                            let mut state = state.borrow_mut();
-                            state.editor.font_family = font_family;
-                            state.editor.font_size = font_size;
-                            editor.configure(&state.editor);
-                        }
+                    let mut state = state.borrow_mut();
+                    if let Some((font_family, font_size)) = crate::ui::parse_font(&s[..]) {
+                        state.editor.font_family = font_family;
+                        state.editor.font_size = font_size;
+                        editor.configure(&state.editor);
                     }
                 }
             }

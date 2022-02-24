@@ -668,3 +668,22 @@ pub fn get_type_icon_name(ty : &DBType) -> &'static str {
     }
 }
 
+pub fn parse_font(s : &str) -> Option<(String, i32)> {
+
+    use regex::Regex;
+
+    let digits_pattern = Regex::new(r"\d{2}$|\d{2}$").unwrap();
+    if let Some(sz_match) = digits_pattern.find(&s) {
+        let sz_txt = sz_match.as_str();
+        if let Ok(font_size) = sz_txt.parse::<i32>() {
+            let font_family = s.trim_end_matches(sz_txt).to_string();
+            Some((font_family, font_size))
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+

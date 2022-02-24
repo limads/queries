@@ -315,11 +315,23 @@ pub fn build_statement_result(any_stmt : &AnyStatement, n : usize) -> StatementO
                     ("create", "schema", _) => {
                         return StatementOutput::Modification(format!("Create schema"));
                     },
+                    ("create", "view", _) => {
+                        return StatementOutput::Modification(format!("Create view"));
+                    },
+                    ("create", "procedure", _) => {
+                        return StatementOutput::Modification(format!("Create procedure"));
+                    },
                     ("create",  "function", _) => {
                         return StatementOutput::Modification(format!("Create function"));
                     },
                     ("drop", "function", _) => {
                         return StatementOutput::Modification(format!("Drop function"));
+                    },
+                    ("drop", "procedure", _) => {
+                        return StatementOutput::Modification(format!("Drop procedure"));
+                    },
+                    ("drop", "view", _) => {
+                        return StatementOutput::Modification(format!("Drop view"));
                     },
                     ("insert", _, _) => {
                         return StatementOutput::Statement(format!("{} row(s) inserted", n));
@@ -334,7 +346,7 @@ pub fn build_statement_result(any_stmt : &AnyStatement, n : usize) -> StatementO
                 }
             }
 
-            StatementOutput::Statement(format!("Statement executed"))
+            StatementOutput::Modification(format!("Statement executed"))
         },
         AnyStatement::Local(local) => {
             match local {

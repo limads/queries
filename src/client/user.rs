@@ -46,6 +46,19 @@ impl Default for EditorSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecuritySettings {
+    pub save_conns : bool
+}
+
+impl Default for SecuritySettings {
+
+    fn default() -> Self {
+        SecuritySettings { save_conns : true }
+    }
+
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionSettings {
     pub row_limit : i32,
     pub column_limit : i32,
@@ -92,7 +105,9 @@ pub struct UserState {
 
     pub editor : EditorSettings,
 
-    pub execution : ExecutionSettings
+    pub execution : ExecutionSettings,
+
+    pub security : SecuritySettings
 
 }
 
@@ -370,6 +385,77 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
                 }
             }
         });
+
+        // Execution
+        win.settings.exec_bx.row_limit_spin.adjustment().connect_value_changed({
+            let state = self.clone();
+            move |adj| {
+                state.borrow_mut().execution.row_limit = adj.value() as i32;
+            }
+        });
+        win.settings.exec_bx.col_limit_spin.adjustment().connect_value_changed({
+            let state = self.clone();
+            move |adj| {
+                state.borrow_mut().execution.column_limit = adj.value() as i32;
+            }
+        });
+        win.settings.exec_bx.schedule_scale.adjustment().connect_value_changed({
+            let state = self.clone();
+            move |adj| {
+                state.borrow_mut().execution.execution_interval = adj.value() as i32;
+            }
+        });
+        win.settings.exec_bx.timeout_scale.adjustment().connect_value_changed({
+            let state = self.clone();
+            move |adj| {
+                state.borrow_mut().execution.statement_timeout = adj.value() as i32;
+            }
+        });
+
+        // Editor
+        win.settings.editor_bx.scheme_combo.connect_changed({
+            let state = self.clone();
+            move |combo| {
+                if let Some(txt) = combo.active_text() {
+                    state.borrow_mut().editor.scheme = txt.to_string();
+                }
+            }
+        });
+        win.settings.editor_bx.font_btn.connect_font_set({
+            let state = self.clone();
+            move |btn| {
+                if let Some(title) = btn.title() {
+                    if let Some((family, sz)) = crate::ui::parse_font(&title) {
+                        let mut s = state.borrow_mut();
+                        s.editor.font_family = family;
+                        s.editor.font_size = sz;
+                    }
+                }
+            }
+        });
+        win.settings.editor_bx.line_highlight_switch.connect_state_set({
+            let state = self.clone();
+            move|switch, _| {
+                state.borrow_mut().editor.highlight_current_line = switch.is_active();
+                Inhibit(false)
+            }
+        });
+        win.settings.editor_bx.line_num_switch.connect_state_set({
+            let state = self.clone();
+            move|switch, _| {
+                state.borrow_mut().editor.show_line_numbers = switch.is_active();
+                Inhibit(false)
+            }
+        });
+
+        // Security
+        win.settings.security_bx.save_switch.connect_state_set({
+            let state = self.clone();
+            move|switch, _| {
+                state.borrow_mut().security.save_conns = switch.is_active();
+                Inhibit(false)
+            }
+        });
         win.settings.security_bx.cert_added.connect_activate({
             let state = self.clone();
             move |_, param| {
@@ -422,6 +508,8 @@ pub fn set_window_state(user_state : &SharedUserState, queries_win : &QueriesWin
             );
         }
     }
+
+    crate::ui::load_settings(&queries_win.settings, &user_state);
 }
 
 pub fn set_client_state(user_state : &SharedUserState, client : &QueriesClient) {
