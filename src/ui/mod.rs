@@ -9,6 +9,8 @@ use crate::client::OpenedScripts;
 use crate::sql::object::{DBObject, DBType};
 mod overview;
 use crate::client::EditorSettings;
+use core::cell::RefCell;
+use std::rc::Rc;
 
 pub use overview::*;
 
@@ -64,7 +66,8 @@ pub struct QueriesContent {
     pub results : QueriesResults,
     pub editor : QueriesEditor,
     pub results_page : libadwaita::ViewStackPage,
-    pub editor_page : libadwaita::ViewStackPage
+    pub editor_page : libadwaita::ViewStackPage,
+    pub curr_toast : Rc<RefCell<Option<libadwaita::Toast>>>
 }
 
 #[derive(Debug, Clone)]
@@ -110,14 +113,30 @@ impl React<Environment> for QueriesContent {
         });
         env.connect_export_error({
             let overlay = self.overlay.clone();
+            let curr_toast = self.curr_toast.clone();
             move |msg| {
-                overlay.add_toast(&libadwaita::Toast::builder().title(&msg[..]).build());
+                let mut last_toast = curr_toast.borrow_mut();
+                if let Some(t) = last_toast.take() {
+                    t.dismiss();
+                }
+                let toast = libadwaita::Toast::builder().title(&msg[..]).build();
+                overlay.add_toast(&toast);
+                connect_toast_dismissed(&toast, &curr_toast);
+                *last_toast = Some(toast);
             }
         });
         env.connect_table_error({
             let overlay = self.overlay.clone();
+            let curr_toast = self.curr_toast.clone();
             move |msg| {
-                overlay.add_toast(&libadwaita::Toast::builder().title(&msg[..]).build());
+                let mut last_toast = curr_toast.borrow_mut();
+                if let Some(t) = last_toast.take() {
+                    t.dismiss();
+                }
+                let toast = libadwaita::Toast::builder().title(&msg[..]).build();
+                overlay.add_toast(&toast);
+                connect_toast_dismissed(&toast, &curr_toast);
+                *last_toast = Some(toast);
             }
         });
     }
@@ -157,7 +176,12 @@ impl React<OpenedScripts> for QueriesContent {
     fn react(&self, scripts : &OpenedScripts) {
         scripts.connect_close_confirm({
             let overlay = self.overlay.clone();
+            let curr_toast = self.curr_toast.clone();
             move |file| {
+                let mut last_toast = curr_toast.borrow_mut();
+                if let Some(t) = last_toast.take() {
+                    t.dismiss();
+                }
                 let toast = libadwaita::Toast::builder()
                     .title(&format!("{} has unsaved changes", file.name))
                     .button_label("Close anyway")
@@ -167,12 +191,21 @@ impl React<OpenedScripts> for QueriesContent {
                     .timeout(0)
                     .build();
                 overlay.add_toast(&toast);
+                connect_toast_dismissed(&toast, &curr_toast);
+                *last_toast = Some(toast);
             }
         });
         scripts.connect_error({
             let overlay = self.overlay.clone();
+            let curr_toast = self.curr_toast.clone();
             move |msg| {
-                overlay.add_toast(&libadwaita::Toast::builder().title(&msg[..]).build());
+                let mut last_toast = curr_toast.borrow_mut();
+                if let Some(t) = last_toast.take() {
+                    t.dismiss();
+                }
+                let toast = libadwaita::Toast::builder().title(&msg[..]).build();
+                overlay.add_toast(&toast);
+                *last_toast = Some(toast);
             }
         });
     }
@@ -196,8 +229,8 @@ impl QueriesContent {
         overlay.set_child(Some(&stack));
 
         // stack.set_visible_child_name("overview");
-
-        Self { stack, results, editor, switcher, overlay, results_page, editor_page }
+        let curr_toast = Rc::new(RefCell::new(None));
+        Self { stack, results, editor, switcher, overlay, results_page, editor_page, curr_toast }
     }
 
     /*fn react(&self, titlebar : &QueriesTitlebar) {
@@ -224,8 +257,16 @@ impl React<ActiveConnection> for QueriesContent {
             let overlay = self.overlay.clone();
             let results_page = self.results_page.clone();
             let stack = self.results.stack.clone();
+            let curr_toast = self.curr_toast.clone();
             move |err : String| {
-                overlay.add_toast(&libadwaita::Toast::builder().title(&err).build());
+                let mut last_toast = curr_toast.borrow_mut();
+                if let Some(t) = last_toast.take() {
+                    t.dismiss();
+                }
+                let toast = libadwaita::Toast::builder().title(&err).build();
+                overlay.add_toast(&toast);
+                connect_toast_dismissed(&toast, &curr_toast);
+                *last_toast = Some(toast);
                 results_page.set_icon_name(Some("db-symbolic"));
                 stack.set_visible_child_name("overview");
             }
@@ -234,8 +275,16 @@ impl React<ActiveConnection> for QueriesContent {
             let overlay = self.overlay.clone();
             let results_page = self.results_page.clone();
             let stack = self.results.stack.clone();
+            let curr_toast = self.curr_toast.clone();
             move |err : String| {
-                overlay.add_toast(&libadwaita::Toast::builder().title(&err).build());
+                let mut last_toast = curr_toast.borrow_mut();
+                if let Some(t) = last_toast.take() {
+                    t.dismiss();
+                }
+                let toast = libadwaita::Toast::builder().title(&err).build();
+                overlay.add_toast(&toast);
+                connect_toast_dismissed(&toast, &curr_toast);
+                *last_toast = Some(toast);
                 results_page.set_icon_name(Some("db-symbolic"));
                 stack.set_visible_child_name("overview");
             }
@@ -243,6 +292,7 @@ impl React<ActiveConnection> for QueriesContent {
         conn.connect_exec_result({
             let overlay = self.overlay.clone();
             let results_page = self.results_page.clone();
+            let curr_toast = self.curr_toast.clone();
             move |res : Vec<StatementOutput>| {
                 let mut any_errors = false;
                 let msg = if let Some(err) = crate::sql::condense_errors(&res) {
@@ -254,7 +304,14 @@ impl React<ActiveConnection> for QueriesContent {
                     None
                 };
                 if let Some(msg) = msg {
-                    overlay.add_toast(&libadwaita::Toast::builder().title(&msg).build());
+                    let mut last_toast = curr_toast.borrow_mut();
+                    if let Some(t) = last_toast.take() {
+                        t.dismiss();
+                    }
+                    let toast = libadwaita::Toast::builder().title(&msg).build();
+                    overlay.add_toast(&toast);
+                    connect_toast_dismissed(&toast, &curr_toast);
+                    *last_toast = Some(toast);
                 }
                 if !any_errors {
                     let has_any_tbl = res.iter()
@@ -334,15 +391,6 @@ impl QueriesWindow {
         let paned = Paned::new(Orientation::Horizontal);
         paned.set_position(200);
         paned.set_start_child(&sidebar.paned);
-
-        // let toast = libadwaita::Toast::builder().title("This is a toast").build();
-        // toast.set_timeout(2);
-        // toast.set_title("This is the toast title");
-
-        // let provider = CssProvider::new();
-        // provider.load_from_data("* { background-color : #000000; } ".as_bytes());
-        // overlay.style_context().add_provider(&provider, 800);
-        // overlay.add_toast(&toast);
 
         // paned.set_end_child(&content.stack);
         paned.set_end_child(&content.overlay);
@@ -686,4 +734,11 @@ pub fn parse_font(s : &str) -> Option<(String, i32)> {
     }
 }
 
-
+pub fn connect_toast_dismissed(t : &libadwaita::Toast, last : &Rc<RefCell<Option<libadwaita::Toast>>>) {
+    let last = last.clone();
+    t.connect_dismissed(move|_| {
+        if let Ok(mut last) = last.try_borrow_mut() {
+            *last = None;
+        }
+    });
+}

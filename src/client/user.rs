@@ -19,9 +19,6 @@ use std::path::Path;
 use base64;
 use crate::ui::Certificate;
 
-// use_litcrypt!("key");
-// lc!("String name")
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EditorSettings {
     pub scheme : String,
@@ -497,7 +494,11 @@ pub fn set_window_state(user_state : &SharedUserState, queries_win : &QueriesWin
     queries_win.paned.set_position(state.main_handle_pos);
     queries_win.sidebar.paned.set_position(state.side_handle_pos);
     queries_win.window.set_default_size(state.window_width, state.window_height);
-
+    if state.main_handle_pos == 0 {
+        queries_win.titlebar.sidebar_toggle.set_active(false);
+    } else {
+        queries_win.titlebar.sidebar_toggle.set_active(true);
+    }
     for conn in state.conns.iter() {
         if let Some(cert) = conn.cert.as_ref() {
             crate::ui::append_certificate_row(

@@ -21,7 +21,7 @@ use crate::client::ActiveConnection;
 use std::boxed;
 use monday::tables::table::TableSettings;
 use monday::tables::table::Columns;
-use plots::Panel;
+use papyri::render::Panel;
 use crate::ui::QueriesWorkspace;
 use std::io::Write;
 use std::thread;

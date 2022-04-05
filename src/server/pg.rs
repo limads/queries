@@ -196,10 +196,10 @@ impl Connection for PostgresConnection {
                 let view_objs = get_postgres_views(self, &schema[..]).unwrap_or(Vec::new());
                 let mut children = tbl_objs;
                 if view_objs.len() > 0 {
-                    children.push(DBObject::Schema { name : format!("views"), children : view_objs } );
+                    children.push(DBObject::Schema { name : format!("views ({})", schema), children : view_objs } );
                 }
                 if func_objs.len() > 0 {
-                    children.push(DBObject::Schema { name : format!("functions"), children : func_objs } );
+                    children.push(DBObject::Schema { name : format!("functions ({})", schema), children : func_objs } );
                 }
 
                 let obj = DBObject::Schema{ name : schema.to_string(), children };
@@ -324,6 +324,14 @@ from uptime;
 // TODO the generate_series seems to be slowing the query down, making the connection startup
 // unreasonably slow. But removing it makes the arguments be unnested at the incorrect order.
 fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Option<Vec<DBObject>> {
+
+    /* Alternatively,
+        SELECT routines.routine_name, parameters.data_type, parameters.ordinal_position
+    FROM information_schema.routines
+        LEFT JOIN information_schema.parameters ON routines.specific_name=parameters.specific_name
+    WHERE routines.specific_schema='public'
+    ORDER BY routines.routine_name, parameters.ordinal_position;
+    */
 
     // This version is slower, and does not make use of pg_get_function_arguments.
     /*let fn_query = format!(r#"
@@ -473,11 +481,11 @@ fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Opti
                 } else {
                     None
                 };
-                fns.push(DBObject::Function { name : name.clone(), args, arg_names : opt_func_arg_names, ret });
+                fns.push(DBObject::Function { schema : schema.to_string(), name : name.clone(), args, arg_names : opt_func_arg_names, ret });
             }
 
             fns.sort_by(|a, b| {
-                a.obj_name().chars().next().unwrap().cmp(&b.obj_name().chars().next().unwrap())
+                a.obj_name().cmp(&b.obj_name())
             });
             Some(fns)
         },
@@ -488,6 +496,22 @@ fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Opti
 
 /// Return HashMap of Schema->Tables
 fn get_postgres_schemata(conn : &mut PostgresConnection) -> Option<HashMap<String, Vec<String>>> {
+
+    let mut schem_hash = HashMap::new();
+    let schemata_query = r"select schema_name from information_schema.schemata;";
+
+    match conn.conn.query(schemata_query, &[]) {
+        Ok(rows) => {
+            for s in rows.iter().map(|r| r.get::<_, String>(0) ) {
+                if s.starts_with("pg") || &s[..] == "information_schema" {
+                    continue;
+                }
+                schem_hash.insert(s, Vec::new());
+            }
+        },
+        Err(_) => { return None; }
+    }
+
     let tbl_query = String::from("select schemaname::text, tablename::text \
         from pg_catalog.pg_tables \
         where schemaname != 'pg_catalog' and schemaname != 'information_schema';");
@@ -511,7 +535,6 @@ fn get_postgres_schemata(conn : &mut PostgresConnection) -> Option<HashMap<Strin
             });
             if let Some(schemata) = schemata {
                 if let Some(names) = names {
-                    let mut schem_hash = HashMap::new();
                     for (schema, table) in schemata.iter().zip(names.iter()) {
                         let tables = schem_hash.entry(schema.clone()).or_insert(Vec::new());
                         tables.push(table.clone());
@@ -538,18 +561,23 @@ fn get_postgres_views(conn : &mut PostgresConnection, schema : &str) -> Option<V
     from information_schema.views
     where table_schema like '{}' and table_schema not in ('information_schema', 'pg_catalog')
     order by schema_name, view_name;"#, schema);
-    let ans = conn.try_run(view_query, &HashMap::new(), false) /*.map_err(|e| println!("{}", e) )*/ .ok()?;
+    let ans = conn.try_run(view_query, &HashMap::new(), false).ok()?;
     match ans.get(0)? {
         StatementOutput::Valid(_, view_info) => {
             let mut views = Vec::new();
-            let info = Vec::<String>::try_from(view_info.get_column(1).unwrap().clone()).ok()?;
-            for name in info.iter() {
-                // let name = row.get::<String>(1);
-                views.push(DBObject::View { name : name.clone() });
+            let schema_info = Vec::<String>::try_from(view_info.get_column(0).unwrap().clone()).ok()?;
+            let name_info = Vec::<String>::try_from(view_info.get_column(1).unwrap().clone()).ok()?;
+            for (schema, name) in schema_info.iter().zip(name_info.iter()) {
+                views.push(DBObject::View { schema : schema.clone(), name : name.clone() });
             }
+
+            views.sort_by(|a, b| {
+                a.obj_name().cmp(&b.obj_name())
+            });
+
             Some(views)
         },
-        StatementOutput::Invalid(msg, _) => { /*println!("{}", msg);*/ None },
+        StatementOutput::Invalid(msg, _) => { None },
         _ => None
     }
 }
@@ -667,7 +695,7 @@ fn get_postgres_columns(conn : &mut PostgresConnection, schema_name : &str, tbl_
                 let cols = crate::sql::pack_column_types(names, col_types, pks)?;
                 let rels = get_postgres_relations(conn, schema_name, tbl_name).unwrap_or(Vec::new());
 
-                let obj = DBObject::Table{ name : tbl_name.to_string(), cols, rels };
+                let obj = DBObject::Table{ schema : schema_name.to_string(), name : tbl_name.to_string(), cols, rels };
                 Some(obj)
             },
             StatementOutput::Invalid(msg, _) => { /*println!("{}", msg);*/ None },

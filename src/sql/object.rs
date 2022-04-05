@@ -127,11 +127,11 @@ pub enum DBObject {
     // In practice, children will always hold table variants.
     Schema{ name : String, children : Vec<DBObject> },
 
-    Table{ name : String, cols : Vec<(String, DBType, bool)>, rels : Vec<Relation> },
+    Table{ schema : String, name : String, cols : Vec<(String, DBType, bool)>, rels : Vec<Relation> },
 
-    Function { name : String, args : Vec<DBType>, arg_names : Option<Vec<String>>, ret : Option<DBType> },
+    Function { schema : String, name : String, args : Vec<DBType>, arg_names : Option<Vec<String>>, ret : Option<DBType> },
 
-    View { name : String }
+    View { schema : String, name : String }
 
 }
 
@@ -206,7 +206,7 @@ pub fn build_er_diagram(mut er : String, schemata : &[DBObject]) -> String {
             DBObject::Schema { children, .. } => {
                 er = build_er_diagram(er, children);
             },
-            DBObject::Table { name, cols, rels } => {
+            DBObject::Table { schema, name, cols, rels } => {
                 let cols : String = cols.iter().map(|c| c.0.clone() ).collect::<Vec<_>>().join("\\n");
                 let mut tbl = format!("{} [ label = \"{} | {} \"];\n", name, name, cols);
                 for rel in rels.iter() {

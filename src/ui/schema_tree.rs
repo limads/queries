@@ -235,7 +235,7 @@ impl SchemaTree {
             });
         }*/
 
-        let title = PackedImageLabel::build("db-symbolic", "Schema");
+        let title = PackedImageLabel::build("db-symbolic", "Database");
         title.bx.set_vexpand(false);
         title.bx.set_valign(Align::Start);
         super::set_border_to_title(&title.bx);
@@ -433,7 +433,7 @@ impl SchemaTree {
                 };
                 model.set(&schema_pos, &[(0, &self.fn_icon.to_value()), (1, &sig.to_value())]);
             },
-            DBObject::View { name } => {
+            DBObject::View { name, .. } => {
                 let schema_pos = model.append(parent);
                 model.set(&schema_pos, &[(0, &self.view_icon.to_value()), (1, &name.to_value())]);
             }

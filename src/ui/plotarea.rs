@@ -3,7 +3,7 @@ use gtk4::prelude::*;
 // use std::rc::{Weak, Rc};
 // use crate::plots::PlotSet;
 use cairo::Context;
-use plots::{Panel, GroupSplit};
+use papyri::render::{Panel, GroupSplit};
 use std::collections::HashMap;
 // use gtk::prelude::*;
 

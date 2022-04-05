@@ -978,8 +978,8 @@ impl React<SchemaTree> for ActiveConnection {
                     if !s.is_empty() {
                         let obj : DBObject = serde_json::from_str(&s).unwrap();
                         match obj {
-                            DBObject::Table { name, .. } | DBObject::View { name, .. } => {
-                                send.send(ActiveConnectionAction::ExecutionRequest(format!("select * from {} limit 500;", name)));
+                            DBObject::Table { schema, name, .. } | DBObject::View { schema, name, .. } => {
+                                send.send(ActiveConnectionAction::ExecutionRequest(format!("select * from {}.{} limit 500;", schema, name)));
                             },
                             _ => { }
                         }
@@ -1019,11 +1019,11 @@ impl React<SchemaTree> for ActiveConnection {
                 //    FormAction::Table(obj) => {
 
                 match obj {
-                    DBObject::Table { name, cols, .. } => {
+                    DBObject::Table { schema, name, cols, .. } => {
                         let tys : Vec<DBType> = cols.iter().map(|col| col.1 ).collect();
                         match sql_literal_tuple(&entries, &tys) {
                             Ok(tuple) => {
-                                let insert_stmt = format!("insert into {} values {};", name, tuple);
+                                let insert_stmt = format!("insert into {}.{} values {};", schema, name, tuple);
 
                                 // println!("{}", insert_stmt);
 
@@ -1034,22 +1034,21 @@ impl React<SchemaTree> for ActiveConnection {
                             }
                         }
                     },
-                    DBObject::Function { name, args, ret, .. } => {
+                    DBObject::Function { schema, name, args, ret, .. } => {
                         if args.len() == 0 {
 
                             // With no arguments, we might have a function (with return value) or
                             // a procedure. The syntax is slightly different for procedures.
                             let call_stmt = if ret.is_some() {
-                                format!("select {}();", name)
+                                format!("select {}.{}();", schema, name)
                             } else {
-                                format!("call {}();", name)
+                                format!("call {}.{}();", schema, name)
                             };
-
                             send.send(ActiveConnectionAction::ExecutionRequest(call_stmt));
                         } else {
                             match sql_literal_tuple(&entries, &args) {
                                 Ok(tuple) => {
-                                    let call_stmt = format!("select {}{};", name, tuple);
+                                    let call_stmt = format!("select {}.{}{};", schema, name, tuple);
                                     send.send(ActiveConnectionAction::ExecutionRequest(call_stmt));
                                 },
                                 Err(e) => {

@@ -6,7 +6,7 @@ use libadwaita;
 use super::table::*;
 use monday::tables::table::Table;
 use crate::ui::PlotView;
-use plots::Panel;
+use papyri::render::Panel;
 use crate::client::SharedUserState;
 use std::rc::Rc;
 

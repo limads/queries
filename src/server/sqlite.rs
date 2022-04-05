@@ -475,7 +475,9 @@ fn get_sqlite_columns(conn : &mut SqliteConnection, tbl_name : &str) -> Option<D
                 })?;
             let pks = Vec::new();
             let cols = pack_column_types(names, col_types, pks)?;
-            let obj = DBObject::Table{ name : tbl_name.to_string(), cols, rels : Vec::new() };
+
+            // TODO pass empty schema. Treat empty schema as non-namespace qualified at query/insert/fncall commands.
+            let obj = DBObject::Table{ schema : format!("public"), name : tbl_name.to_string(), cols, rels : Vec::new() };
             Some(obj)
         },
         StatementOutput::Invalid(msg, _) => { println!("{}", msg); None },

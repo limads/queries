@@ -106,12 +106,26 @@ impl TableWidget {
             trimmed_data += "...";
             &trimmed_data[..]
         };
-        let label = Label::new(Some(label_data));
+        let label = Label::new(None);
+        label.set_use_markup(true);
+        label.set_markup(label_data);
         label.set_hexpand(true);
         let ctx = label.style_context();
 
-        // TODO look here
-        // ctx.set_parent(Some(&(self.parent_ctx)));
+        /*label.connect_activate_link(move |_, uri| {
+            if uri.starts_with("queries://") {
+                let split = uri.trim_start_matches("queries://").split("+");
+                if let Some(fn_name) = split.next() {
+                    let mut params = Vec::new();
+                    while let Some(param) = split.next() {
+                        params.push(param.to_string());
+                    }
+                }
+                Inhibit(true)
+            } else {
+                Inhibit(false)
+            }
+        });*/
 
         ctx.add_provider(&(self.provider),800); // PROVIDER_CONTEXT_USER
         ctx.add_class("table-cell");

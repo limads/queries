@@ -1115,7 +1115,7 @@ dependencies = [
  "fallible-iterator",
  "itertools",
  "num-traits",
- "plots",
+ "papyri",
  "postgres",
  "quick-xml",
  "rand",
@@ -1282,6 +1282,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "papyri"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cairo-rs",
+ "either",
+ "gdk-pixbuf",
+ "gdk4",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1356,22 +1371,6 @@ name = "pkg-config"
 version = "0.3.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3831453b3449ceb48b6d9c7ad7c96d5ea673e9b470a1dc578c2ce6521230884c"
-
-[[package]]
-name = "plots"
-version = "0.1.0"
-dependencies = [
- "base64",
- "cairo-rs",
- "either",
- "gdk-pixbuf",
- "gdk4",
- "regex",
- "serde",
- "serde_json",
- "showable",
- "tempfile",
-]
 
 [[package]]
 name = "poly1305"
@@ -1518,7 +1517,7 @@ dependencies = [
  "num-traits",
  "once_cell",
  "ordinal",
- "plots",
+ "papyri",
  "postgres",
  "postgres-native-tls",
  "quick-xml",
@@ -1789,10 +1788,6 @@ dependencies = [
  "cpufeatures",
  "digest",
 ]
-
-[[package]]
-name = "showable"
-version = "0.1.0"
 
 [[package]]
 name = "siphasher"
