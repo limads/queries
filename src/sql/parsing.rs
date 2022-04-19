@@ -319,7 +319,7 @@ pub fn partially_parse_sql(
 
     let mut tokens = extract_postgres_tokens(&sql).map_err(|e| SQLError::Lexing(e) )?;
 
-    println!("{:?}", tokens);
+    // println!("{:?}", tokens);
 
     let split_tokens = split_statement_tokens(tokens).map_err(|e| SQLError::Lexing(e) )?;
 
@@ -733,7 +733,7 @@ pub fn define_if_select(tk : &Token, might_be_select : &mut bool, is_select : &m
 pub fn split_unparsed_statements(sql_text : String) -> Result<Vec<AnyStatement>, String> {
     let mut unparsed_stmts = Vec::new();
     let tokens = extract_postgres_tokens(&sql_text)?;
-    println!("Tokens: {:?}", tokens);
+    // println!("Tokens: {:?}", tokens);
     let split_tokens = split_statement_tokens(tokens)?;
     for stmt_tokens in split_tokens {
         let mut token_iter = stmt_tokens.iter().peekable();

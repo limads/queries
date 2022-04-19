@@ -35,6 +35,8 @@ use sqlparser::tokenizer::{Tokenizer, Token, Word, Whitespace};
 use std::sync::{Arc, Mutex};
 use crate::command::Executor;
 
+// TODO sqlparser is not accepting creating views with distinct clause.
+
 /// Database objects (schema, tables, columns).
 pub mod object;
 

@@ -189,9 +189,9 @@ impl Connection for PostgresConnection {
                 });
 
                 let t = SystemTime::now();
-                println!("Getting functions");
+                // println!("Getting functions");
                 let func_objs = get_postgres_functions(self, &schema[..]).unwrap_or(Vec::new());
-                println!("Got functions in {} ms", SystemTime::now().duration_since(t).unwrap().as_millis());
+                // println!("Got functions in {} ms", SystemTime::now().duration_since(t).unwrap().as_millis());
 
                 let view_objs = get_postgres_views(self, &schema[..]).unwrap_or(Vec::new());
                 let mut children = tbl_objs;
@@ -427,7 +427,7 @@ fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Opti
                     for arg_str in arg.split(",") {
                         split_arg = arg_str.split(" ").filter(|s| !s.is_empty() ).collect::<Vec<_>>();
 
-                        println!("Func: '{}', Full: '{}'; Split: {:?}", name, arg, split_arg);
+                        // println!("Func: '{}', Full: '{}'; Split: {:?}", name, arg, split_arg);
 
                         // Some SQL types such as double precision and timestamp with time zone have spaces,
                         // which is why the name is the first field, the type the second..last.

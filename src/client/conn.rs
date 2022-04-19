@@ -989,6 +989,9 @@ impl React<SchemaTree> for ActiveConnection {
         });
 
         tree.form.btn_ok.connect_clicked({
+
+            // println!("Tree btn clicked");
+
             let insert_action = tree.insert_action.clone();
             let call_action = tree.call_action.clone();
             let entries = tree.form.entries.clone();
@@ -1018,8 +1021,13 @@ impl React<SchemaTree> for ActiveConnection {
                 //match form_action {
                 //    FormAction::Table(obj) => {
 
+                // println!("Database object: {:?}", obj);
+
                 match obj {
                     DBObject::Table { schema, name, cols, .. } => {
+
+                        // println!("Database object: {:?}", obj);
+
                         let tys : Vec<DBType> = cols.iter().map(|col| col.1 ).collect();
                         match sql_literal_tuple(&entries, &tys) {
                             Ok(tuple) => {
@@ -1036,9 +1044,7 @@ impl React<SchemaTree> for ActiveConnection {
                     },
                     DBObject::Function { schema, name, args, ret, .. } => {
                         if args.len() == 0 {
-
-                            // With no arguments, we might have a function (with return value) or
-                            // a procedure. The syntax is slightly different for procedures.
+                            // println!("Return type: {:?}", ret);
                             let call_stmt = if ret.is_some() {
                                 format!("select {}.{}();", schema, name)
                             } else {
@@ -1048,7 +1054,11 @@ impl React<SchemaTree> for ActiveConnection {
                         } else {
                             match sql_literal_tuple(&entries, &args) {
                                 Ok(tuple) => {
-                                    let call_stmt = format!("select {}.{}{};", schema, name, tuple);
+                                    let call_stmt = if ret.is_some() {
+                                        format!("select {}.{}{};", schema, name, tuple)
+                                    } else {
+                                        format!("call {}.{}{};", schema, name, tuple)
+                                    };
                                     send.send(ActiveConnectionAction::ExecutionRequest(call_stmt));
                                 },
                                 Err(e) => {
@@ -1057,7 +1067,9 @@ impl React<SchemaTree> for ActiveConnection {
                             }
                         }
                     },
-                    _ => { }
+                    _ => {
+                        println!("Database object is: {:?}", obj);
+                    }
                 }
 
                 entries.iter().for_each(|e| e.set_text("") );

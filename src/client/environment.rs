@@ -272,6 +272,14 @@ fn export_to_path(item : ExportItem, path : &Path, template_path : Option<String
                     let mut s = tbl.to_string();
                     f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )
                 },
+                Some("md") => {
+                    let mut s = tbl.to_markdown();
+                    f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )
+                },
+                Some("tex") => {
+                    let s = tbl.to_tex();
+                    f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )
+                },
                 Some("fodt") => {
                     let s = monday::report::ooxml::substitute_ooxml(&tbl, &read_template(template_path)?)
                         .map_err(|e| format!("{}", e) )?;
