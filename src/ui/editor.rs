@@ -3,13 +3,13 @@ use gtk4::*;
 use sourceview5;
 use crate::ui::PackedImageLabel;
 use crate::ui::MainMenu;
-use crate::React;
+use stateful::React;
 use crate::client::OpenedScripts;
 use sourceview5::View;
 use sourceview5::prelude::*;
 use crate::ui::ExecButton;
 use std::boxed;
-use crate::client::OpenedFile;
+use archiver::OpenedFile;
 use std::cell::RefCell;
 use std::rc::Rc;
 use sourceview5::{SearchContext, SearchSettings};
@@ -20,6 +20,7 @@ use crate::client::SharedUserState;
 use crate::ui::QueriesSettings;
 use crate::client::EditorSettings;
 use regex::Regex;
+use archiver::MultiArchiverImpl;
 
 #[derive(Debug, Clone)]
 pub struct QueriesEditor {

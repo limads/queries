@@ -1,9 +1,10 @@
 use gtk4::prelude::*;
 use gtk4::*;
 use std::rc::Rc;
-use crate::React;
+use stateful::React;
 use crate::ui::QueriesContent;
 use crate::client::OpenedScripts;
+use archiver::MultiArchiverImpl;
 
 #[derive(Debug, Clone)]
 pub struct MainMenu {

@@ -11,7 +11,7 @@ use crate::sql::object::{DBObject, DBInfo};
 use crate::sql::parsing;
 use crate::sql::parsing::AnyStatement;
 use std::ops::Deref;
-use crate::Callbacks;
+use stateful::Callbacks;
 use std::fs::File;
 use std::io::Read;
 use crate::sql::copy::*;

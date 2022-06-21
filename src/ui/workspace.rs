@@ -1,7 +1,7 @@
 use gtk4::prelude::*;
 use gtk4::*;
 use crate::client::Environment;
-use crate::React;
+use stateful::React;
 use libadwaita;
 use super::table::*;
 use monday::tables::table::Table;

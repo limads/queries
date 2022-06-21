@@ -2,7 +2,7 @@ use gtk4::prelude::*;
 use gtk4::*;
 use libadwaita;
 use crate::client::ActiveConnection;
-use crate::React;
+use stateful::React;
 use crate::client::Environment;
 use crate::sql::StatementOutput;
 use crate::client::OpenedScripts;
@@ -18,12 +18,73 @@ use serde::{Serialize, Deserialize};
 use crate::client::SharedUserState;
 
 #[derive(Debug, Clone)]
-pub struct QueriesSettings {
-    pub dialog : Dialog,
-    pub exec_bx : ExecutionBox,
-    pub editor_bx : EditorBox,
-    pub security_bx : SecurityBox,
-    pub report_bx : ReportingBox
+pub struct SettingsWindow {
+    dialog : Dialog,
+    list : ListBox,
+    stack : Stack,
+    paned : Paned
+}
+
+impl SettingsWindow {
+
+    pub fn dialog(&self) -> &Dialog {
+        &self.dialog
+    }
+
+    pub fn build(names : &'static [&'static str]) -> Self {
+        let dialog = Dialog::new();
+        dialog.set_title(Some("Settings"));
+        dialog.set_default_width(1024);
+        dialog.set_default_height(768);
+        dialog.set_modal(true);
+        dialog.set_deletable(true);
+        dialog.set_destroy_with_parent(true);
+        dialog.set_hide_on_close(true);
+        let list = ListBox::new();
+        list.set_selection_mode(SelectionMode::Single);
+        list.set_width_request(200);
+        for name in names {
+            list.append(&build_settings_row(name));
+        }
+
+        let stack = Stack::new();
+        stack.set_halign(Align::Fill);
+        stack.set_hexpand(true);
+        list.connect_row_selected({
+            let stack = stack.clone();
+            move |list, opt_row| {
+                if let Some(row) = opt_row {
+                    let row_ix = row.index();
+                    if row_ix >= 0 {
+                        if let Some(selected_name) = names.get(row_ix as usize) {
+                            stack.set_visible_child_name(selected_name);
+                        } else {
+                            println!("No valid setting section at index {row_ix}");
+                        }
+                    } else {
+                        println!("Negative row index");
+                    }
+                    /*let name = match row.index() {
+                        0 => "Editor",
+                        1 => "Execution",
+                        2 => "Security",
+                        3 => "Reporting",
+                        _ => unreachable!()
+                    };
+                    stack.set_visible_child_name(name);*/
+                }
+            }
+        });
+        let paned = Paned::new(Orientation::Horizontal);
+        paned.set_halign(Align::Fill);
+        paned.set_hexpand(true);
+        paned.set_position(200);
+        paned.set_start_child(&list);
+        paned.set_end_child(&stack);
+        dialog.set_child(Some(&paned));
+        Self { dialog, list, stack, paned }
+    }
+
 }
 
 #[derive(Debug, Clone)]
@@ -590,66 +651,34 @@ impl ReportingBox {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct QueriesSettings {
+    pub settings : SettingsWindow,
+    pub exec_bx : ExecutionBox,
+    pub editor_bx : EditorBox,
+    pub security_bx : SecurityBox,
+    pub report_bx : ReportingBox
+}
+
+const SETTINGS : [&'static str; 4] = ["Editor", "Execution", "Security", "Reporting"];
+
 impl QueriesSettings {
 
     pub fn build() -> Self {
-        let dialog = Dialog::new();
-        dialog.set_title(Some("Settings"));
-
-        dialog.set_default_width(1024);
-        dialog.set_default_height(768);
-
-        dialog.set_modal(true);
-        dialog.set_deletable(true);
-        dialog.set_destroy_with_parent(true);
-        dialog.set_hide_on_close(true);
-
-        let paned = Paned::new(Orientation::Horizontal);
-        paned.set_halign(Align::Fill);
-        paned.set_hexpand(true);
-        paned.set_position(200);
-
-        let list = ListBox::new();
-        list.set_selection_mode(SelectionMode::Single);
-        list.append(&build_settings_row("Editor"));
+        let settings = SettingsWindow::build(&SETTINGS[..]);
+        /*list.append(&build_settings_row("Editor"));
         list.append(&build_settings_row("Execution"));
         list.append(&build_settings_row("Security"));
-        list.append(&build_settings_row("Reporting"));
-        list.set_width_request(200);
-        paned.set_start_child(&list);
-
+        list.append(&build_settings_row("Reporting"));*/
         let editor_bx = EditorBox::build();
         let exec_bx = ExecutionBox::build();
         let security_bx = SecurityBox::build();
         let report_bx = ReportingBox::build();
-        let stack = Stack::new();
-        stack.set_halign(Align::Fill);
-        stack.set_hexpand(true);
-        stack.add_named(&editor_bx.list, Some("editor"));
-        stack.add_named(&exec_bx.list, Some("execution"));
-        stack.add_named(&security_bx.list, Some("security"));
-        stack.add_named(&report_bx.list, Some("reporting"));
-
-        paned.set_end_child(&stack);
-        dialog.set_child(Some(&paned));
-
-        list.connect_row_selected({
-            let stack = stack.clone();
-            move |list, opt_row| {
-                if let Some(row) = opt_row {
-                    let name = match row.index() {
-                        0 => "editor",
-                        1 => "execution",
-                        2 => "security",
-                        3 => "reporting",
-                        _ => unreachable!()
-                    };
-                    stack.set_visible_child_name(name);
-                }
-            }
-        });
-
-        Self { dialog, editor_bx, exec_bx, security_bx, report_bx }
+        settings.stack.add_named(&editor_bx.list, Some(SETTINGS[0]));
+        settings.stack.add_named(&exec_bx.list, Some(SETTINGS[1]));
+        settings.stack.add_named(&security_bx.list, Some(SETTINGS[2]));
+        settings.stack.add_named(&report_bx.list, Some(SETTINGS[3]));
+        Self { settings, editor_bx, exec_bx, security_bx, report_bx }
     }
 
 }
@@ -657,7 +686,7 @@ impl QueriesSettings {
 impl React<MainMenu> for QueriesSettings {
 
     fn react(&self, menu : &MainMenu) {
-        let dialog = self.dialog.clone();
+        let dialog = self.settings.dialog.clone();
         menu.action_settings.connect_activate(move |_,_| {
             dialog.show();
         });
@@ -677,26 +706,8 @@ fn build_settings_row(name : &str) -> ListBoxRow {
 
 pub fn load_settings(settings : &QueriesSettings, state : &SharedUserState) {
 
-    // TODO missing statement timeout (perhaps just disconnect when timeout is reached).
-    let state = state.borrow();
-    settings.exec_bx.row_limit_spin.adjustment().set_value(state.execution.row_limit as f64);
-    settings.exec_bx.col_limit_spin.adjustment().set_value(state.execution.column_limit as f64);
-    settings.exec_bx.schedule_scale.adjustment().set_value(state.execution.execution_interval as f64);
-    settings.exec_bx.timeout_scale.adjustment().set_value(state.execution.statement_timeout as f64);
 
-    let font = format!("{} {}", state.editor.font_family, state.editor.font_size);
-    settings.editor_bx.scheme_combo.set_active_id(Some(&state.editor.scheme));
-    settings.editor_bx.font_btn.set_title(&font);
-    settings.editor_bx.line_num_switch.set_active(state.editor.show_line_numbers);
-    settings.editor_bx.line_highlight_switch.set_active(state.editor.highlight_current_line);
-    settings.security_bx.save_switch.set_active(state.security.save_conns);
 
-    // Already done at set_window_state
-    /*for conn in state.conns.iter() {
-        if let Some(cert) = &conn.cert {
-            append_certificate_row(settings.security_bx.exp_row.clone(), &conn.host, &cert, &settings.security_bx.rows);
-        }
-    }*/
 }
 
 

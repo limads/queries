@@ -14,9 +14,9 @@ use std::fmt;
 use itertools::Itertools;
 use std::collections::HashMap;
 use crate::sql::object::*;
-use crate::{Callbacks, ValuedCallbacks};
+use stateful::{Callbacks, ValuedCallbacks};
 use monday::tables::table::Table;
-use crate::React;
+use stateful::React;
 use crate::client::ActiveConnection;
 use std::boxed;
 use monday::tables::table::TableSettings;
@@ -110,11 +110,11 @@ impl Environment {
                             match plots.update_from_tables(&tables.tables[..]) {
                                 Ok(_) => {
                                     if tables.tables.len() >= 1 {
-                                        on_tbl_update.borrow().iter().for_each(|f| f(tables.tables.clone()) );
+                                        on_tbl_update.call(tables.tables.clone());
                                     }
                                 },
                                 Err(e) => {
-                                    on_tbl_error.borrow().iter().for_each(|f| f(e.clone()) );
+                                    on_tbl_error.call(e.clone());
                                 }
                             }
                         }
@@ -145,7 +145,7 @@ impl Environment {
                         }
                     },
                     EnvironmentAction::ExportError(msg) => {
-                        on_export_error.borrow().iter().for_each(|f| f(msg.clone()) );
+                        on_export_error.call(msg.clone());
                     },
                     EnvironmentAction::ChangeSetting(setting) => {
 
@@ -169,21 +169,21 @@ impl Environment {
     where
         F : Fn(Vec<Table>) + 'static
     {
-        self.on_tbl_update.borrow_mut().push(boxed::Box::new(f));
+        self.on_tbl_update.bind(f);
     }
 
     pub fn connect_export_error<F>(&self, f : F)
     where
         F : Fn(String) + 'static
     {
-        self.on_export_error.borrow_mut().push(boxed::Box::new(f));
+        self.on_export_error.bind(f);
     }
 
     pub fn connect_table_error<F>(&self, f : F)
     where
         F : Fn(String) + 'static
     {
-        self.on_tbl_error.borrow_mut().push(boxed::Box::new(f));
+        self.on_tbl_error.bind(f);
     }
 
 }

@@ -1,11 +1,12 @@
-use super::{ConnectionSet, ConnectionInfo, ActiveConnection, OpenedScripts, OpenedFile};
+use super::{ConnectionSet, ConnectionInfo, ActiveConnection, OpenedScripts};
+use archiver::OpenedFile;
 use chrono::prelude::*;
 use serde::{Serialize, Deserialize};
 use std::fs::File;
 use std::io::{Read, Write};
 use crate::ui::QueriesWindow;
 use std::cell::RefCell;
-use crate::React;
+use stateful::React;
 use std::rc::Rc;
 use std::ops::Deref;
 use std::thread;
@@ -18,6 +19,10 @@ use std::hash::Hash;
 use std::path::Path;
 use base64;
 use crate::ui::Certificate;
+use archiver::MultiArchiverImpl;
+use stateful::PersistentState;
+use std::thread::JoinHandle;
+use serde::de::DeserializeOwned;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EditorSettings {
@@ -79,13 +84,9 @@ impl Default for ExecutionSettings {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct UserState {
 
-    pub main_handle_pos : i32,
+    pub paned : archiver::PanedState,
 
-    pub side_handle_pos : i32,
-
-    pub window_width : i32,
-
-    pub window_height : i32,
+    pub window : archiver::WindowState,
 
     pub scripts : Vec<OpenedFile>,
 
@@ -227,10 +228,8 @@ impl Default for SharedUserState {
 
     fn default() -> Self {
         SharedUserState(Rc::new(RefCell::new(UserState {
-            main_handle_pos : 100,
-            side_handle_pos : 400,
-            window_width : 1024,
-            window_height : 768,
+            paned : archiver::PanedState { primary : 100, secondary : 400 },
+            window : archiver::WindowState { width : 1024, height : 768 },
             selected_template : 0,
             ..Default::default()
         })))
@@ -238,34 +237,11 @@ impl Default for SharedUserState {
 
 }
 
-impl SharedUserState {
+// impl SharedUserState {
+// }
 
-    /// Attempts to open UserState by deserializing it from a JSON path.
-    /// This is a blocking operation.
-    pub fn open(path : &str) -> Option<SharedUserState> {
-        let state : UserState = serde_json::from_reader(File::open(path).ok()?).ok()?;
-        Some(SharedUserState(Rc::new(RefCell::new(state))))
-    }
-
-}
-
-/// Saves the state to the given path by spawning a thread. This is
-/// a nonblocking operation.
-pub fn persist_user_preferences(user_state : &SharedUserState, path : &str) -> thread::JoinHandle<bool> {
-    let mut state : UserState = user_state.borrow().clone();
-    state.scripts.iter_mut().for_each(|s| { s.content.as_mut().map(|c| c.clear() ); } );
-    let path = path.to_string();
-
-    // TODO filter repeated scripts and connections
-
-    thread::spawn(move|| {
-        if let Ok(f) = File::create(&path) {
-            serde_json::to_writer_pretty(f, &state).is_ok()
-        } else {
-            false
-        }
-    })
-}
+// pub fn persist_user_preferences(user_state : &SharedUserState, path : &str) -> thread::JoinHandle<bool> {
+// }
 
 /*impl React<super::ActiveConnection> for SharedUserState {
 
@@ -357,20 +333,16 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
         let state = self.clone();
         let main_paned = win.paned.clone();
         let sidebar_paned = win.sidebar.paned.clone();
+
+        // Window and paned
         win.window.connect_close_request(move |win| {
-            // Query all paned positions
-            let main_paned_pos = main_paned.position();
-            let side_paned_pos = sidebar_paned.position();
-            {
-                let mut state = state.borrow_mut();
-                state.main_handle_pos = main_paned_pos;
-                state.side_handle_pos = side_paned_pos;
-                state.window_width = win.allocation().width;
-                state.window_height = win.allocation().height;
-            }
+            let mut state = state.borrow_mut();
+            archiver::set_win_dims_on_close(&win, &mut state.window);
+            archiver::set_paned_on_close(&main_paned, &sidebar_paned, &mut state.paned);
             gtk4::Inhibit(false)
         });
 
+        // Report
         win.settings.report_bx.entry.connect_changed({
             let state = self.clone();
             move|entry| {
@@ -489,35 +461,66 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
 
 }
 
-pub fn set_window_state(user_state : &SharedUserState, queries_win : &QueriesWindow) {
-    let state = user_state.borrow();
-    queries_win.paned.set_position(state.main_handle_pos);
-    queries_win.sidebar.paned.set_position(state.side_handle_pos);
-    queries_win.window.set_default_size(state.window_width, state.window_height);
-    if state.main_handle_pos == 0 {
-        queries_win.titlebar.sidebar_toggle.set_active(false);
-    } else {
-        queries_win.titlebar.sidebar_toggle.set_active(true);
-    }
-    for conn in state.conns.iter() {
-        if let Some(cert) = conn.cert.as_ref() {
-            crate::ui::append_certificate_row(
-                queries_win.settings.security_bx.exp_row.clone(),
-                &conn.host,
-                cert,
-                &queries_win.settings.security_bx.rows
-            );
-        }
+impl PersistentState<QueriesWindow> for SharedUserState {
+
+    fn recover(path : &str) -> Option<SharedUserState> {
+        Some(SharedUserState(archiver::load_shared_serializable(path)?))
     }
 
-    crate::ui::load_settings(&queries_win.settings, &user_state);
+    fn persist(&self, path : &str) -> JoinHandle<bool> {
+        self.try_borrow_mut().and_then(|mut s| {
+            s.scripts.iter_mut().for_each(|mut script| { script.content.as_mut().map(|c| c.clear() ); } );
+            Ok(())
+        });
+        archiver::save_shared_serializable(&self.0, path)
+    }
+
+    fn update(&self, queries_win : &QueriesWindow) {
+        let state = self.borrow();
+        queries_win.paned.set_position(state.paned.primary);
+        queries_win.sidebar.paned.set_position(state.paned.secondary);
+        queries_win.window.set_default_size(state.window.width, state.window.height);
+        if state.paned.primary == 0 {
+            queries_win.titlebar.sidebar_toggle.set_active(false);
+        } else {
+            queries_win.titlebar.sidebar_toggle.set_active(true);
+        }
+        for conn in state.conns.iter() {
+            if let Some(cert) = conn.cert.as_ref() {
+                crate::ui::append_certificate_row(
+                    queries_win.settings.security_bx.exp_row.clone(),
+                    &conn.host,
+                    cert,
+                    &queries_win.settings.security_bx.rows
+                );
+            }
+        }
+
+        // TODO missing statement timeout (perhaps just disconnect when timeout is reached).
+        // let state = state.borrow();
+        queries_win.settings.exec_bx.row_limit_spin.adjustment().set_value(state.execution.row_limit as f64);
+        queries_win.settings.exec_bx.col_limit_spin.adjustment().set_value(state.execution.column_limit as f64);
+        queries_win.settings.exec_bx.schedule_scale.adjustment().set_value(state.execution.execution_interval as f64);
+        queries_win.settings.exec_bx.timeout_scale.adjustment().set_value(state.execution.statement_timeout as f64);
+
+        let font = format!("{} {}", state.editor.font_family, state.editor.font_size);
+        queries_win.settings.editor_bx.scheme_combo.set_active_id(Some(&state.editor.scheme));
+        queries_win.settings.editor_bx.font_btn.set_title(&font);
+        queries_win.settings.editor_bx.line_num_switch.set_active(state.editor.show_line_numbers);
+        queries_win.settings.editor_bx.line_highlight_switch.set_active(state.editor.highlight_current_line);
+        queries_win.settings.security_bx.save_switch.set_active(state.security.save_conns);
+    }
+
 }
 
+// It would be best to move this to PersistentState::update, but the client for now is
+// updated AFTER the GUI react signals have been set, so we might guarantee the GUI
+// and client state are the same.
 pub fn set_client_state(user_state : &SharedUserState, client : &QueriesClient) {
     let state = user_state.borrow();
     client.conn_set.add_connections(&state.conns);
     client.scripts.add_files(&state.scripts);
-    crate::log_debug_if_required("Client updated with user state");
+    // crate::log_debug_if_required("Client updated with user state");
 }
 
 // React to all common data structures, to persist state to filesystem.

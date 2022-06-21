@@ -2,7 +2,7 @@ use gtk4::prelude::*;
 use gtk4::*;
 use libadwaita;
 use crate::client::ActiveConnection;
-use crate::React;
+use stateful::React;
 use crate::client::Environment;
 use crate::sql::StatementOutput;
 use crate::client::OpenedScripts;
@@ -11,6 +11,7 @@ mod overview;
 use crate::client::EditorSettings;
 use core::cell::RefCell;
 use std::rc::Rc;
+use archiver::MultiArchiverImpl;
 
 pub use overview::*;
 
@@ -437,7 +438,7 @@ impl QueriesWindow {
         titlebar.main_menu.react(&content);
 
         let settings = QueriesSettings::build();
-        settings.dialog.set_transient_for(Some(&window));
+        settings.settings.dialog().set_transient_for(Some(&window));
 
         settings.react(&titlebar.main_menu);
         //window.add_action(&settings.secutity_bx.cert_added);

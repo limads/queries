@@ -5,7 +5,7 @@ use glib::MainContext;
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::boxed;
-use crate::React;
+use stateful::React;
 use crate::client::ConnectionInfo;
 use crate::ui::PackedImageEntry;
 use crate::ui::PackedImagePasswordEntry;

@@ -1,4 +1,6 @@
 use std::mem;
+use archiver::MultiArchiverAction;
+use archiver::MultiArchiverImpl;
 
 pub struct QueriesClient {
     pub conn_set : ConnectionSet,
@@ -31,7 +33,7 @@ impl QueriesClient {
         }
 
         for script in mem::take(&mut state.scripts) {
-            self.scripts.send.send(ScriptAction::Add(script.clone()));
+            self.scripts.sender().send(MultiArchiverAction::Add(script.clone()));
         }
     }
 

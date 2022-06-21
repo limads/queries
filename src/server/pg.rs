@@ -196,10 +196,10 @@ impl Connection for PostgresConnection {
                 let view_objs = get_postgres_views(self, &schema[..]).unwrap_or(Vec::new());
                 let mut children = tbl_objs;
                 if view_objs.len() > 0 {
-                    children.push(DBObject::Schema { name : format!("views ({})", schema), children : view_objs } );
+                    children.push(DBObject::Schema { name : format!("Views ({})", schema), children : view_objs } );
                 }
                 if func_objs.len() > 0 {
-                    children.push(DBObject::Schema { name : format!("functions ({})", schema), children : func_objs } );
+                    children.push(DBObject::Schema { name : format!("Functions ({})", schema), children : func_objs } );
                 }
 
                 let obj = DBObject::Schema{ name : schema.to_string(), children };

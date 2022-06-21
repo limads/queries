@@ -1,6 +1,6 @@
 use gtk4::*;
 use gtk4::prelude::*;
-use crate::{React, Callbacks};
+use stateful::{React, Callbacks};
 use crate::ui::ConnectionList;
 use crate::ui::ConnectionBox;
 use std::boxed;
@@ -145,7 +145,7 @@ impl ConnectionSet {
                 match action {
                     ConnectionAction::Switch(opt_ix) => {
                         conns.1 = opt_ix;
-                        selected.borrow().iter().for_each(|f| f(opt_ix.map(|ix| (ix, conns.0[ix as usize].clone() ))) );
+                        selected.call(opt_ix.map(|ix| (ix, conns.0[ix as usize].clone() )));
                     },
                     ConnectionAction::Add(opt_conn) => {
                         /*if let Some(conn) = &opt_conn {
@@ -162,7 +162,7 @@ impl ConnectionSet {
                         // The selection will be re-set when the list triggers the callback at connect_added.
                         conns.1 = None;
 
-                        added.borrow().iter().for_each(|f| f(conn.clone()) );
+                        added.call(conn.clone());
                     },
                     ConnectionAction::Update(mut info) => {
 
@@ -172,7 +172,7 @@ impl ConnectionSet {
                         if let Some(ix) = conns.1 {
                             info.dt = Local::now().to_string();
                             conns.0[ix as usize] = info;
-                            updated.borrow().iter().for_each(|f| f((ix, conns.0[ix as usize].clone())) );
+                            updated.call((ix, conns.0[ix as usize].clone()));
                         } else {
                             panic!()
                         }
@@ -180,8 +180,8 @@ impl ConnectionSet {
                     },
                     ConnectionAction::Remove(ix) => {
                         let _rem_conn = conns.0.remove(ix as usize);
-                        removed.borrow().iter().for_each(|f| f(ix) );
-                        selected.borrow().iter().for_each(|f| f(None) );
+                        removed.call(ix);
+                        selected.call(None);
                         // TODO remove from settings
                     },
                     ConnectionAction::CloseWindow => {
@@ -203,19 +203,19 @@ impl ConnectionSet {
     }
 
     pub fn connect_added(&self, f : impl Fn(ConnectionInfo) + 'static) {
-        self.added.borrow_mut().push(boxed::Box::new(f))
+        self.added.bind(f);
     }
 
     pub fn connect_updated(&self, f : impl Fn((i32, ConnectionInfo)) + 'static) {
-        self.updated.borrow_mut().push(boxed::Box::new(f))
+        self.updated.bind(f);
     }
 
     pub fn connect_removed(&self, f : impl Fn(i32) + 'static) {
-        self.removed.borrow_mut().push(boxed::Box::new(f))
+        self.removed.bind(f);
     }
 
     pub fn connect_selected(&self, f : impl Fn(Option<(i32, ConnectionInfo)>) + 'static) {
-        self.selected.borrow_mut().push(boxed::Box::new(f))
+        self.selected.bind(f);
     }
 
 }
@@ -452,26 +452,26 @@ impl ActiveConnection {
                         if let Err(e) = listener.update_engine(conn) {
                             println!("{}", e);
                         }
-                        on_connected.borrow().iter().for_each(|f| f((conn_info.clone(), db_info.clone())) );
+                        on_connected.call((conn_info.clone(), db_info.clone()));
                     },
                     ActiveConnectionAction::Disconnect => {
                         schema = None;
                         selected_obj = None;
-                        on_disconnected.borrow().iter().for_each(|f| f(()) );
+                        on_disconnected.call(());
                     },
                     ActiveConnectionAction::ExecutionRequest(stmts) => {
 
                         if listener.is_working() {
                             // This shouldn't happen. The user is prevented from sending statements
                             // when the engine is working.
-                            on_error.borrow().iter().for_each(|f| f(format!("Previous statement not completed yet.")) );
+                            on_error.call(format!("Previous statement not completed yet."));
                             return glib::Continue(true);
                         }
 
                         match listener.send_command(stmts, HashMap::new(), true, user_state.borrow().execution.statement_timeout as usize) {
                             Ok(_) => { },
                             Err(e) => {
-                                on_error.borrow().iter().for_each(|f| f(e.clone()) );
+                                on_error.call(e.clone());
                             }
                         }
                     },
@@ -499,7 +499,7 @@ impl ActiveConnection {
                                 match send_ans {
                                     Ok(_) => { },
                                     Err(e) => {
-                                        on_error.borrow().iter().for_each(|f| f(e.clone()) );
+                                        on_error.call(e.clone());
                                     }
                                 }
                                 Continue(*active_schedule.borrow())
@@ -559,15 +559,15 @@ impl ActiveConnection {
                                 }
                             }).next();
                         if let Some(error) = fst_error {
-                            on_error.borrow().iter().for_each(|f| f(error.clone()) );
+                            on_error.call(error.clone());
                         } else {
-                            on_exec_result.borrow().iter().for_each(|f| f(results.clone()) );
+                            on_exec_result.call(results.clone());
                         }
                     },
                     ActiveConnectionAction::SchemaUpdate(opt_schema) => {
                         schema = opt_schema.clone();
                         selected_obj = None;
-                        on_schema_update.borrow().iter().for_each(|f| f(opt_schema.clone()) );
+                        on_schema_update.call(opt_schema.clone());
                     },
                     ActiveConnectionAction::ObjectSelected(obj_ixs) => {
                         match (&schema, obj_ixs) {
@@ -578,13 +578,13 @@ impl ActiveConnection {
                                 selected_obj = None;
                             }
                         }
-                        on_object_selected.borrow().iter().for_each(|f| f(selected_obj.clone()) );
+                        on_object_selected.call(selected_obj.clone());
                     },
                     ActiveConnectionAction::ConnectFailure(e) => {
-                        on_conn_failure.borrow().iter().for_each(|f| f(e.clone()) );
+                        on_conn_failure.call(e.clone());
                     },
                     ActiveConnectionAction::Error(e) => {
-                        on_error.borrow().iter().for_each(|f| f(e.clone()) );
+                        on_error.call(e.clone());
                     }
                 }
                 glib::Continue(true)
@@ -607,49 +607,49 @@ impl ActiveConnection {
     where
         F : Fn((ConnectionInfo, Option<DBInfo>)) + 'static
     {
-        self.on_connected.borrow_mut().push(boxed::Box::new(f));
+        self.on_connected.bind(f);
     }
 
     pub fn connect_db_disconnected<F>(&self, f : F)
     where
         F : Fn(()) + 'static
     {
-        self.on_disconnected.borrow_mut().push(boxed::Box::new(f));
+        self.on_disconnected.bind(f);
     }
 
     pub fn connect_db_error<F>(&self, f : F)
     where
         F : Fn(String) + 'static
     {
-        self.on_error.borrow_mut().push(boxed::Box::new(f));
+        self.on_error.bind(f);
     }
 
     pub fn connect_db_conn_failure<F>(&self, f : F)
     where
         F : Fn(String) + 'static
     {
-        self.on_conn_failure.borrow_mut().push(boxed::Box::new(f));
+        self.on_conn_failure.bind(f);
     }
 
     pub fn connect_exec_result<F>(&self, f : F)
     where
         F : Fn(Vec<StatementOutput>) + 'static
     {
-        self.on_exec_result.borrow_mut().push(boxed::Box::new(f));
+        self.on_exec_result.bind(f);
     }
 
     pub fn connect_schema_update<F>(&self, f : F)
     where
         F : Fn(Option<Vec<DBObject>>) + 'static
     {
-        self.on_schema_update.borrow_mut().push(boxed::Box::new(f));
+        self.on_schema_update.bind(f);
     }
 
     pub fn connect_object_selected<F>(&self, f : F)
     where
         F : Fn(Option<DBObject>) + 'static
     {
-        self.on_object_selected.borrow_mut().push(boxed::Box::new(f));
+        self.on_object_selected.bind(f);
     }
 
     /*pub fn connect_exec_message<F>(&self, f : F)

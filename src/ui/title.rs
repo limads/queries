@@ -3,10 +3,11 @@ use gtk4::*;
 use super::menu::MainMenu;
 use libadwaita::SplitButton;
 use super::FileList;
-use crate::React;
+use stateful::React;
 use crate::client::OpenedScripts;
 use super::QueriesContent;
 use crate::client::ActiveConnection;
+use archiver::MultiArchiverImpl;
 
 #[derive(Debug, Clone)]
 pub struct QueriesTitlebar {

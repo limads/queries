@@ -2,7 +2,7 @@ use gtk4::prelude::*;
 use gtk4::*;
 use libadwaita;
 use crate::client::ActiveConnection;
-use crate::React;
+use stateful::React;
 use crate::client::Environment;
 use crate::sql::StatementOutput;
 use crate::client::OpenedScripts;

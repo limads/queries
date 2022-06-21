@@ -12,7 +12,7 @@ use gdk_pixbuf::Pixbuf;
 use std::collections::HashMap;
 use gdk::{self, RGBA, EventType};
 use std::env;
-use crate::React;
+use stateful::React;
 use crate::client::ActiveConnection;
 use crate::ui::PackedImageLabel;
 use gtk4::glib;

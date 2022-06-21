@@ -2,7 +2,8 @@ use gtk4::*;
 use gtk4::prelude::*;
 use crate::ui::PackedImageLabel;
 use crate::client::OpenedScripts;
-use crate::React;
+use stateful::React;
+use archiver::MultiArchiverImpl;
 
 #[derive(Debug, Clone)]
 pub struct FileList {

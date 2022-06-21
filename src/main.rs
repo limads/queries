@@ -10,6 +10,9 @@ use std::boxed;
 use libadwaita;
 use glib::{LogLevel, g_log};
 use std::env;
+use stateful::React;
+use archiver::MultiArchiverImpl;
+use stateful::PersistentState;
 
 use queries4::*;
 
@@ -56,25 +59,17 @@ fn main() {
     log::set_max_level(log::LevelFilter::Debug);
     log::info!("This line will get logged by glib");*/
 
-    g_log!(LogLevel::Debug, "Initialized");
-    let debug = match env::var("QUERIES_DEBUG") {
-        Ok(var) => {
-            match &var[..] {
-                "1" => true,
-                "0" => false,
-                _ => {
-                    queries4::log_error("QUERIES_DEBUG valid values are 1 or 0. Ignoring current value.");
-                    false
-                }
-            }
-        },
-        _ => {
-            false
-        }
-    };
-    queries4::DEBUG_LOG.set(debug).unwrap();
+    // glib::log_set_handler(None, glib::LogLevels::all(), false, true, |_, level, msg| {
+    // });
 
-    gtk4::init().map_err(queries4::log_critical_then_abort);
+    // Alternatively, use simple_logger
+    systemd_journal_logger::init();
+    log::set_max_level(log::LevelFilter::Info);
+
+    if let Err(e) = gtk4::init() {
+        log::error!("{}", e);
+        return;
+    }
 
     /*let res_bytes = include_bytes!("../assets/icons.bin");
     let data = glib::Bytes::from(&res_bytes[..]);
@@ -96,18 +91,24 @@ fn main() {
             style_manager.set_color_scheme(libadwaita::ColorScheme::Default);
         },
         None => {
-            queries4::log_error("Could not get default libadwaita style manager");
+            log::warn!("Could not get default libadwaita style manager");
         }
     }
 
-    let user_state = if let Some(s) = SharedUserState::open(queries4::SETTINGS_PATH) {
+    /*let user_state = if let Some(s) = SharedUserState::recover(queries4::SETTINGS_PATH) {
         queries4::log_debug_if_required("User state loaded");
         s
     } else {
         queries4::log_debug_if_required("No user state found. Starting from Default.");
         Default::default()
+    };*/
+    let user_state = if let Some(mut path) = archiver::get_datadir(queries4::APP_ID) {
+        path.push(queries4::SETTINGS_FILE);
+        SharedUserState::recover(&path.to_str().unwrap()).unwrap_or_default()
+    } else {
+        log::warn!("Unable to get datadir for state recovery");
+        SharedUserState::default()
     };
-
     let client = QueriesClient::new(&user_state);
 
     // Take shared ownership of the client state, because they will be needed to
@@ -124,10 +125,10 @@ fn main() {
                 if let Some(theme) = IconTheme::for_display(&display) {
                     theme.add_search_path("/home/diego/Software/queries/assets/icons");
                 } else {
-                    queries4::log_error("Unable to get theme for current GDK display");
+                    log::warn!("Unable to get theme for current GDK display");
                 }
             } else {
-                queries4::log_error("Unable to get default GDK display");
+                log::warn!("Unable to get default GDK display");
             }
 
             // GTK4 widgets seem to be able to load them from the icon root. But the libadwaita
@@ -140,12 +141,10 @@ fn main() {
                 .default_height(768)
                 .build();
             let queries_win = QueriesWindow::from(window);
-            queries4::log_debug_if_required("Window built");
 
-            crate::client::set_window_state(&user_state, &queries_win);
+            user_state.update(&queries_win);
 
             user_state.react(&queries_win);
-            queries4::log_debug_if_required("Client initialized");
 
             client.conn_set.react(&queries_win.content.results.overview.conn_list);
             client.conn_set.react(&client.active_conn);
@@ -216,17 +215,20 @@ fn main() {
     });
 
     application.run();
-    queries4::log_debug_if_required("Application closed");
 
     user_state.replace_with(|user_state| {
         user_state.conns = conn_final_state.borrow().clone();
         user_state.scripts = script_final_state.borrow().clone();
         user_state.clone()
     });
-    crate::client::persist_user_preferences(&user_state, queries4::SETTINGS_PATH);
-    queries4::log_debug_if_required("User state persisted");
 
-    queries4::log_debug_if_required("Leaving main thread");
+    if let Some(mut path) = archiver::get_datadir(queries4::APP_ID) {
+        path.push(queries4::SETTINGS_FILE);
+        user_state.persist(&path.to_str().unwrap());
+    } else {
+        log::warn!("Unable to get datadir for state persistence");
+    }
+
 }
 
 // println!("File search path = {:?}", theme.search_path());
