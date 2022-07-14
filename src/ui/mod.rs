@@ -13,6 +13,8 @@ use core::cell::RefCell;
 use std::rc::Rc;
 use archiver::MultiArchiverImpl;
 
+// TODO set find/replace insensitivewhen workspace is selected.
+
 pub use overview::*;
 
 mod title;

@@ -505,6 +505,7 @@ fn configure_view(view : &View, settings : &EditorSettings) {
     }
 
     buffer.set_highlight_syntax(true);
+    buffer.set_max_undo_levels(40);
     let provider = CssProvider::new();
 
     let font = format!("textview {{ font-family: \"{}\"; font-size: {}pt; }}", settings.font_family, settings.font_size);
