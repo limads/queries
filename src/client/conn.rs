@@ -24,6 +24,8 @@ use crate::sql::copy::*;
 use std::time::Duration;
 use std::hash::Hash;
 use crate::client::SharedUserState;
+use super::listener::ExecMode;
+use monday::tables::table::Table;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct ConnectionInfo {
@@ -352,13 +354,19 @@ pub enum ActiveConnectionAction {
 
     Disconnect,
 
+    // Requires an arbitrary sequence of SQL commands.
     ExecutionRequest(String),
+
+    // Requires a sigle table or view name to do a single SQL query.
+    SingleQueryRequest,
 
     StartSchedule(String),
 
     EndSchedule,
 
     ExecutionCompleted(Vec<StatementOutput>),
+
+    SingleQueryCompleted(StatementOutput),
 
     SchemaUpdate(Option<Vec<DBObject>>),
 
@@ -385,6 +393,8 @@ pub struct ActiveConnection {
 
     on_exec_result : Callbacks<Vec<StatementOutput>>,
 
+    on_single_query_result : Callbacks<Table>,
+
     send : glib::Sender<ActiveConnectionAction>,
 
     on_schema_update : Callbacks<Option<Vec<DBObject>>>,
@@ -395,9 +405,14 @@ pub struct ActiveConnection {
 
 impl ActiveConnection {
 
+    pub fn sender(&self) -> &glib::Sender<ActiveConnectionAction> {
+        &self.send
+    }
+
     pub fn new(user_state : &SharedUserState) -> Self {
         let (on_connected, on_disconnected, on_error) : ActiveConnCallbacks = Default::default();
         let on_exec_result : Callbacks<Vec<StatementOutput>> = Default::default();
+        let on_single_query_result : Callbacks<Table> = Default::default();
         let on_conn_failure : Callbacks<String> = Default::default();
         let (send, recv) = glib::MainContext::channel::<ActiveConnectionAction>(glib::source::PRIORITY_DEFAULT);
         let on_schema_update : Callbacks<Option<Vec<DBObject>>> = Default::default();
@@ -405,19 +420,27 @@ impl ActiveConnection {
         let mut active_schedule = Rc::new(RefCell::new(false));
         let mut listener = SqlListener::launch({
             let send = send.clone();
-            move |results| {
-                send.send(ActiveConnectionAction::ExecutionCompleted(results)).unwrap();
+            move |mut results, mode| {
+                match mode {
+                    ExecMode::Single => {
+                        send.send(ActiveConnectionAction::SingleQueryCompleted(results.remove(0))).unwrap();
+                    },
+                    ExecMode::Multiple => {
+                        send.send(ActiveConnectionAction::ExecutionCompleted(results)).unwrap();
+                    }
+                }
             }
         });
         let mut schema : Option<Vec<DBObject>> = None;
         let mut selected_obj : Option<DBObject> = None;
         recv.attach(None, {
             let send = send.clone();
-            let (on_connected, on_disconnected, on_error, on_exec_result) = (
+            let (on_connected, on_disconnected, on_error, on_exec_result, on_single_query_result) = (
                 on_connected.clone(),
                 on_disconnected.clone(),
                 on_error.clone(),
                 on_exec_result.clone(),
+                on_single_query_result.clone()
             );
             let on_conn_failure = on_conn_failure.clone();
             let on_object_selected = on_object_selected.clone();
@@ -468,11 +491,24 @@ impl ActiveConnection {
                             return glib::Continue(true);
                         }
 
-                        match listener.send_command(stmts, HashMap::new(), true, user_state.borrow().execution.statement_timeout as usize) {
+                        match listener.send_commands(stmts, HashMap::new(), true, user_state.borrow().execution.statement_timeout as usize) {
                             Ok(_) => { },
                             Err(e) => {
                                 on_error.call(e.clone());
                             }
+                        }
+                    },
+                    ActiveConnectionAction::SingleQueryRequest => {
+                        match &selected_obj {
+                            Some(DBObject::View { schema, name, .. }) | Some(DBObject::Table { schema, name, .. }) => {
+                                match listener.send_single_command(format!("select * from {schema}.{name};"), user_state.borrow().execution.statement_timeout as usize) {
+                                    Ok(_) => { },
+                                    Err(e) => {
+                                        on_error.call(e.clone());
+                                    }
+                                }
+                            },
+                            _ => { }
                         }
                     },
                     ActiveConnectionAction::StartSchedule(stmts) => {
@@ -490,7 +526,7 @@ impl ActiveConnection {
                                     return Continue(true);
                                 }
 
-                                let send_ans = listener.send_command(
+                                let send_ans = listener.send_commands(
                                     stmts.clone(),
                                     HashMap::new(),
                                     true,
@@ -564,6 +600,17 @@ impl ActiveConnection {
                             on_exec_result.call(results.clone());
                         }
                     },
+                    ActiveConnectionAction::SingleQueryCompleted(out) => {
+                        match out {
+                            StatementOutput::Valid(_, tbl) => {
+                                on_single_query_result.call(tbl.clone());
+                            },
+                            StatementOutput::Invalid(msg, _) => {
+                                on_error.call(msg.clone());
+                            },
+                            _ => { }
+                        }
+                    },
                     ActiveConnectionAction::SchemaUpdate(opt_schema) => {
                         schema = opt_schema.clone();
                         selected_obj = None;
@@ -599,8 +646,13 @@ impl ActiveConnection {
             on_exec_result,
             on_conn_failure,
             on_schema_update,
-            on_object_selected
+            on_object_selected,
+            on_single_query_result
         }
+    }
+
+    pub fn emit_error(&self, msg : String) {
+        self.send.send(ActiveConnectionAction::Error(msg));
     }
 
     pub fn connect_db_connected<F>(&self, f : F)
@@ -636,6 +688,13 @@ impl ActiveConnection {
         F : Fn(Vec<StatementOutput>) + 'static
     {
         self.on_exec_result.bind(f);
+    }
+
+    pub fn connect_single_query_result<F>(&self, f : F)
+    where
+        F : Fn(Table) + 'static
+    {
+        self.on_single_query_result.bind(f);
     }
 
     pub fn connect_schema_update<F>(&self, f : F)
@@ -985,6 +1044,14 @@ impl React<SchemaTree> for ActiveConnection {
                         }
                     }
                 }
+            }
+        });
+        tree.report_dialog.btn_gen.connect_clicked({
+            let send = self.send.clone();
+            let dialog = tree.report_dialog.dialog.clone();
+            move |_| {
+                dialog.hide();
+                send.send(ActiveConnectionAction::SingleQueryRequest);
             }
         });
 

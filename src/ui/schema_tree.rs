@@ -20,6 +20,9 @@ use gtk4::subclass::prelude::*;
 // use gtk4::gdk;
 use serde_json;
 use serde::{Serialize, Deserialize};
+use crate::ui::NamedBox;
+use std::io::Write;
+use crate::client::ActiveConnectionAction;
 
 //#[derive(Debug, Clone, Serialize, Deserialize)]
 //pub enum FormAction {
@@ -115,8 +118,11 @@ pub struct SchemaTree {
     pub insert_action : gio::SimpleAction,
     pub import_action : gio::SimpleAction,
     pub call_action : gio::SimpleAction,
+    pub report_action : gio::SimpleAction,
     pub form : super::Form,
-    pub import_dialog : ImportDialog
+    pub import_dialog : ImportDialog,
+    pub report_dialog : ReportDialog,
+    pub report_export_dialog : archiver::SaveDialog
 }
 
 const ALL_TYPES : [DBType; 15] = [
@@ -194,6 +200,7 @@ impl SchemaTree {
         // let schema_popover = SchemaPopover::build(&builder);
         let menu = gio::Menu::new();
         menu.append(Some("Query"), Some("win.query"));
+        menu.append(Some("Report"), Some("win.report"));
         menu.append(Some("Insert"), Some("win.insert"));
         menu.append(Some("Import"), Some("win.import"));
         menu.append(Some("Call"), Some("win.call"));
@@ -298,6 +305,7 @@ impl SchemaTree {
         let insert_action = gio::SimpleAction::new_stateful("insert", None, &String::from("").to_variant());
         let import_action = gio::SimpleAction::new_stateful("import", None, &String::from("").to_variant());
         let call_action = gio::SimpleAction::new_stateful("call", None, &String::from("").to_variant());
+        let report_action = gio::SimpleAction::new_stateful("report", None, &String::from("").to_variant());
         query_action.set_enabled(false);
         insert_action.set_enabled(false);
         import_action.set_enabled(false);
@@ -361,7 +369,51 @@ impl SchemaTree {
                 import_dialog.dialog.show();
             }
         });
-        Self{
+        let report_dialog = ReportDialog::build();
+        report_action.connect_activate({
+            let report_dialog = report_dialog.clone();
+            move |_, _| {
+                report_dialog.dialog.show();
+            }
+        });
+        let report_export_dialog = archiver::SaveDialog::build("*.html");
+        report_export_dialog.dialog.connect_response({
+            let rendered_content = report_dialog.rendered_content.clone();
+            move |dialog, resp| {
+                match resp {
+                    ResponseType::Accept => {
+                        if let Some(path) = dialog.file().and_then(|f| f.path() ) {
+                            if let Ok(mut f) = File::create(path) {
+                                let mut rendc = rendered_content.borrow_mut();
+                                if let Some(cont) = rendc.take() {
+                                    if cont.is_empty() {
+                                        println!("Warning: Content to be rendered is empty");
+                                    }
+                                    if let Err(e) = f.write_all(cont.as_bytes()) {
+                                        println!("{}", e);
+                                    }
+                                } else {
+                                    println!("No content to be rendered");
+                                }
+                            } else {
+                                println!("Unable to create/write to file");
+                            }
+                        }
+                    },
+                    _ => { }
+                }
+            }
+        });
+
+        /*report_export_dialog.dialog.connect_hide({
+            let rendered_content = report_dialog.rendered_content.clone();
+            move |_| {
+                println!("Content cleared");
+                *(rendered_content.borrow_mut()) = None;
+            }
+        });*/
+
+        Self {
             tree_view,
             model,
             type_icons,
@@ -377,9 +429,12 @@ impl SchemaTree {
             query_action,
             insert_action,
             import_action,
+            report_action,
             call_action,
             form,
-            import_dialog
+            import_dialog,
+            report_dialog,
+            report_export_dialog,
         }
     }
 
@@ -764,6 +819,38 @@ impl React<ActiveConnection> for SchemaTree {
                 }
             }
         });
+        conn.connect_single_query_result({
+            let files = self.report_dialog.files.clone();
+            let rendered_content = self.report_dialog.rendered_content.clone();
+            let export_dialog = self.report_export_dialog.dialog.clone();
+            let report_dialog = self.report_dialog.dialog.clone();
+            let send = conn.sender().clone();
+            move |tbl| {
+                let fls = files.borrow();
+                let mut rendered_content = rendered_content.borrow_mut();
+                if let Some(template_path) = fls.0.get(fls.1) {
+                    if let Ok(mut f) = File::open(template_path) {
+                        let mut s = String::new();
+                        f.read_to_string(&mut s).unwrap();
+                        match monday::report::html::substitute_html(&tbl, &s) {
+                            Ok(complete_report) => {
+                                *rendered_content = Some(complete_report);
+                                export_dialog.show();
+                            },
+                            Err(e) => {
+                                *rendered_content = None;
+                                send.send(ActiveConnectionAction::Error((format!("{e}"))));
+                            }
+                        }
+                    } else {
+                        *rendered_content = None;
+                        send.send(ActiveConnectionAction::Error(("Invalid template path".to_owned())));
+                    }
+                } else {
+                    println!("No file selected");
+                }
+            }
+        });
     }
 
 }
@@ -1017,4 +1104,86 @@ impl PopoverTreeView {
     }
 }*/
 
+#[derive(Debug, Clone)]
+pub struct ReportDialog {
+    pub dialog : Dialog,
+    template_combo : ComboBoxText,
+    list : ListBox,
+    pub btn_gen : Button,
+    rendered_content : Rc<RefCell<Option<String>>>,
+    pub files : Rc<RefCell<(Vec<String>, usize)>>
+}
+
+impl ReportDialog {
+
+    pub fn build() -> Self {
+        let dialog = Dialog::new();
+        crate::ui::configure_dialog(&dialog);
+        let template_combo = ComboBoxText::new();
+        let list = ListBox::new();
+        crate::ui::settings::configure_list(&list);
+        list.append(&NamedBox::new("Template", Some("Save HTML templates under ~/Templates\nto load them here"), template_combo.clone()).bx);
+
+        let null_entry = Entry::new();
+        null_entry.set_placeholder_text(Some("Null"));
+        list.append(&NamedBox::new("Null string", Some("String to use when replacing\nnull values"), null_entry.clone()).bx);
+
+        // Figure format (Svg / Png (embedded)
+        // ( ) Include table headers
+
+        let btn_gen = Button::builder().label("Generate").build();
+        btn_gen.set_sensitive(false);
+        btn_gen.style_context().add_class("pill");
+        btn_gen.style_context().add_class("suggested-action");
+        btn_gen.set_hexpand(false);
+        btn_gen.set_halign(Align::Center);
+        let bx = Box::new(Orientation::Vertical, 0);
+        bx.append(&list);
+        bx.append(&btn_gen);
+        dialog.set_child(Some(&bx));
+        let mut files = Rc::new(RefCell::new((Vec::new(), 0)));
+
+        super::set_margins(&btn_gen, 64,  16);
+        super::set_margins(&bx, 32,  32);
+
+        dialog.connect_show({
+            let template_combo = template_combo.clone();
+            let files = files.clone();
+            move |_| {
+                let mut files = files.borrow_mut();
+                files.1 = 0;
+                if let Ok(entries) = std::fs::read_dir("/home/diego/Templates") {
+                    for f in entries.filter_map(|e| e.ok() ) {
+                        if let Some(ext) = f.path().extension() {
+                            let s = f.path().to_str().unwrap().to_string();
+                            if ext == Path::new("html") {
+                                template_combo.append(Some(&s), &s);
+                                files.0.push(s);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        template_combo.connect_changed({
+            let files = files.clone();
+            let btn_gen = btn_gen.clone();
+            move|combo| {
+                let mut files = files.borrow_mut();
+                if let Some(id) = combo.active_id() {
+                    if let Some(ix) = files.0.iter().position(|f| &f[..] == id ) {
+                        files.1 = ix;
+                        btn_gen.set_sensitive(true);
+                    } else {
+                        println!("No file with {:?}", id);
+                    }
+                } else {
+                    btn_gen.set_sensitive(false);
+                }
+            }
+        });
+        Self { dialog, list, template_combo, btn_gen, files, rendered_content : Rc::new(RefCell::new(None)) }
+    }
+
+}
 

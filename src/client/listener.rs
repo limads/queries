@@ -30,7 +30,7 @@ pub struct SqlListener {
 
     /// Carries a query sequence; sequence substitutions; and whether this query should be parsed at the client; and a timeout in seconds.
 
-    cmd_sender : Sender<(String, HashMap<String, String>, bool, usize)>,
+    cmd_sender : Sender<(String, HashMap<String, String>, bool, usize, ExecMode)>,
 
     pub engine : Arc<Mutex<Option<Box<dyn Connection>>>>,
 
@@ -112,9 +112,9 @@ impl SqlListener {
 
     pub fn launch<F>(result_cb : F) -> Self
     where
-        F : Fn(Vec<StatementOutput>) + 'static + Send
+        F : Fn(Vec<StatementOutput>, ExecMode) + 'static + Send
     {
-        let (cmd_tx, cmd_rx) = mpsc::channel::<(String, HashMap<String, String>, bool, usize)>();
+        let (cmd_tx, cmd_rx) = mpsc::channel::<(String, HashMap<String, String>, bool, usize, ExecMode)>();
         let engine : Arc<Mutex<Option<Box<dyn Connection>>>> = Arc::new(Mutex::new(None));
 
         /*// Channel listening thread
@@ -176,11 +176,24 @@ impl SqlListener {
         }
     }
 
+    pub fn send_single_command(&self, sql : String, timeout : usize) -> Result<(), String> {
+        match self.cmd_sender.send((sql.clone(), HashMap::new(), true, timeout, ExecMode::Single)) {
+            Ok(_) => {
+
+            },
+            Err(e) => {
+                // Most likely, a panic when running the client caused this.
+                return Err(format!("Database connection thread is down.\nPlease restart the application."));
+            }
+        }
+        Ok(())
+    }
+
     /// Tries to parse SQL at client side. If series of statements at string
     /// are correctly parsed, send the SQL to the server. If sequence is not
     /// correctly parsed, do not send anything to the server, and return the
     /// error to the user.
-    pub fn send_command(&self, sql : String, subs : HashMap<String, String>, parse : bool, timeout : usize) -> Result<(), String> {
+    pub fn send_commands(&self, sql : String, subs : HashMap<String, String>, parse : bool, timeout : usize) -> Result<(), String> {
 
         // Before sending a command, it might be interesting to check if self.handle.is_running()
         // when this stabilizes at the stdlib. If it is not running (i.e. there is a panic at the
@@ -240,7 +253,7 @@ impl SqlListener {
             return Err(format!("Unable to acquire lock over last commands"));
         }*/
 
-        match self.cmd_sender.send((sql.clone(), subs, parse, timeout)) {
+        match self.cmd_sender.send((sql.clone(), subs, parse, timeout, ExecMode::Multiple)) {
             Ok(_) => {
 
             },
@@ -355,18 +368,25 @@ impl SqlListener {
 
 }
 
+/// The queries table environment only listens to "multiple" mode. Use
+/// "single" mode to query information that wont't be displayed as tables.
+pub enum ExecMode {
+    Single,
+    Multiple
+}
+
 fn spawn_listener_thread<F>(
     engine : Arc<Mutex<Option<Box<dyn Connection>>>>,
     result_cb : F,
-    cmd_rx : Receiver<(String, HashMap<String, String>, bool, usize)>
+    cmd_rx : Receiver<(String, HashMap<String, String>, bool, usize, ExecMode)>
 ) -> JoinHandle<()>
 where
-    F : Fn(Vec<StatementOutput>) + 'static + Send
+    F : Fn(Vec<StatementOutput>, ExecMode) + 'static + Send
 {
     thread::spawn(move ||  {
         loop {
             match cmd_rx.recv() {
-                Ok((cmd, subs, parse, _timeout)) => {
+                Ok((cmd, subs, parse, _timeout, exec_mode)) => {
                     match engine.lock() {
                         Ok(mut opt_eng) => match &mut *opt_eng {
                             Some(ref mut eng) => {
@@ -379,10 +399,10 @@ where
                                         vec![StatementOutput::Invalid( e.to_string(), false )]
                                     }
                                 };
-                                result_cb(res);
+                                result_cb(res, exec_mode);
                             },
                             None => {
-                                result_cb(vec![StatementOutput::Invalid(format!("Database connection is down. Please restart the connection"), false)]);
+                                result_cb(vec![StatementOutput::Invalid(format!("Database connection is down. Please restart the connection"), false)], exec_mode);
                             }
                         },
                         Err(_) => {

@@ -89,8 +89,8 @@ impl SettingsWindow {
 
 #[derive(Debug, Clone)]
 pub struct NamedBox<W : IsA<Widget>> {
-    bx : Box,
-    w : W
+    pub bx : Box,
+    pub w : W
 }
 
 impl<W: IsA<Widget>> NamedBox<W> {
@@ -143,7 +143,7 @@ pub struct EditorBox {
     pub line_highlight_switch : Switch,
 }
 
-fn configure_list(list : &ListBox) {
+pub fn configure_list(list : &ListBox) {
     list.set_halign(Align::Center);
     list.set_valign(Align::Center);
     list.set_hexpand(true);

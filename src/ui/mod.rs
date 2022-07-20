@@ -13,7 +13,7 @@ use core::cell::RefCell;
 use std::rc::Rc;
 use archiver::MultiArchiverImpl;
 
-// TODO set find/replace insensitivewhen workspace is selected.
+// TODO set find/replace insensitive when workspace is selected.
 
 pub use overview::*;
 
@@ -385,6 +385,8 @@ impl QueriesWindow {
         content.editor.open_dialog.dialog.set_transient_for(Some(&window));
         content.editor.export_dialog.dialog.set_transient_for(Some(&window));
         sidebar.schema_tree.form.dialog.set_transient_for(Some(&window));
+        sidebar.schema_tree.report_dialog.dialog.set_transient_for(Some(&window));
+        sidebar.schema_tree.report_export_dialog.dialog.set_transient_for(Some(&window));
         find_dialog.dialog.set_transient_for(Some(&window));
 
         titlebar.header.set_title_widget(Some(&content.switcher));
@@ -422,10 +424,12 @@ impl QueriesWindow {
 
         window.add_action(&sidebar.file_list.close_action);
 
+        // Add action to schema tree.
         window.add_action(&sidebar.schema_tree.query_action);
         window.add_action(&sidebar.schema_tree.insert_action);
         window.add_action(&sidebar.schema_tree.import_action);
         window.add_action(&sidebar.schema_tree.call_action);
+        window.add_action(&sidebar.schema_tree.report_action);
 
         content.editor.open_dialog.react(&titlebar.main_menu);
         content.editor.export_dialog.react(&titlebar.main_menu);
