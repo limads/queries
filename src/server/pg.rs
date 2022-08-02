@@ -1,13 +1,13 @@
 use postgres;
 use crate::sql::{*, object::*};
 use rust_decimal::Decimal;
-use monday::tables::column::*;
-use monday::tables::nullable_column::*;
-use monday::tables::table::*;
+use crate::tables::column::*;
+use crate::tables::nullable_column::*;
+use crate::tables::table::*;
 use postgres::types::Type;
 use std::io::Write;
 use std::error::Error;
-use monday::tables::table::{self, Table, Align, Format, TableSettings, BoolField, NullField};
+use crate::tables::table::{self, Table, Align, Format, TableSettings, BoolField, NullField};
 use serde_json::Value;
 use crate::sql::object::{DBObject, DBType, DBInfo};
 use crate::sql::parsing::AnyStatement;
@@ -27,13 +27,12 @@ use postgres::NoTls;
 use postgres::Client;
 use itertools::Itertools;
 use std::path::Path;
-use monday::tables::field::Field;
+use crate::tables::field::Field;
 use crate::client::ConnectionInfo;
 use std::time::SystemTime;
+use crate::client::{ConnURI, ConnConfig};
 
 pub struct PostgresConnection {
-
-    conn_str : String,
 
     info : ConnectionInfo,
 
@@ -47,9 +46,9 @@ pub struct PostgresConnection {
 
 impl PostgresConnection {
 
-    pub fn try_new(conn_str : String, info : ConnectionInfo) -> Result<Self, String> {
+    pub fn try_new(uri : ConnURI) -> Result<Self, String> {
 
-        if let Some(cert) = info.cert.as_ref() {
+        if let Some(cert) = uri.info.cert.as_ref() {
 
             use native_tls::{Certificate, TlsConnector};
             use postgres_native_tls::MakeTlsConnector;
@@ -60,14 +59,16 @@ impl PostgresConnection {
                 .add_root_certificate(cert)
                 .build().map_err(|e| format!("{}", e) )?;
             let connector = MakeTlsConnector::new(connector);
-            match Client::connect(&conn_str, connector) {
-                Ok(conn) => Ok(Self{
-                    conn_str,
-                    conn,
-                    exec : Arc::new(Mutex::new((Executor::new(), String::new()))) ,
-                    channel : None,
-                    info
-                }),
+            match Client::connect(&uri.uri[..], connector) {
+                Ok(conn) => {
+                    Ok(Self{
+                        // conn_str : uri.uri,
+                        conn,
+                        exec : Arc::new(Mutex::new((Executor::new(), String::new()))),
+                        channel : None,
+                        info : uri.info
+                    })
+                },
                 Err(e) => {
                     let mut e = e.to_string();
                     format_pg_string(&mut e);
@@ -75,14 +76,16 @@ impl PostgresConnection {
                 }
             }
         } else {
-            match Client::connect(&conn_str[..], NoTls{ }) {
-                Ok(conn) => Ok(Self{
-                    conn_str,
-                    conn,
-                    exec : Arc::new(Mutex::new((Executor::new(), String::new()))) ,
-                    channel : None,
-                    info
-                }),
+            match Client::connect(&uri.uri[..], NoTls{ }) {
+                Ok(conn) => {
+                    Ok(Self{
+                        // conn_str : uri.uri,
+                        conn,
+                        exec : Arc::new(Mutex::new((Executor::new(), String::new()))) ,
+                        channel : None,
+                        info : uri.info
+                    })
+                },
                 Err(e) => {
                     let mut e = e.to_string();
                     format_pg_string(&mut e);
@@ -95,6 +98,16 @@ impl PostgresConnection {
 }
 
 impl Connection for PostgresConnection {
+
+    fn configure(&mut self, cfg : ConnConfig) {
+        let cfg_stmt = format!("set session statement_timeout to {};", cfg.timeout);
+        match self.conn.execute(&cfg_stmt[..], &[]) {
+            Ok(_) => { },
+            Err(e) => {
+                println!("{}", e);
+            }
+        }
+    }
 
     fn listen_at_channel(&mut self, channel : String) {
 
@@ -170,7 +183,11 @@ impl Connection for PostgresConnection {
         }
     }
 
-    fn info(&mut self) -> Option<DBInfo> {
+    fn conn_info(&self) -> ConnectionInfo {
+        self.info.clone()
+    }
+
+    fn db_info(&mut self) -> Option<DBInfo> {
         let mut top_objs = Vec::new();
         if let Some(schemata) = get_postgres_schemata(self) {
             // println!("Obtained schemata: {:?}", schemata);
@@ -237,7 +254,6 @@ impl Connection for PostgresConnection {
         tbl : &mut Table,
         dst : &str,
         cols : &[String],
-        // schema : &[DBObject]
     ) -> Result<usize, String> {
         let client = &mut self.conn;
         let copy_stmt = match cols.len() {

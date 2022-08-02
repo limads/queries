@@ -141,17 +141,17 @@ impl React<ActiveConnection> for DetailBox {
                 self.uptime_lbl.clone(),
                 self.locale_lbl.clone()
             );
-            move |(info, _)| {
-                if let Some(details) = info.details {
+            move |(conn_info, db_info)| {
+                if let Some(details) = db_info.as_ref().and_then(|info| info.details.as_ref() ) {
                     server_lbl.set_text(&details.server);
                     size_lbl.set_text(&details.size);
                     uptime_lbl.set_text(&details.uptime);
                     locale_lbl.set_text(&details.locale);
                 } else {
-                    server_lbl.set_text("");
-                    size_lbl.set_text("");
-                    uptime_lbl.set_text("");
-                    locale_lbl.set_text("");
+                    server_lbl.set_text("Unknown");
+                    size_lbl.set_text("Unknown");
+                    uptime_lbl.set_text("Unknown");
+                    locale_lbl.set_text("Unknown");
                 }
             }
         });
@@ -368,7 +368,7 @@ impl React<ActiveConnection> for ConnectionList {
             add_btn.set_sensitive(false);
             remove_btn.set_sensitive(false);
             list.set_sensitive(false);
-            println!("Sensitive false");
+            // println!("Sensitive false");
 
             // TODO add connection to settings
         });

@@ -5,7 +5,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use crate::sql::*;
 use std::path::Path;
-use monday::tables::*;
+use crate::tables::*;
 use std::sync::{Arc, Mutex};
 use std::str::FromStr;
 use std::cmp::{Eq, PartialEq};
@@ -15,21 +15,21 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use crate::sql::object::*;
 use stateful::{Callbacks, ValuedCallbacks};
-use monday::tables::table::Table;
+use crate::tables::table::Table;
 use stateful::React;
 use crate::client::ActiveConnection;
 use std::boxed;
-use monday::tables::table::TableSettings;
-use monday::tables::table::Columns;
+use crate::tables::table::TableSettings;
+use crate::tables::table::Columns;
 use papyri::render::Panel;
 use crate::ui::QueriesWorkspace;
 use std::io::Write;
 use std::thread;
 use crate::ui::ExportDialog;
 use crate::ui::QueriesSettings;
-use monday;
 use crate::client::ExecutionSettings;
 use crate::client::SharedUserState;
+use crate::ui::ExecButton;
 
 // #[cfg(feature="arrowext")]
 // use datafusion::execution::context::ExecutionContext;
@@ -50,6 +50,8 @@ pub struct ExecutionError {
 pub enum EnvironmentAction {
 
     Update(Vec<StatementOutput>),
+
+    Restore,
 
     Clear,
 
@@ -117,6 +119,12 @@ impl Environment {
                                     on_tbl_error.call(e.clone());
                                 }
                             }
+                        }
+                    },
+                    EnvironmentAction::Restore => {
+                        // Use the last state set at EnvironmentAction::Update.
+                        if tables.tables.len() >= 1 {
+                            on_tbl_update.call(tables.tables.clone());
                         }
                     },
                     EnvironmentAction::Select(opt_pos) => {
@@ -194,6 +202,19 @@ impl React<ActiveConnection> for Environment {
         let send = self.send.clone();
         conn.connect_exec_result(move |res : Vec<StatementOutput>| {
             send.send(EnvironmentAction::Update(res));
+        });
+    }
+
+}
+
+impl React<ExecButton> for Environment {
+
+    fn react(&self, btn : &ExecButton) {
+        btn.restore_action.connect_activate({
+            let send = self.send.clone();
+            move |_action, param| {
+                send.send(EnvironmentAction::Restore);
+            }
         });
     }
 
@@ -281,20 +302,22 @@ fn export_to_path(item : ExportItem, path : &Path, template_path : Option<String
                     f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )
                 },
                 Some("fodt") => {
-                    let s = monday::report::ooxml::substitute_ooxml(&tbl, &read_template(template_path)?)
+                    /* let s = crate::report::ooxml::substitute_ooxml(&tbl, &read_template(template_path)?)
                         .map_err(|e| format!("{}", e) )?;
-                    f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )
+                    f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) ) */
+                    Err(format!("Invalid extension"))
                 },
                 Some("html") => {
-                    let s = monday::report::html::substitute_html(&tbl, &read_template(template_path)?)
+                    /*let s = monday::report::html::substitute_html(&tbl, &read_template(template_path)?)
                         .map_err(|e| format!("{}", e) )?;
-                    f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )
+                    f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )*/
+                    Err(format!("Invalid format"))
                 },
                 _ => Err(format!("Invalid extension"))
             }
         },
         ExportItem::Panel(mut panel) => {
-            panel.draw_to_file(path.to_str().unwrap())
+            panel.draw_to_file(path.to_str().unwrap()).map_err(|e| format!("{e}") )
         }
     }
 }
@@ -1416,5 +1439,6 @@ impl<'a> React<QueriesSettings> for (&'a Environment, &'a SharedUserState) {
     }
 
 }
+
 
 

@@ -25,23 +25,41 @@ use std::time::Duration;
 use std::hash::Hash;
 use crate::client::SharedUserState;
 use super::listener::ExecMode;
-use monday::tables::table::Table;
+use crate::tables::table::Table;
 
+// The actual connection info that is persisted on disk (excludes password for obvious
+// security reasons).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct ConnectionInfo {
 
+    // Holds either a host-only string (assuming default 5432 port)
+    // or host:port string.
     pub host : String,
 
+    // PostgreSQL user.
     pub user : String,
 
+    // Database name.
     pub database : String,
 
-    pub details : Option<DBDetails>,
+    // Database details, queried automatically by the application every time
+    // there is a new connection to the database. If this query fails, holds None.
+    // This information is also persisted in disk.
+    // pub details : Option<DBDetails>,
 
     // Optional path to certificate
     pub cert : Option<String>,
 
+    // When this connection was last established (datetime-formatted).
     pub dt : String
+
+}
+
+#[derive(Debug, Clone)]
+pub struct ConnConfig {
+
+    // Statement timeout, in milliseconds.
+    pub timeout : usize
 
 }
 
@@ -66,7 +84,7 @@ impl Default for ConnectionInfo {
             user : String::from("User"),
             database : String::from("Database"),
             dt : Local::now().to_string(),
-            details : None,
+            // details : None,
             cert : None
         }
     }
@@ -263,8 +281,8 @@ impl React<ActiveConnection> for ConnectionSet {
 
     fn react(&self, conn : &ActiveConnection) {
         let send = self.send.clone();
-        conn.connect_db_connected(move |(info, _)| {
-            send.send(ConnectionAction::Update(info));
+        conn.connect_db_connected(move |(conn_info, _)| {
+            send.send(ConnectionAction::Update(conn_info));
         });
     }
 
@@ -282,12 +300,56 @@ impl React<QueriesWindow> for ConnectionSet {
 
 }
 
-fn generate_conn_str(
-    host_entry : &Entry,
-    db_entry : &Entry,
-    user_entry : &Entry,
-    password_entry : &PasswordEntry
-) -> Result<(ConnectionInfo, String), String> {
+fn validate_host() {
+
+}
+
+fn validate_dbname() {
+
+}
+
+fn validate_params() {
+
+}
+
+// View connection URI spec at
+// https://www.postgresql.org/docs/current/libpq-connect.html
+fn validate_conn_info() {
+    // Connection URI postgresql://[userspec@][hostspec][/dbname][?paramspec]
+}
+
+#[test]
+fn conn_str_test() -> Result<(), Box<dyn Error>> {
+
+    // Taken from Postgres docs at https://www.postgresql.org/docs/current/libpq-connect.html
+    let uris = [
+        "postgresql://",
+        "postgresql://localhost",
+        "postgresql://localhost:5433",
+        "postgresql://localhost/mydb",
+        "postgresql://user@localhost",
+        "postgresql://user:secret@localhost",
+
+        // Configurations are unsupported, since the conn str is auto-generated.
+        // But eventually the settings GUI might include those URI parameters as well.
+        "postgresql://other@localhost/otherdb?connect_timeout=10&application_name=myapp",
+        "postgresql://host1:123,host2:456/somedb?target_session_attrs=any&application_name=myapp"
+    ];
+
+    Ok(())
+
+}
+
+/// Short-lived data structure used to collect information from the connection
+/// form. The URI contains all the credentials (including password) to connect
+/// to the database. Only the info field is persisted after the connection is established.
+#[derive(Debug, Clone)]
+pub struct ConnURI {
+    pub info : ConnectionInfo,
+    pub uri : String
+}
+
+fn extract_conn_info(host_entry : &Entry, db_entry : &Entry, user_entry : &Entry) -> Result<ConnectionInfo, String> {
     let mut host_s = host_entry.text().as_str().to_owned();
     if host_s.is_empty() {
         return Err(format!("Missing host"));
@@ -300,38 +362,54 @@ fn generate_conn_str(
     if user_s.is_empty() {
         return Err(format!("Missing user"));
     }
-    let password_s = password_entry.text().as_str().to_owned();
-    if password_s.is_empty() {
-        return Err(format!("Missing password"));
-    }
-    let split_port : Vec<String> = host_s.split(":").map(|s| s.to_string() ).collect();
-    let mut port_s = String::from("5432");
-    match split_port.len() {
-        0..=1 => { },
-        2 => {
-            host_s = split_port[0].clone();
-            port_s = split_port[1].clone();
-        },
-        _n => {
-            return Err(format!("Host string can contain only a single colon"));
-        }
-    }
-    let mut conn_str = "postgresql://".to_owned();
-    conn_str += &user_s;
-    conn_str = conn_str + ":" + &password_s;
-    if host_s == "localhost" || host_s == "127.0.0.1" {
-        conn_str = conn_str + "@" + &host_s;
-    } else {
-        return Err(format!("Remote connections not allowed yet."));
-    }
-    conn_str = conn_str + ":" + &port_s;
-    conn_str = conn_str + "/" + &db_s;
-
     let mut info : ConnectionInfo = Default::default();
     info.host = host_s.to_string();
     info.database = db_s.to_string();
     info.user = user_s.to_string();
-    Ok((info, conn_str))
+    Ok(info)
+}
+
+fn generate_conn_uri(
+    host_entry : &Entry,
+    db_entry : &Entry,
+    user_entry : &Entry,
+    password_entry : &PasswordEntry
+) -> Result<ConnURI, String> {
+    let info = extract_conn_info(host_entry, db_entry, user_entry)?;
+
+    let mut uri = "postgresql://".to_owned();
+    uri += &info.user;
+    uri += ":";
+
+    let password_s = password_entry.text().as_str().to_owned();
+    if password_s.is_empty() {
+        return Err(format!("Missing password"));
+    }
+    uri += &password_s;
+
+    uri += "@";
+    let split_port : Vec<&str> = info.host.split(":").collect();
+    let (host_prefix, port) = match split_port.len() {
+        0..=1 => {
+            (split_port[0], None)
+        },
+        2 => {
+            (split_port[0], Some(split_port[1]))
+        },
+        _n => {
+            return Err(format!("Host string can contain only a single colon"));
+        }
+    };
+    uri += host_prefix;
+    uri += ":";
+    if let Some(p) = port {
+        uri += p;
+    } else {
+        uri += "5432";
+    }
+    uri += "/";
+    uri += &info.database;
+    Ok(ConnURI { info, uri })
 }
 
 pub enum ErrorKind {
@@ -346,9 +424,9 @@ pub enum ErrorKind {
 
 pub enum ActiveConnectionAction {
 
-    ConnectRequest(ConnectionInfo, String),
+    ConnectRequest(ConnURI),
 
-    ConnectAccepted(boxed::Box<dyn Connection>, ConnectionInfo, Option<DBInfo>),
+    ConnectAccepted(boxed::Box<dyn Connection>, Option<DBInfo>),
 
     ConnectFailure(String),
 
@@ -403,10 +481,22 @@ pub struct ActiveConnection {
 
 }
 
+pub struct ActiveConnState {
+
+}
+
 impl ActiveConnection {
+
+    pub fn final_state(&self) -> ActiveConnState {
+        ActiveConnState { }
+    }
 
     pub fn sender(&self) -> &glib::Sender<ActiveConnectionAction> {
         &self.send
+    }
+
+    pub fn send(&self, msg : ActiveConnectionAction) {
+        self.send.send(msg);
     }
 
     pub fn new(user_state : &SharedUserState) -> Self {
@@ -448,19 +538,29 @@ impl ActiveConnection {
             let user_state = (*user_state).clone();
             move |action| {
                 match action {
-                    ActiveConnectionAction::ConnectRequest(mut conn_info, conn_str) => {
+
+                    // At this stage, the connection URI was successfully parsed, but the connection wasn't established yet.
+                    ActiveConnectionAction::ConnectRequest(mut uri) => {
+
+                        // Spawn a thread that captures the database connection URI. The URI
+                        // and the sensitive information (password) is forgotten when this thread dies.
                         thread::spawn({
                             let send = send.clone();
+                            let timeout_secs = user_state.borrow().execution.statement_timeout;
                             move || {
-                                match PostgresConnection::try_new(conn_str, conn_info.clone()) {
+                                match PostgresConnection::try_new(uri.clone()) {
                                     Ok(mut conn) => {
-                                        let db_info = conn.info();
-                                        conn_info.details = if let Some(info) = &db_info {
-                                            info.details.clone()
-                                        } else {
-                                            None
-                                        };
-                                        send.send(ActiveConnectionAction::ConnectAccepted(boxed::Box::new(conn), conn_info, db_info)).unwrap();
+
+                                        let db_info = conn.db_info();
+                                        if timeout_secs > 0 {
+                                            conn.configure(ConnConfig {
+                                                timeout : timeout_secs as usize * 1000
+                                            });
+                                        }
+
+                                        // From now on, the URI is forgotten (no password is kept in memory anymore), and only the
+                                        // database info and details are sent back to the main thread.
+                                        send.send(ActiveConnectionAction::ConnectAccepted(boxed::Box::new(conn), db_info)).unwrap();
                                     },
                                     Err(e) => {
                                         send.send(ActiveConnectionAction::ConnectFailure(e)).unwrap();
@@ -469,13 +569,17 @@ impl ActiveConnection {
                             }
                         });
                     },
-                    ActiveConnectionAction::ConnectAccepted(conn, conn_info, db_info) => {
-                        schema = db_info.clone().map(|info| info.schema.clone() );
+
+                    // At this stage, the connection is active, and the URI is already
+                    // forgotten.
+                    ActiveConnectionAction::ConnectAccepted(conn, db_info) => {
+                        schema = db_info.as_ref().map(|info| info.schema.clone() );
                         selected_obj = None;
+                        let info = conn.conn_info();
                         if let Err(e) = listener.update_engine(conn) {
                             println!("{}", e);
                         }
-                        on_connected.call((conn_info.clone(), db_info.clone()));
+                        on_connected.call((info, db_info));
                     },
                     ActiveConnectionAction::Disconnect => {
                         schema = None;
@@ -501,7 +605,9 @@ impl ActiveConnection {
                     ActiveConnectionAction::SingleQueryRequest => {
                         match &selected_obj {
                             Some(DBObject::View { schema, name, .. }) | Some(DBObject::Table { schema, name, .. }) => {
-                                match listener.send_single_command(format!("select * from {schema}.{name};"), user_state.borrow().execution.statement_timeout as usize) {
+                                let cmd = format!("select * from {schema}.{name};");
+                                let timeout = user_state.borrow().execution.statement_timeout as usize;
+                                match listener.send_single_command(cmd, timeout) {
                                     Ok(_) => { },
                                     Err(e) => {
                                         on_error.call(e.clone());
@@ -745,22 +851,22 @@ impl<'a> React<(&'a ConnectionBox, &'a SharedUserState)> for ActiveConnection {
                     unimplemented!()
                 }
 
-                match generate_conn_str(&host_entry, &db_entry, &user_entry, &password_entry) {
-                    Ok((mut info, conn_str)) => {
+                match generate_conn_uri(&host_entry, &db_entry, &user_entry, &password_entry) {
+                    Ok(mut uri) => {
 
                         let mut state = state.borrow_mut();
                         for c in state.conns.iter() {
-                            if c.host == info.host {
+                            if c.host == uri.info.host {
                                 if let Some(cert) = c.cert.as_ref() {
-                                    info.cert = Some(cert.to_string());
+                                    uri.info.cert = Some(cert.to_string());
                                 }
                             }
                         }
 
-                        if info.cert.is_none() {
+                        if uri.info.cert.is_none() {
                             for c in state.unmatched_certs.clone().iter() {
-                                if c.host == info.host {
-                                    info.cert = Some(c.cert.to_string());
+                                if c.host == uri.info.host {
+                                    uri.info.cert = Some(c.cert.to_string());
                                     while let Some(ix) = state.conns.iter().cloned().position(|conn| conn.host == c.host ) {
                                         state.conns[ix].cert = Some(c.cert.to_string());
                                     }
@@ -768,7 +874,7 @@ impl<'a> React<(&'a ConnectionBox, &'a SharedUserState)> for ActiveConnection {
                             }
                         }
 
-                        send.send(ActiveConnectionAction::ConnectRequest(info, conn_str)).unwrap();
+                        send.send(ActiveConnectionAction::ConnectRequest(uri)).unwrap();
                     },
                     Err(e) => {
                         send.send(ActiveConnectionAction::Error(e)).unwrap();

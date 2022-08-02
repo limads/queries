@@ -64,7 +64,11 @@ impl Default for SecuritySettings {
 pub struct ExecutionSettings {
     pub row_limit : i32,
     pub column_limit : i32,
+
+    // Interval between scheduled executions, in seconds
     pub execution_interval : i32,
+
+    // Statement execution timeout, in seconds
     pub statement_timeout : i32
 }
 

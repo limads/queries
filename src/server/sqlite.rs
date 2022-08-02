@@ -1,9 +1,9 @@
 use rusqlite;
 use std::path::PathBuf;
 use super::*;
-use monday::tables::column::*;
-use monday::tables::nullable_column::*;
-use monday::tables::table::*;
+use crate::tables::column::*;
+use crate::tables::nullable_column::*;
+use crate::tables::table::*;
 use rusqlite::types::FromSql;
 use rusqlite::Row;
 use std::fmt::{self, Display};
@@ -12,6 +12,8 @@ use crate::sql::copy::*;
 use rusqlite::types::Value;
 use itertools::Itertools;
 use std::convert::{TryFrom, TryInto};
+use crate::client::ConnectionInfo;
+use crate::client::ConnConfig;
 
 pub struct SqliteConnection {
 
@@ -66,6 +68,10 @@ impl SqliteConnection {
 }
 
 impl Connection for SqliteConnection {
+
+    fn configure(&mut self, cfg : ConnConfig) {
+
+    }
 
     fn listen_at_channel(&mut self, channel : String) {
 
@@ -146,7 +152,11 @@ impl Connection for SqliteConnection {
         }
     }
 
-    fn info(&mut self) -> Option<DBInfo> {
+    fn conn_info(&self) -> ConnectionInfo {
+        unimplemented!()
+    }
+
+    fn db_info(&mut self) -> Option<DBInfo> {
         let mut top_objs = Vec::new();
         if let Some(names) = get_sqlite_tbl_names(self) {
             for name in names {

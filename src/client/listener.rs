@@ -15,7 +15,7 @@ use stateful::Callbacks;
 use std::fs::File;
 use std::io::Read;
 use crate::sql::copy::*;
-use monday::tables::table::*;
+use crate::tables::table::*;
 
 #[derive(Clone)]
 pub struct SqlListener {
@@ -325,7 +325,7 @@ impl SqlListener {
             _ => Err(format!("Info unavailable"))
         }*/
         if let Some(ref mut engine) = *self.engine.lock().unwrap() {
-            let opt_info = engine.info();
+            let opt_info = engine.db_info();
             // if let Some(info) = &opt_info {
             // println!("{}", crate::sql::object::build_er_diagram(String::new(), &info[..]));
             // }
@@ -342,7 +342,7 @@ impl SqlListener {
         let engine = self.engine.clone();
         thread::spawn(move|| {
             if let Some(mut engine) = engine.lock().unwrap().as_mut() {
-                f(engine.info().map(|info| info.schema ));
+                f(engine.db_info().map(|info| info.schema ));
             } else {
                 f(None);
             }

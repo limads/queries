@@ -4,11 +4,12 @@ use crate::client::Environment;
 use stateful::React;
 use libadwaita;
 use super::table::*;
-use monday::tables::table::Table;
+use crate::tables::table::Table;
 use crate::ui::PlotView;
 use papyri::render::Panel;
 use crate::client::SharedUserState;
 use std::rc::Rc;
+use crate::client::UserState;
 
 #[derive(Debug, Clone)]
 pub struct QueriesWorkspace {
@@ -46,45 +47,49 @@ impl QueriesWorkspace {
 
 }
 
+pub fn close_all_pages(tab_view : &libadwaita::TabView) {
+    while tab_view.n_pages() > 0 {
+        if let Some(page) = tab_view.nth_page(0) {
+            tab_view.close_page(&page);
+        }
+    }
+}
+
+pub fn populate_with_tables(tab_view : &libadwaita::TabView, tables : &[Table], state : &UserState) -> Vec<libadwaita::TabPage> {
+    close_all_pages(&tab_view);
+    let mut new_pages = Vec::new();
+    for tbl in tables.iter() {
+        if let Some(val) = tbl.single_json_field() {
+            match Panel::new_from_json(&val.to_string()) {
+                Ok(panel) => {
+                    let view = PlotView::new_from_panel(panel.clone());
+                    let tab_page = tab_view.append(&view.parent).unwrap();
+                    configure_plot_page(&tab_page, &panel);
+                    new_pages.push(tab_page);
+                    continue;
+                },
+                _ => { }
+            }
+        }
+        let tbl_wid = TableWidget::new_from_table(&tbl, state.execution.row_limit as usize, state.execution.column_limit as usize);
+        let tab_page = tab_view.append(&tbl_wid.scroll_window).unwrap();
+        new_pages.push(tab_page.clone());
+        configure_table_page(&tab_page, &tbl);
+    }
+    new_pages
+}
+
+// TODO remove shareduserstate here (unused)
 impl<'a> React<(&'a Environment, &'a SharedUserState)> for QueriesWorkspace {
 
     fn react(&self, (env, state) : &(&'a Environment, &'a SharedUserState)) {
         let tab_view = self.tab_view.clone();
         let state = (*state).clone();
         env.connect_table_update(move |tables| {
-
             let state = state.borrow();
             let past_sel_page = tab_view.selected_page().map(|page| tab_view.page_position(&page) as usize );
             let past_n_pages = tab_view.n_pages() as usize;
-
-            while tab_view.n_pages() > 0 {
-                if let Some(page) = tab_view.nth_page(0) {
-                    tab_view.close_page(&page);
-                }
-            }
-
-            let mut new_pages = Vec::new();
-            for tbl in tables.iter() {
-
-                if let Some(val) = tbl.single_json_field() {
-                    match Panel::new_from_json(&val.to_string()) {
-                        Ok(panel) => {
-                            let view = PlotView::new_from_panel(panel.clone());
-                            let tab_page = tab_view.append(&view.parent).unwrap();
-                            configure_plot_page(&tab_page, &panel);
-                            new_pages.push(tab_page);
-                            continue;
-                        },
-                        _ => { }
-                    }
-                }
-
-                let tbl_wid = TableWidget::new_from_table(&tbl, state.execution.row_limit as usize, state.execution.column_limit as usize);
-                let tab_page = tab_view.append(&tbl_wid.scroll_window).unwrap();
-                new_pages.push(tab_page.clone());
-                configure_table_page(&tab_page, &tbl);
-            }
-
+            let new_pages = populate_with_tables(&tab_view, &tables[..], &*state);
             if let Some(page_ix) = past_sel_page {
                 if new_pages.len() == past_n_pages {
                     tab_view.set_selected_page(&new_pages[page_ix]);

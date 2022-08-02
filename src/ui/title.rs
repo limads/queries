@@ -78,10 +78,21 @@ pub struct ExecButton {
     // ExecAction carries the index of the opened SQL file as its integer parameter.
     // It carries the content of the SQL file as its state.
     pub exec_action : gio::SimpleAction,
+
+    // This closes all queried tables. The table tabs can be restored with the restore action.
     pub clear_action : gio::SimpleAction,
+
+    // Queries caches all results of the last query sequence, irrespective of whether
+    // the user closed the windows. The "restore" action will reset the workspace to
+    // the last query sequence, using the tables cached at the environment.
+    pub restore_action : gio::SimpleAction,
+
+    // Sets the query button to "schedule" mode, for which the sequence of SQL
+    // statement is executed repeatedly every n seconds.
     pub schedule_action : gio::SimpleAction,
+
     pub single_action : gio::SimpleAction,
-    pub return_action : gio::SimpleAction
+
 }
 
 impl ExecButton {
@@ -95,17 +106,17 @@ impl ExecButton {
         exec_menu.append_section(Some("Execution mode"), &exec_section);
 
         let workspace_section = gio::Menu::new();
-        workspace_section.append(Some("Previous"), Some("win.return"));
+        workspace_section.append(Some("Restore"), Some("win.restore"));
         workspace_section.append(Some("Clear"), Some("win.clear"));
         exec_menu.append_section(Some("Workspace"), &workspace_section);
 
         let btn = SplitButton::builder().icon_name("download-db-symbolic").menu_model(&exec_menu).sensitive(false).build();
         let exec_action = gio::SimpleAction::new_stateful("execute", Some(&String::static_variant_type()), &(-1i32).to_variant());
         let clear_action = gio::SimpleAction::new("clear", None);
-        let return_action = gio::SimpleAction::new("return", None);
+        let restore_action = gio::SimpleAction::new("restore", None);
         exec_action.set_enabled(false);
         clear_action.set_enabled(false);
-        return_action.set_enabled(false);
+        restore_action.set_enabled(false);
 
         btn.set_sensitive(false);
         let schedule_action = gio::SimpleAction::new_stateful("schedule", None, &(false).to_variant());
@@ -130,7 +141,7 @@ impl ExecButton {
         // single_action.set_enabled(true);
         // schedule_action.
         // btn.activate_action(&exec_action, None);
-        Self { btn, exec_action, clear_action, return_action, schedule_action, single_action }
+        Self { btn, exec_action, clear_action, restore_action, schedule_action, single_action }
     }
 
 }
@@ -192,18 +203,33 @@ impl React<ActiveConnection> for ExecButton {
     fn react(&self, conn : &ActiveConnection) {
         conn.connect_db_connected({
             let exec_action = self.exec_action.clone();
+            let clear_action = self.clear_action.clone();
+            let restore_action = self.restore_action.clone();
             move |_| {
                 exec_action.set_enabled(true);
+                clear_action.set_enabled(true);
+                restore_action.set_enabled(true);
             }
         });
         conn.connect_db_disconnected({
             let exec_action = self.exec_action.clone();
             let exec_btn = self.btn.clone();
+            let clear_action = self.clear_action.clone();
+            let restore_action = self.restore_action.clone();
             move |_| {
                 exec_action.set_enabled(false);
                 exec_btn.set_sensitive(false);
+                clear_action.set_enabled(false);
+                restore_action.set_enabled(false);
             }
         });
+        /*conn.connect_db_error({
+            let clear_action = self.clear_action.clone();
+            let restore_action = self.restore_action.clone();
+            move |_| {
+                clear_action.
+            }
+        });*/
     }
 
 }

@@ -30,6 +30,12 @@ impl OpenedScripts  {
         OpenedScripts(MultiArchiver::new())
     }
 
+    pub fn send(&self, action : MultiArchiverAction) {
+        if let Err(e) = self.0.sender().send(action) {
+            println!("{}", e);
+        }
+    }
+
 }
 
 impl MultiArchiverImpl for OpenedScripts { }

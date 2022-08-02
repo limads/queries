@@ -61,6 +61,7 @@ mod form;
 
 pub use form::*;
 
+// QueriesContent means everything outside the titlebar and sidebar.
 #[derive(Debug, Clone)]
 pub struct QueriesContent {
     pub stack : libadwaita::ViewStack,
@@ -420,7 +421,7 @@ impl QueriesWindow {
         window.add_action(&titlebar.exec_btn.clear_action);
         window.add_action(&titlebar.exec_btn.schedule_action);
         window.add_action(&titlebar.exec_btn.single_action);
-        window.add_action(&titlebar.exec_btn.return_action);
+        window.add_action(&titlebar.exec_btn.restore_action);
 
         window.add_action(&sidebar.file_list.close_action);
 

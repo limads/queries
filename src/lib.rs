@@ -8,6 +8,8 @@ use anyhow;
 use gtk4::glib::{LogLevel, g_log};
 use std::fmt::Display;
 
+pub mod tables;
+
 pub mod ui;
 
 pub mod client;

@@ -22,6 +22,8 @@ use queries4::server::*;
 
 use queries4::ui::*;
 
+// TODO views with a homonimous table are not being shown at the schema tree.
+
 /*impl React<ConnectionBox> for Connections {
 
     type Change = ConnectionChange;
@@ -157,6 +159,7 @@ fn main() {
             client.env.react(&queries_win.content.results.workspace);
             client.env.react(&queries_win.content.editor.export_dialog);
             client.env.react(&queries_win.settings);
+            client.env.react(&queries_win.titlebar.exec_btn);
 
             queries_win.content.react(&client.active_conn);
             queries_win.content.results.overview.detail_bx.react(&client.conn_set);
@@ -218,7 +221,7 @@ fn main() {
 
     user_state.replace_with(|user_state| {
         user_state.conns = conn_final_state.borrow().clone();
-        user_state.scripts = script_final_state.borrow().clone();
+        user_state.scripts = script_final_state.borrow().recent.clone();
         user_state.clone()
     });
 

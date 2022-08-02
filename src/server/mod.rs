@@ -3,7 +3,9 @@ use crate::sql::*;
 use crate::sql::object::{DBObject, DBInfo};
 use crate::sql::parsing::{AnyStatement, SQLError};
 use sqlparser::ast::*;
-use monday::tables::table::Table;
+use crate::tables::table::Table;
+use crate::client::ConnectionInfo;
+use crate::client::ConnConfig;
 
 mod pg;
 
@@ -22,13 +24,17 @@ where
     Self : Send
 {
 
+    fn configure(&mut self, cfg : ConnConfig);
+
     fn query(&mut self, q : &str, subs : &HashMap<String, String>) -> StatementOutput;
 
     fn exec(&mut self, stmt : &AnyStatement, subs : &HashMap<String, String>) -> StatementOutput;
 
     fn listen_at_channel(&mut self, channel : String);
 
-    fn info(&mut self) -> Option<DBInfo>;
+    fn conn_info(&self) -> ConnectionInfo;
+
+    fn db_info(&mut self) -> Option<DBInfo>;
 
     fn import(
         &mut self,

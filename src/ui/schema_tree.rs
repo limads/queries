@@ -17,7 +17,6 @@ use crate::client::ActiveConnection;
 use crate::ui::PackedImageLabel;
 use gtk4::glib;
 use gtk4::subclass::prelude::*;
-// use gtk4::gdk;
 use serde_json;
 use serde::{Serialize, Deserialize};
 use crate::ui::NamedBox;
@@ -140,6 +139,10 @@ const ALL_TYPES : [DBType; 15] = [
     DBType::Json,
     DBType::Xml,
     DBType::Array,
+
+    // TODO create icon for this type
+    // DBType::Trigger,
+
     DBType::Unknown
 ];
 
@@ -751,9 +754,9 @@ impl React<ActiveConnection> for SchemaTree {
 
     fn react(&self, conn : &ActiveConnection) {
         let schema_tree = self.clone();
-        conn.connect_db_connected(move |(_, info)| {
-            if let Some(info) = info {
-                schema_tree.repopulate(info.schema);
+        conn.connect_db_connected(move |(_conn_info, db_info)| {
+            if let Some(db_info) = db_info {
+                schema_tree.repopulate(db_info.schema);
             }
         });
         conn.connect_db_disconnected({
@@ -825,14 +828,28 @@ impl React<ActiveConnection> for SchemaTree {
             let export_dialog = self.report_export_dialog.dialog.clone();
             let report_dialog = self.report_dialog.dialog.clone();
             let send = conn.sender().clone();
+            let null_entry = self.report_dialog.null_entry.clone();
             move |tbl| {
                 let fls = files.borrow();
                 let mut rendered_content = rendered_content.borrow_mut();
                 if let Some(template_path) = fls.0.get(fls.1) {
                     if let Ok(mut f) = File::open(template_path) {
-                        let mut s = String::new();
-                        f.read_to_string(&mut s).unwrap();
-                        match monday::report::html::substitute_html(&tbl, &s) {
+                        let mut template_content = String::new();
+                        if let Err(e) = f.read_to_string(&mut template_content) {
+                            send.send(ActiveConnectionAction::Error(("Could not read template content".to_owned())));
+                            return;
+                        }
+                        if template_content.trim().is_empty() {
+                            send.send(ActiveConnectionAction::Error(("Empty template file".to_owned())));
+                            return;
+                        }
+                        let null_sub = null_entry.text();
+                        let null = if null_sub.trim().is_empty() {
+                            None
+                        } else {
+                            Some(null_sub.as_str())
+                        };
+                        match crate::tables::report::html::substitute_html(&tbl, &template_content, null) {
                             Ok(complete_report) => {
                                 *rendered_content = Some(complete_report);
                                 export_dialog.show();
@@ -1111,7 +1128,10 @@ pub struct ReportDialog {
     list : ListBox,
     pub btn_gen : Button,
     rendered_content : Rc<RefCell<Option<String>>>,
-    pub files : Rc<RefCell<(Vec<String>, usize)>>
+    pub files : Rc<RefCell<(Vec<String>, usize)>>,
+    null_entry : Entry,
+    transpose_switch : Switch,
+    png_switch : Switch
 }
 
 impl ReportDialog {
@@ -1127,6 +1147,12 @@ impl ReportDialog {
         let null_entry = Entry::new();
         null_entry.set_placeholder_text(Some("Null"));
         list.append(&NamedBox::new("Null string", Some("String to use when replacing\nnull values"), null_entry.clone()).bx);
+
+        let transpose_switch = Switch::new();
+        list.append(&NamedBox::new("Transpose tables", Some("Interpret JSON key-value pairs as rows\ninstead of columns"), transpose_switch.clone()).bx);
+
+        let png_switch = Switch::new();
+        list.append(&NamedBox::new("Rasterize graphics", Some("Embed graphics as PNG (base64-encoded)\ninstead of Svg (vectorized)"), png_switch.clone()).bx);
 
         // Figure format (Svg / Png (embedded)
         // ( ) Include table headers
@@ -1182,7 +1208,17 @@ impl ReportDialog {
                 }
             }
         });
-        Self { dialog, list, template_combo, btn_gen, files, rendered_content : Rc::new(RefCell::new(None)) }
+        Self {
+            dialog,
+            list,
+            template_combo,
+            btn_gen,
+            files,
+            rendered_content : Rc::new(RefCell::new(None)),
+            null_entry,
+            transpose_switch,
+            png_switch
+        }
     }
 
 }
