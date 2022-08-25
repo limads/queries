@@ -226,9 +226,8 @@ impl React<QueriesWorkspace> for Environment {
         let send = self.send.clone();
         ws.tab_view.connect_selected_page_notify(move|view| {
             if view.selected_page().is_some() {
-                if let Some(pages) = view.pages() {
-                    send.send(EnvironmentAction::Select(Some(pages.selection().nth(0) as usize)));
-                }
+                let pages = view.pages();
+                send.send(EnvironmentAction::Select(Some(pages.selection().nth(0) as usize)));
             } else {
                 send.send(EnvironmentAction::Select(None));
             }

@@ -27,7 +27,7 @@ pub struct OpenedScripts(MultiArchiver);
 impl OpenedScripts  {
 
     pub fn new() -> Self {
-        OpenedScripts(MultiArchiver::new())
+        OpenedScripts(MultiArchiver::new(String::from("sql")))
     }
 
     pub fn send(&self, action : MultiArchiverAction) {
@@ -52,7 +52,7 @@ impl React<SaveDialog> for OpenedScripts {
 
     fn react(&self, dialog : &SaveDialog) {
         let send = self.sender().clone();
-        dialog.dialog.connect_response(move |dialog, resp| {
+        dialog.0.dialog.connect_response(move |dialog, resp| {
             match resp {
                 ResponseType::Accept => {
                     if let Some(path) = dialog.file().and_then(|f| f.path() ) {
@@ -91,7 +91,7 @@ impl React<OpenDialog> for OpenedScripts {
 
     fn react(&self, dialog : &OpenDialog) {
         let send = self.sender().clone();
-        dialog.dialog.connect_response(move |dialog, resp| {
+        dialog.0.dialog.connect_response(move |dialog, resp| {
             match resp {
                 ResponseType::Accept => {
                     if let Some(path) = dialog.file().and_then(|f| f.path() ) {

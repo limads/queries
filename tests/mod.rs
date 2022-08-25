@@ -90,7 +90,7 @@ pub fn scripts() {
     scripts.connect_opened(|f : OpenedFile| {
 
     });
-    scripts.connect_closed(|f : (usize, usize)|{
+    scripts.connect_closed(|f : (OpenedFile, usize)|{
 
     });
     scripts.connect_close_confirm(|f : OpenedFile| {

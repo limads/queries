@@ -281,7 +281,7 @@ impl SchemaTree {
                     // let alloc = scroll.parent().unwrap().allocation();
                     // area.width = alloc.width.min(area.width);
                     // area.height = alloc.height.min(area.height);
-                    schema_popover.set_pointing_to(&area);
+                    schema_popover.set_pointing_to(Some(&area));
                     schema_popover.popup();
                 }
             }
@@ -915,9 +915,9 @@ fn configure_tree_view(tree_view : &TreeView) -> TreeStore {
 }
 
 fn icon_path(filename : &str) -> Result<String, &'static str> {
-    let exe_dir = exec_dir()?;
-    let path = exe_dir + "/../../assets/icons/" + filename;
-    Ok(path)
+    // let exe_dir = exec_dir()?;
+    // let path = exe_dir + "/../../assets/icons/" + filename;
+    Ok(format!("/home/diego/Software/queries/assets/icons/{}", filename))
 }
 
 fn exec_dir() -> Result<String, &'static str> {

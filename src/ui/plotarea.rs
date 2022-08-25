@@ -78,8 +78,8 @@ pub struct PlotView {
 
 fn draw_plot(da : &gtk4::DrawingArea, ctx : &Context, group : &mut Panel) {
     let allocation = da.allocation();
-    let w = allocation.width;
-    let h = allocation.height;
+    let w = allocation.width();
+    let h = allocation.height();
     group.draw_to_context(&ctx, 0, 0, w, h);
     // if let Ok(mut pl) = plot_ref.try_borrow_mut() {
     // }
@@ -156,8 +156,8 @@ impl PlotView {
         let parent = gtk4::DrawingArea::new();
         parent.set_draw_func(move |da, ctx, _, _| {
             let allocation = da.allocation();
-            let w = allocation.width;
-            let h = allocation.height;
+            let w = allocation.width();
+            let h = allocation.height();
             panel.draw_to_context(&ctx, 0, 0, w, h);
         });
         Self { parent }

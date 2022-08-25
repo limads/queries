@@ -107,10 +107,20 @@ impl React<OpenedScripts> for FileList {
                 add_file(&list, &info.name);
             }
         });
+        opened.connect_reopen({
+            let list = self.list.clone();
+            move |info| {
+                if let Some(row) = list.row_at_index(info.index as i32) {
+                    list.select_row(Some(&row));
+                } else {
+                    println!("Missing file {:?}, at index {}", info.path, info.index);
+                }
+            }
+        });
         opened.connect_closed({
             let list = self.list.clone();
-            move |(ix, _)| {
-                let row = list.row_at_index(ix as i32).unwrap();
+            move |(old_file, _n_remaining)| {
+                let row = list.row_at_index(old_file.index as i32).unwrap();
                 list.remove(&row);
             }
         });

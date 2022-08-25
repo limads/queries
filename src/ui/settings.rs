@@ -79,8 +79,8 @@ impl SettingsWindow {
         paned.set_halign(Align::Fill);
         paned.set_hexpand(true);
         paned.set_position(200);
-        paned.set_start_child(&list);
-        paned.set_end_child(&stack);
+        paned.set_start_child(Some(&list));
+        paned.set_end_child(Some(&stack));
         dialog.set_child(Some(&paned));
         Self { dialog, list, stack, paned }
     }
@@ -392,8 +392,8 @@ pub fn append_certificate_row(exp_row : libadwaita::ExpanderRow, host : &str, ce
 
     super::set_margins(&lbl_host, 0, 12);
     super::set_margins(&lbl_cert, 0, 12);
-    let host_img = Image::from_icon_name(Some("preferences-system-network-proxy-symbolic"));
-    let cert_img = Image::from_icon_name(Some("application-certificate-symbolic"));
+    let host_img = Image::from_icon_name("preferences-system-network-proxy-symbolic");
+    let cert_img = Image::from_icon_name("application-certificate-symbolic");
     super::set_margins(&host_img, 12, 0);
     super::set_margins(&cert_img, 12, 0);
 
@@ -442,7 +442,7 @@ pub fn append_certificate_row(exp_row : libadwaita::ExpanderRow, host : &str, ce
         let exclude_btn = exclude_btn.clone();
         let lbl_cert = lbl_cert.clone();
         move |_| {
-            let w = exclude_btn.allocation().width;
+            let w = exclude_btn.allocation().width();
             exclude_btn.set_visible(false);
             lbl_cert.set_margin_end(w);
         }

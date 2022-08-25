@@ -318,8 +318,8 @@ fn validate_conn_info() {
     // Connection URI postgresql://[userspec@][hostspec][/dbname][?paramspec]
 }
 
-#[test]
-fn conn_str_test() -> Result<(), Box<dyn Error>> {
+// #[test]
+fn conn_str_test() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
 
     // Taken from Postgres docs at https://www.postgresql.org/docs/current/libpq-connect.html
     let uris = [

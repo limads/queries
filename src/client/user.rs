@@ -14,7 +14,6 @@ use gtk4::*;
 use gtk4::prelude::*;
 use crate::client::QueriesClient;
 use std::convert::TryInto;
-// use sha2::Digest;
 use std::hash::Hash;
 use std::path::Path;
 use base64;
@@ -397,12 +396,11 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
         win.settings.editor_bx.font_btn.connect_font_set({
             let state = self.clone();
             move |btn| {
-                if let Some(title) = btn.title() {
-                    if let Some((family, sz)) = crate::ui::parse_font(&title) {
-                        let mut s = state.borrow_mut();
-                        s.editor.font_family = family;
-                        s.editor.font_size = sz;
-                    }
+                let title = btn.title().to_string();
+                if let Some((family, sz)) = crate::ui::parse_font(&title) {
+                    let mut s = state.borrow_mut();
+                    s.editor.font_family = family;
+                    s.editor.font_size = sz;
                 }
             }
         });

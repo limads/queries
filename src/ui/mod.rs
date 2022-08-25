@@ -222,14 +222,16 @@ impl QueriesContent {
         let stack = libadwaita::ViewStack::new();
         let editor = QueriesEditor::build();
         let results = QueriesResults::build();
-        let editor_page = stack.add_named(&editor.stack, Some("editor")).unwrap();
-        let results_page = stack.add_named(&results.stack, Some("results")).unwrap();
+        let editor_page = stack.add_named(&editor.stack, Some("editor"));
+        let results_page = stack.add_named(&results.stack, Some("results"));
         stack.set_visible_child_name("results");
         results_page.set_icon_name(Some("db-symbolic"));
 
         editor_page.set_icon_name(Some("accessories-text-editor-symbolic"));
         let switcher = libadwaita::ViewSwitcher::builder().stack(&stack).can_focus(false).policy(libadwaita::ViewSwitcherPolicy::Wide).build();
-        let overlay = libadwaita::ToastOverlay::builder() /*.margin_bottom(10).*/ .opacity(1.0).visible(true).build();
+        let overlay = libadwaita::ToastOverlay::new();
+        overlay.set_opacity(1.0);
+        overlay.set_visible(true);
         overlay.set_child(Some(&stack));
 
         // stack.set_visible_child_name("overview");
@@ -382,8 +384,8 @@ impl QueriesWindow {
         let content = QueriesContent::build();
         let find_dialog = FindDialog::build();
 
-        content.editor.save_dialog.dialog.set_transient_for(Some(&window));
-        content.editor.open_dialog.dialog.set_transient_for(Some(&window));
+        content.editor.save_dialog.0.dialog.set_transient_for(Some(&window));
+        content.editor.open_dialog.0.dialog.set_transient_for(Some(&window));
         content.editor.export_dialog.dialog.set_transient_for(Some(&window));
         sidebar.schema_tree.form.dialog.set_transient_for(Some(&window));
         sidebar.schema_tree.report_dialog.dialog.set_transient_for(Some(&window));
@@ -396,10 +398,10 @@ impl QueriesWindow {
 
         let paned = Paned::new(Orientation::Horizontal);
         paned.set_position(200);
-        paned.set_start_child(&sidebar.paned);
+        paned.set_start_child(Some(&sidebar.paned));
 
         // paned.set_end_child(&content.stack);
-        paned.set_end_child(&content.overlay);
+        paned.set_end_child(Some(&content.overlay));
 
         window.set_child(Some(&paned));
         window.set_titlebar(Some(&titlebar.header));
@@ -517,7 +519,7 @@ impl PackedImageLabel {
 
     pub fn build(icon_name : &str, label_name : &str) -> Self {
         let bx = Box::new(Orientation::Horizontal, 0);
-        let img = Image::from_icon_name(Some(icon_name));
+        let img = Image::from_icon_name(icon_name);
         let lbl = Label::new(Some(label_name));
         set_margins(&img, 6, 6);
         set_margins(&lbl, 6, 6);
@@ -553,7 +555,7 @@ impl PackedImageEntry {
 
     pub fn build(icon_name : &str, entry_placeholder : &str) -> Self {
         let bx = Box::new(Orientation::Horizontal, 0);
-        let img = Image::from_icon_name(Some(icon_name));
+        let img = Image::from_icon_name(icon_name);
         let entry = Entry::new();
         entry.set_placeholder_text(Some(entry_placeholder));
         set_margins(&img, 6, 6);
@@ -576,7 +578,7 @@ impl PackedImagePasswordEntry {
 
     pub fn build(icon_name : &str, entry_placeholder : &str) -> Self {
         let bx = Box::new(Orientation::Horizontal, 0);
-        let img = Image::from_icon_name(Some(icon_name));
+        let img = Image::from_icon_name(icon_name);
         let entry = PasswordEntry::new();
         entry.set_placeholder_text(Some(entry_placeholder));
         set_margins(&img, 6, 6);

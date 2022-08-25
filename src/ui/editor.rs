@@ -27,7 +27,13 @@ pub struct QueriesEditor {
     pub views : [sourceview5::View; 16],
     pub script_list : ScriptList,
     pub stack : Stack,
+
+    // This exists as an action because it interacts with libadwaita::Toast,
+    // which takes an action when clicked. This forces the MultiArchiver to
+    // close a file when the Toast button is clicked. The action argument is
+    // the index of the currently-selected file.
     pub ignore_file_save_action : gio::SimpleAction,
+
     pub save_dialog : SaveDialog,
     pub open_dialog : OpenDialog,
     pub export_dialog : ExportDialog
@@ -96,8 +102,8 @@ impl React<OpenedScripts> for QueriesEditor {
         opened.connect_closed({
             let stack = self.stack.clone();
             let views = self.views.clone();
-            move |(ix, n_left)| {
-                let buffer = views[ix].buffer();
+            move |(old_file, n_left)| {
+                let buffer = views[old_file.index].buffer();
                 buffer.set_text("");
                 if n_left == 0 {
                     stack.set_visible_child_name("list");
@@ -220,7 +226,7 @@ pub fn retrieve_statements_from_buffer(view : &sourceview5::View) -> Result<Opti
     let buffer = view.buffer();
     let opt_text : Option<String> = match buffer.selection_bounds() {
         Some((from, to,)) => {
-            from.text(&to).map(|txt| txt.to_string())
+            Some(from.text(&to).to_string())
         },
         None => {
             Some(buffer.text(
@@ -326,33 +332,12 @@ impl ScriptList {
 }*/
 
 #[derive(Debug, Clone)]
-pub struct SaveDialog {
-    pub dialog : FileChooserDialog
-}
+pub struct SaveDialog(pub(crate) archiver::SaveDialog);
 
 impl SaveDialog {
 
     pub fn build() -> Self {
-        let dialog = FileChooserDialog::new(
-            Some("Save script"),
-            None::<&Window>,
-            FileChooserAction::Save,
-            &[("Cancel", ResponseType::None), ("Save", ResponseType::Accept)]
-        );
-        dialog.connect_response(move |dialog, resp| {
-            match resp {
-                ResponseType::Close | ResponseType::Reject | ResponseType::Accept | ResponseType::Yes |
-                ResponseType::No | ResponseType::None | ResponseType::DeleteEvent => {
-                    dialog.close();
-                },
-                _ => { }
-            }
-        });
-        super::configure_dialog(&dialog);
-        let filter = FileFilter::new();
-        filter.add_pattern("*.sql");
-        dialog.set_filter(&filter);
-        Self { dialog }
+        Self(archiver::SaveDialog::build("*.sql"))
     }
 
 }
@@ -360,7 +345,7 @@ impl SaveDialog {
 impl React<MainMenu> for SaveDialog {
 
     fn react(&self, menu : &MainMenu) {
-        let dialog = self.dialog.clone();
+        let dialog = self.0.dialog.clone();
         menu.action_save_as.connect_activate(move |_,_| {
             dialog.show();
         });
@@ -371,12 +356,12 @@ impl React<MainMenu> for SaveDialog {
 impl React<OpenedScripts> for SaveDialog {
 
     fn react(&self, scripts : &OpenedScripts) {
-        let dialog = self.dialog.clone();
+        let dialog = self.0.dialog.clone();
         scripts.connect_save_unknown_path(move |path| {
             let _ = dialog.set_file(&gio::File::for_path(path));
             dialog.show();
         });
-        let dialog = self.dialog.clone();
+        let dialog = self.0.dialog.clone();
         scripts.connect_selected(move |opt_file| {
             if let Some(path) = opt_file.and_then(|f| f.path.clone() ) {
                 let _ = dialog.set_file(&gio::File::for_path(&path));
@@ -387,33 +372,12 @@ impl React<OpenedScripts> for SaveDialog {
 }
 
 #[derive(Debug, Clone)]
-pub struct OpenDialog {
-    pub dialog : FileChooserDialog
-}
+pub struct OpenDialog(pub(crate) archiver::OpenDialog);
 
 impl OpenDialog {
 
     pub fn build() -> Self {
-        let dialog = FileChooserDialog::new(
-            Some("Open script"),
-            None::<&Window>,
-            FileChooserAction::Open,
-            &[("Cancel", ResponseType::None), ("Open", ResponseType::Accept)]
-        );
-        dialog.connect_response(move |dialog, resp| {
-            match resp {
-                ResponseType::Reject | ResponseType::Accept | ResponseType::Yes | ResponseType::No |
-                ResponseType::None | ResponseType::DeleteEvent => {
-                    dialog.close();
-                },
-                _ => { }
-            }
-        });
-        super::configure_dialog(&dialog);
-        let filter = FileFilter::new();
-        filter.add_pattern("*.sql");
-        dialog.set_filter(&filter);
-        Self { dialog }
+        Self(archiver::OpenDialog::build("*.sql"))
     }
 
 }
@@ -421,7 +385,7 @@ impl OpenDialog {
 impl React<ScriptList> for OpenDialog {
 
     fn react(&self, list : &ScriptList) {
-        let dialog = self.dialog.clone();
+        let dialog = self.0.dialog.clone();
         list.open_btn.connect_clicked(move|_| {
             dialog.show()
         });
@@ -431,7 +395,7 @@ impl React<ScriptList> for OpenDialog {
 impl React<MainMenu> for OpenDialog {
 
     fn react(&self, menu : &MainMenu) {
-        let dialog = self.dialog.clone();
+        let dialog = self.0.dialog.clone();
         menu.action_open.connect_activate(move |_,_| {
             dialog.show();
         });
@@ -513,7 +477,7 @@ fn configure_view(view : &View, settings : &EditorSettings) {
 
     let ctx = view.style_context();
     ctx.add_provider(&provider, 800);
-    let lang_manager = sourceview5::LanguageManager::default().unwrap();
+    let lang_manager = sourceview5::LanguageManager::default();
     let lang = lang_manager.language("sql").unwrap();
     buffer.set_language(Some(&lang));
     connect_source_key_press(&view);
@@ -550,7 +514,7 @@ fn configure_view(view : &View, settings : &EditorSettings) {
 
     // Seems to be working, but only when you click on the the word
     // and **then** press CTRL+Space (simply pressing CTRL+space does not work).
-    let completion = view.completion().unwrap();
+    let completion = view.completion();
     let words = sourceview5::CompletionWords::new(Some("main"));
     words.register(&view.buffer());
     completion.add_provider(&words);
@@ -1045,13 +1009,12 @@ impl<'a> React<QueriesSettings> for (&'a QueriesEditor, &'a SharedUserState) {
             let mut state = self.1.clone();
             let editor = self.0.clone();
             move |btn| {
-                if let Some(s) = btn.title() {
-                    let mut state = state.borrow_mut();
-                    if let Some((font_family, font_size)) = crate::ui::parse_font(&s[..]) {
-                        state.editor.font_family = font_family;
-                        state.editor.font_size = font_size;
-                        editor.configure(&state.editor);
-                    }
+                let s = btn.title();
+                let mut state = state.borrow_mut();
+                if let Some((font_family, font_size)) = crate::ui::parse_font(&s[..]) {
+                    state.editor.font_family = font_family;
+                    state.editor.font_size = font_size;
+                    editor.configure(&state.editor);
                 }
             }
         });

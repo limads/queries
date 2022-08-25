@@ -14,8 +14,8 @@ impl QueriesSidebar {
         let file_list = FileList::build();
         let schema_tree = SchemaTree::build();
         let paned = Paned::new(Orientation::Vertical);
-        paned.set_start_child(&file_list.bx);
-        paned.set_end_child(&schema_tree.bx);
+        paned.set_start_child(Some(&file_list.bx));
+        paned.set_end_child(Some(&schema_tree.bx));
         Self { paned, schema_tree, file_list }
     }
 }

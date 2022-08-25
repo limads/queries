@@ -88,14 +88,8 @@ fn main() {
         .application_id(queries4::APP_ID)
         .build();
 
-    match libadwaita::StyleManager::default() {
-        Some(style_manager) => {
-            style_manager.set_color_scheme(libadwaita::ColorScheme::Default);
-        },
-        None => {
-            log::warn!("Could not get default libadwaita style manager");
-        }
-    }
+    let style_manager = libadwaita::StyleManager::default();
+    style_manager.set_color_scheme(libadwaita::ColorScheme::Default);
 
     /*let user_state = if let Some(s) = SharedUserState::recover(queries4::SETTINGS_PATH) {
         queries4::log_debug_if_required("User state loaded");
@@ -124,11 +118,8 @@ fn main() {
         let user_state = user_state.clone();
         move |app| {
             if let Some(display) = gdk::Display::default() {
-                if let Some(theme) = IconTheme::for_display(&display) {
-                    theme.add_search_path("/home/diego/Software/queries/assets/icons");
-                } else {
-                    log::warn!("Unable to get theme for current GDK display");
-                }
+                let theme = IconTheme::for_display(&display);
+                theme.add_search_path("/home/diego/Software/queries/assets/icons");
             } else {
                 log::warn!("Unable to get default GDK display");
             }

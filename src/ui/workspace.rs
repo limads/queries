@@ -18,30 +18,32 @@ pub struct QueriesWorkspace {
     pub bx : Box
 }
 
+fn configure_tab(tab_view : &libadwaita::TabView, tab_bar : &libadwaita::TabBar) {
+    tab_view.set_halign(Align::Fill);
+    tab_view.set_valign(Align::Fill);
+    tab_view.set_vexpand(true);
+    tab_view.set_hexpand(true);
+    tab_bar.set_valign(Align::End);
+    tab_bar.set_vexpand(false);
+    tab_bar.set_halign(Align::Fill);
+    tab_bar.set_hexpand(true);
+    tab_bar.set_view(Some(&tab_view));
+    tab_bar.set_autohide(false);
+    tab_bar.set_expand_tabs(true);
+    tab_bar.set_inverted(false);
+}
+
 impl QueriesWorkspace {
 
     pub fn build() -> Self {
         let tab_view = libadwaita::TabView::new();
-        tab_view.set_halign(Align::Fill);
-        tab_view.set_valign(Align::Fill);
-        tab_view.set_vexpand(true);
-        tab_view.set_hexpand(true);
         let tab_bar = libadwaita::TabBar::new();
-        tab_bar.set_valign(Align::End);
-        tab_bar.set_vexpand(false);
-        tab_bar.set_halign(Align::Fill);
-        tab_bar.set_hexpand(true);
-        tab_bar.set_view(Some(&tab_view));
-        tab_bar.set_autohide(false);
-        tab_bar.set_expand_tabs(true);
-        tab_bar.set_inverted(false);
+        configure_tab(&tab_view, &tab_bar);
         let bx = Box::new(Orientation::Vertical, 0);
         tab_bar.set_margin_bottom(0);
         bx.set_margin_bottom(0);
-
         bx.append(&tab_view);
         bx.append(&tab_bar);
-
         Self { tab_view, tab_bar, bx }
     }
 
@@ -49,9 +51,8 @@ impl QueriesWorkspace {
 
 pub fn close_all_pages(tab_view : &libadwaita::TabView) {
     while tab_view.n_pages() > 0 {
-        if let Some(page) = tab_view.nth_page(0) {
-            tab_view.close_page(&page);
-        }
+        let page = tab_view.nth_page(0);
+        tab_view.close_page(&page);
     }
 }
 
@@ -63,7 +64,7 @@ pub fn populate_with_tables(tab_view : &libadwaita::TabView, tables : &[Table], 
             match Panel::new_from_json(&val.to_string()) {
                 Ok(panel) => {
                     let view = PlotView::new_from_panel(panel.clone());
-                    let tab_page = tab_view.append(&view.parent).unwrap();
+                    let tab_page = tab_view.append(&view.parent);
                     configure_plot_page(&tab_page, &panel);
                     new_pages.push(tab_page);
                     continue;
@@ -72,7 +73,7 @@ pub fn populate_with_tables(tab_view : &libadwaita::TabView, tables : &[Table], 
             }
         }
         let tbl_wid = TableWidget::new_from_table(&tbl, state.execution.row_limit as usize, state.execution.column_limit as usize);
-        let tab_page = tab_view.append(&tbl_wid.scroll_window).unwrap();
+        let tab_page = tab_view.append(&tbl_wid.scroll_window);
         new_pages.push(tab_page.clone());
         configure_table_page(&tab_page, &tbl);
     }
