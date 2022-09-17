@@ -119,7 +119,7 @@ fn main() {
         move |app| {
             if let Some(display) = gdk::Display::default() {
                 let theme = IconTheme::for_display(&display);
-                theme.add_search_path("/home/diego/Software/queries/assets/icons");
+                theme.add_search_path("/home/diego/Software/gnome/queries/assets/icons");
             } else {
                 log::warn!("Unable to get default GDK display");
             }
@@ -229,7 +229,7 @@ fn main() {
 // println!("Resource search path = {:?}", theme.resource_path());
 // println!("Theme name = {:?}", theme.theme_name());
 
-// theme.add_search_path("/home/diego/Software/queries/assets/icons/hicolor/scalable/actions");
+// theme.add_search_path("/home/diego/Software/gnome/queries/assets/icons/hicolor/scalable/actions");
 // println!("{}", theme.has_icon("queries-symbolic.svg"));
 // println!("{}", theme.has_icon("queries-symbolic"));
 // let icon = theme.lookup_icon("queries-symbolic", &[], 16, 1, TextDirection::Ltr, IconLookupFlags::FORCE_SYMBOLIC).unwrap();

@@ -14,6 +14,7 @@ use itertools::Itertools;
 use std::convert::{TryFrom, TryInto};
 use crate::client::ConnectionInfo;
 use crate::client::ConnConfig;
+use crate::sql::SafetyLock;
 
 pub struct SqliteConnection {
 
@@ -137,10 +138,14 @@ impl Connection for SqliteConnection {
         }
     }
 
+    fn exec_transaction(&mut self, stmt : &AnyStatement) -> StatementOutput {
+        unimplemented!()
+    }
+    
     fn exec(&mut self, stmt : &AnyStatement, subs : &HashMap<String, String>) -> StatementOutput {
         let ans = match stmt {
-            AnyStatement::Parsed(stmt, s) => {
-                let s = format!("{}", stmt);
+            AnyStatement::Parsed(_, s) | AnyStatement::ParsedTransaction(_, s) => {
+                // let s = format!("{}", stmt);
                 self.conn.execute(&s, rusqlite::NO_PARAMS)
             },
             AnyStatement::Raw(_, s, _) => self.conn.execute(&s, rusqlite::NO_PARAMS),
@@ -427,8 +432,6 @@ impl Connection for SqliteConnection {
     /// After the statement execution status returned from the SQL engine,
     /// build a message to display to the user.
 
-
-
 /// Get all SQLite table names.
 /// TODO This will break if there is a table under the temp schema with the same name
 /// as a table under the global schema.
@@ -436,7 +439,7 @@ fn get_sqlite_tbl_names(conn : &mut SqliteConnection) -> Option<Vec<String>> {
     let tbl_query = String::from("select name from sqlite_master where type = 'table' union \
         select name from temp.sqlite_master where type = 'table';");
     // select * from temp.sqlite_master;
-    let ans = conn.try_run(tbl_query, &HashMap::new(), false)
+    let ans = conn.try_run(tbl_query, &HashMap::new(), SafetyLock::default())
         .map_err(|e| println!("{}", e) ).ok()?;
     if let Some(q_res) = ans.get(0) {
         match q_res {
@@ -457,7 +460,8 @@ fn get_sqlite_tbl_names(conn : &mut SqliteConnection) -> Option<Vec<String>> {
 
 fn get_sqlite_columns(conn : &mut SqliteConnection, tbl_name : &str) -> Option<DBObject> {
     let col_query = format!("pragma table_info({});", tbl_name);
-    let ans = conn.try_run(col_query, &HashMap::new(), false).map_err(|e| println!("{}", e) ).ok()?;
+    let ans = conn.try_run(col_query, &HashMap::new(), SafetyLock::default())
+        .map_err(|e| println!("{}", e) ).ok()?;
     let q_res = ans.get(0)?;
     match q_res {
         StatementOutput::Valid(_, col_info) => {
@@ -484,7 +488,7 @@ fn get_sqlite_columns(conn : &mut SqliteConnection, tbl_name : &str) -> Option<D
                     }
                 })?;
             let pks = Vec::new();
-            let cols = pack_column_types(names, col_types, pks)?;
+            let cols = pack_column_types(names, col_types, pks).ok()?;  
 
             // TODO pass empty schema. Treat empty schema as non-namespace qualified at query/insert/fncall commands.
             let obj = DBObject::Table{ schema : format!("public"), name : tbl_name.to_string(), cols, rels : Vec::new() };

@@ -15,10 +15,13 @@ use either::Either;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum AnyStatement {
 
-    // Parsed statement; full query
+    // Parsed statement; full statement.
     Parsed(Statement, String),
+    
+    // Parsed statement block.
+    ParsedTransaction(Vec<Statement>, String),
 
-    // Raw SQL tokens; full query; whether the statement is a query or not.
+    // Raw SQL tokens; full statement; whether the statement is a query or not.
     Raw(Vec<Token>, String, bool),
 
     Local(LocalStatement)
@@ -35,6 +38,18 @@ where
             } else {
                 None
             }
+        },
+        Some(_) | None => None
+    }
+}
+
+pub fn take_first_keyword<'a, I>(token_iter : &mut I) -> Option<Keyword>
+where
+    I : Iterator<Item=&'a Token>
+{
+    match take_while_not_whitespace(token_iter) {
+        Some(Token::Word(w)) => {
+            Some(w.keyword)
         },
         Some(_) | None => None
     }
@@ -302,12 +317,217 @@ pub fn split_statement_tokens(mut tokens : Vec<Token>) -> Result<Vec<Vec<Token>>
 
 pub enum SQLError {
 
+    /* An error was encountered at the first lexing stage (before splitting statements) */
     Lexing(String),
 
-    Parsing(String)
+    /* An error was encountered at the second parsing stage (after statements are split,
+    each statement is parsed separately, and an error was encountered */
+    Parsing(String),
+    
+    /* Parsing was successful, but running this statement is unsupported by queries,
+    such as a 'copy to' statement. */
+    Unsupported(String)
 
 }
 
+fn join_tokens(token_group : &[Token]) -> String {
+    // Reconstruct the statement to send it to the parser. This will capitalize the SQL sent by the user.
+    let mut orig = String::new();
+    for tk in token_group.iter() {
+        orig += &tk.to_string()[..];
+    }
+    orig.trim().to_string()
+}
+
+/* Tries to determine the nature of an statement that couldn't be parsed by SQLParse from its
+first keyword. */
+fn define_raw_statement(tokens : Vec<Token>) -> Result<AnyStatement, SQLError> {
+    let kw = take_first_keyword(&mut tokens.iter())
+        .ok_or(SQLError::Lexing(format!("No first token")))?;
+    let is_query = match kw {
+        Keyword::CREATE | Keyword::ALTER | Keyword::DROP | Keyword::INSERT | Keyword::UPDATE | Keyword::DELETE | Keyword::GRANT | Keyword::REVOKE => {
+            false
+        },
+        Keyword::EXPLAIN | Keyword::ANALYZE | Keyword::SELECT => {
+            true
+        },
+        _other => {
+            return Err(SQLError::Parsing(format!("Could not determine statement")));
+        }
+    };
+    Ok(AnyStatement::Raw(tokens.clone(), join_tokens(&tokens[..]), is_query))
+}
+
+pub fn parse_query_cols(query : &str) -> Result<Vec<String>, String> {
+    let dialect = dialect::PostgreSqlDialect{};
+    let mut stmts = Parser::parse_sql(&dialect, query)
+        .map_err(|e| format!("{}", e) )?;
+    if stmts.len() == 1 {
+        match stmts.remove(0) {
+            Statement::Query(query) => {
+                match *query.body {
+                    SetExpr::Select(sel) => {
+                    
+                        let mut items = Vec::new();
+                        for it in &sel.projection {
+                            match it {
+                                SelectItem::UnnamedExpr(expr) => {
+                                    items.push(format!("{}", expr));
+                                },
+                                SelectItem::ExprWithAlias { alias,.. } => {
+                                    items.push(format!("{}", alias));
+                                },
+                                SelectItem::QualifiedWildcard(obj) => {
+                                    items.push(format!("{}.* (empty)", obj));
+                                },
+                                SelectItem::Wildcard => {
+                                    items.push(format!("* (empty)"));
+                                }
+                            }
+                        }
+                        
+                        Ok(items)
+                    },
+                    
+                    // If there is a parenthesized nested query, repeat the call with the inner item.
+                    SetExpr::Query(q) => {
+                        parse_query_cols(&format!("{}", q))
+                    },
+                    
+                    // Since set ops (union, intersect) always must have all operands with
+                    // the same cols, it is reasonable to repeat the call with the first operand.
+                    SetExpr::SetOperation { left, .. } => {
+                        parse_query_cols(&format!("{}", left))
+                    },
+                    
+                    _ => {
+                        Err(format!("Expected select"))
+                    }
+                }
+            },
+            _ => {
+                Err(format!("Statement is not query"))
+            }
+        }
+    } else {
+        Err(format!("Invalid number of statements"))
+    }
+}
+
+pub fn fully_parse_sql(
+    sql : &str
+) -> Result<Vec<AnyStatement>, SQLError> {
+
+    let mut tokens = extract_postgres_tokens(&sql)
+        .map_err(|e| SQLError::Lexing(e) )?;
+
+    // It is important to reject queries with placeholder tokens, because
+    // the postgres driver panics on any placeholder/argument mismatch, and
+    // the call never passes any statement arguments.
+    for (ix, tk) in tokens.iter().enumerate() {
+        match tk {
+            Token::Placeholder(pl) => {
+                
+                if let Some(next_tk) = tokens.get(ix + 1) {
+                    match next_tk {
+                        Token::Placeholder(_) => {
+                            return Err(SQLError::Unsupported(format!("Unsupported SQL token: '$$'")));
+                        },
+                        _ => { }
+                    }
+                }
+                
+                return Err(SQLError::Unsupported(format!("Unsupported SQL token: '{}'", pl)));
+            },
+            _ => { }
+        }
+    }
+    
+    let dialect = dialect::PostgreSqlDialect{};
+    let mut any_stmts = Vec::new();
+   
+    println!("{}", sql);
+    
+    match Parser::parse_sql(&dialect, sql) {
+        
+        Ok(mut stmts) => {
+        
+            let mut curr_transaction = None;
+            while stmts.len() > 0 {
+                
+                // println!("Parsed: {}", stmt);
+                
+                match stmts.remove(0) {
+                    Statement::Copy{ .. } => {
+                        return Err(SQLError::Unsupported(format!("Unsupported statement (copy)")));
+                    },
+                    Statement::StartTransaction { modes }  => {
+                        if curr_transaction.is_some() {
+                            return Err(SQLError::Unsupported(format!("Nested transactions are unsupported.")));
+                        }
+                        curr_transaction = Some(vec![Statement::StartTransaction { modes }]);
+                    },
+                    Statement::Commit { chain }  => {
+                        if let Some(mut ct) = curr_transaction.take() {
+                            ct.push(Statement::Commit { chain });
+                            let mut final_s = String::new();
+                            for stmt in &ct {
+                                final_s += &format!("{};\n", stmt);
+                            }
+                            any_stmts.push(AnyStatement::ParsedTransaction(ct, final_s));
+                        } else {
+                            return Err(SQLError::Parsing(format!("Commit without any open transactions")));
+                        }
+                    },
+                    other_stmt => { 
+                        if let Some(ref mut curr_t) = curr_transaction {
+                            curr_t.push(other_stmt);
+                        } else {
+                            let orig = format!("{}", other_stmt);
+                            any_stmts.push(AnyStatement::Parsed(other_stmt.clone(), orig));
+                        }
+                    }
+                }
+            }
+        },
+        
+        Err(e) => {
+            // let raw_stmt = define_raw_statement(token_group)
+            //    .map_err(|_| SQLError::Parsing(format!("{}", e)) )?;
+            // any_stmts.push(raw_stmt);
+            return Err(SQLError::Parsing(format!("{}", e)));
+        }
+    }
+    
+    /*let split_tokens = split_statement_tokens(tokens)
+        .map_err(|e| SQLError::Lexing(e) )?;
+    for token_group in split_tokens {
+        match Parser::new(token_group.clone(), &dialect).parse_statement() {
+            Ok(stmt) => {
+                // println!("{:?}", stmt);
+                match stmt {
+                    Statement::Copy{ .. } => {
+                        return Err(SQLError::Unsupported(format!("Unsupported statement (copy)")));
+                    },
+                    other_stmt => { 
+                        let orig = join_tokens(&token_group[..]);
+                        any_stmts.push(AnyStatement::Parsed(other_stmt.clone(), orig));
+                    }
+                }
+            },
+            Err(e) => {
+                // let raw_stmt = define_raw_statement(token_group)
+                //    .map_err(|_| SQLError::Parsing(format!("{}", e)) )?;
+                // any_stmts.push(raw_stmt);
+                SQLError::Parsing(format!("{}", e))
+            }
+        }
+    }*/
+    
+    Ok(any_stmts)
+}
+
+/* Parse SQL, and continue to execute even if some statements could not be parsed. */
 /// Parse this query sequence, first splitting the token vector
 /// at the semi-colons (delimiting statements) and then parsing
 /// each statement individually. On error, the un-parsed statement is returned.
@@ -317,7 +537,8 @@ pub fn partially_parse_sql(
     subs : &HashMap<String, String>
 ) -> Result<Vec<AnyStatement>, SQLError> {
 
-    let mut tokens = extract_postgres_tokens(&sql).map_err(|e| SQLError::Lexing(e) )?;
+    let mut tokens = extract_postgres_tokens(&sql)
+        .map_err(|e| SQLError::Lexing(e) )?;
 
     // println!("{:?}", tokens);
 
@@ -327,13 +548,6 @@ pub fn partially_parse_sql(
 
     let mut any_stmts = Vec::new();
     for token_group in split_tokens {
-
-        // Reconstruct the statement to send it to the parser. This will capitalize the SQL sent by the user.
-        let mut orig = String::new();
-        for tk in token_group.iter() {
-            orig += &tk.to_string()[..];
-        }
-        let orig = orig.trim().to_string();
 
         // println!("Recovered orig = {:?}", orig);
 
@@ -351,7 +565,7 @@ pub fn partially_parse_sql(
         // error, which does not happen in this case.
 
         // let mut parser = Parser::new(token_group, &dialect::PostgreSqlDialect{});
-        match Parser::new(token_group.clone(), &dialect::PostgreSqlDialect{}).parse_statement() {
+        match Parser::new(token_group.clone(), &dialect).parse_statement() {
             Ok(stmt) => {
 
                 // Parsing each group of tokens should yield exactly one statement.
@@ -378,6 +592,7 @@ pub fn partially_parse_sql(
 
                     },
                     other_stmt => {
+                        let orig = join_tokens(&token_group[..]);
                         any_stmts.push(AnyStatement::Parsed(other_stmt.clone(), orig));
                     },
                     // None => {

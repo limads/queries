@@ -13,7 +13,7 @@ postgres = { version = "0.19.2", features = [ "with-chrono-0_4", "with-serde_jso
 # postgres-openssl = "0.5.0"
 postgres-native-tls = "0.5.0"
 native-tls = "0.2"
-sqlparser = "0.14.0"
+sqlparser = "0.23.0"
 regex = { version = "1.4.2" }
 rusqlite = { version="0.24.2", features=["load_extension", "csvtab", "vtab", "functions", "serde_json", "backup", "column_decltype" ] }
 rust_decimal = { version = "1.10.1", features = ["db-postgres"] }

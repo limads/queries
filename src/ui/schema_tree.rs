@@ -917,7 +917,7 @@ fn configure_tree_view(tree_view : &TreeView) -> TreeStore {
 fn icon_path(filename : &str) -> Result<String, &'static str> {
     // let exe_dir = exec_dir()?;
     // let path = exe_dir + "/../../assets/icons/" + filename;
-    Ok(format!("/home/diego/Software/queries/assets/icons/{}", filename))
+    Ok(format!("/home/diego/Software/gnome/queries/assets/icons/{}", filename))
 }
 
 fn exec_dir() -> Result<String, &'static str> {

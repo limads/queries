@@ -31,6 +31,7 @@ use crate::tables::field::Field;
 use crate::client::ConnectionInfo;
 use std::time::SystemTime;
 use crate::client::{ConnURI, ConnConfig};
+use sqlparser::ast::Statement;
 
 pub struct PostgresConnection {
 
@@ -46,6 +47,9 @@ pub struct PostgresConnection {
 
 impl PostgresConnection {
 
+    /* Tries to build a new connection from a ConnURI. Takes the URI
+    by value, guaranteeing that after this point, the queries client state
+    does not hold in memory any security-sensitive information. */
     pub fn try_new(uri : ConnURI) -> Result<Self, String> {
 
         if let Some(cert) = uri.info.cert.as_ref() {
@@ -97,6 +101,36 @@ impl PostgresConnection {
 
 }
 
+fn build_table(rows : &[postgres::Row], query : &str) -> StatementOutput {
+    if rows.len() == 0 {
+        if let Ok(cols) = crate::sql::parsing::parse_query_cols(query) {
+            return StatementOutput::Valid(query.to_string(), Table::empty(cols));
+        }
+    }
+    match Table::from_rows(rows) {
+        Ok(mut tbl) => {
+            if let Some((name, relation)) = crate::sql::table_name_from_sql(query) {
+                tbl.set_name(Some(name));
+                if !relation.is_empty() {
+                    tbl.set_relation(Some(relation));
+                }
+            }
+            
+            /*if tbl.names().iter().unique().count() == tbl.names().len() {
+                StatementOutput::Valid(query.to_string(), tbl)
+            } else {
+
+                // The reporing feature relies on unique column names. Perhaps move
+                // this error to the reporting validation.
+                StatementOutput::Invalid(crate::sql::build_error_with_stmt("Non-unique column names", &query[..]), false)
+            }*/
+            StatementOutput::Valid(query.to_string(), tbl)
+            
+        },
+        Err(e) => StatementOutput::Invalid(crate::sql::build_error_with_stmt(&e, &query[..]), false)
+    }
+}
+
 impl Connection for PostgresConnection {
 
     fn configure(&mut self, cfg : ConnConfig) {
@@ -119,25 +153,7 @@ impl Connection for PostgresConnection {
         // println!("Executing: {}", query);
         match self.conn.query(&query[..], &[]) {
             Ok(rows) => {
-                match Table::from_rows(&rows[..]) {
-                    Ok(mut tbl) => {
-                        if let Some((name, relation)) = crate::sql::table_name_from_sql(query) {
-                            tbl.set_name(Some(name));
-                            if !relation.is_empty() {
-                                tbl.set_relation(Some(relation));
-                            }
-                        }
-                        if tbl.names().iter().unique().count() == tbl.names().len() {
-                            StatementOutput::Valid(query.to_string(), tbl)
-                        } else {
-
-                            // The reporing feature relies on unique column names. Perhaps move
-                            // this error to the reporting validation.
-                            StatementOutput::Invalid(crate::sql::build_error_with_stmt("Non-unique column names", &query[..]), false)
-                        }
-                    },
-                    Err(e) => StatementOutput::Invalid(crate::sql::build_error_with_stmt(&e, &query[..]), false)
-                }
+                build_table(&rows[..], query)
             },
             Err(e) => {
                 let mut e = e.to_string();
@@ -147,6 +163,76 @@ impl Connection for PostgresConnection {
         }
     }
 
+    fn exec_transaction(&mut self, any_stmt : &AnyStatement) -> StatementOutput {
+        match any_stmt {
+            AnyStatement::ParsedTransaction(stmts, _) => {
+                match self.conn.transaction() {
+                    Ok(mut tr) => {
+                        let mut total_changed = 0;
+                        for stmt in stmts {
+                            match &stmt {
+                                Statement::Commit{ .. } => {
+                                    match tr.commit() {
+                                        Ok(_) => {
+                                            return crate::sql::build_statement_result(any_stmt, total_changed as usize);
+                                        },
+                                        Err(e) => {
+                                            let mut e = e.to_string();
+                                            format_pg_string(&mut e);
+                                            return StatementOutput::Invalid(e, true);
+                                        }
+                                    }
+                                },
+                                Statement::Query(_) => {
+                                    match tr.query(&format!("{}", stmt), &[]) {
+                                        Ok(_) => {
+                                            // Queries inside transactions are not shown for now.
+                                        },
+                                        Err(e) => {
+                                            let mut e = e.to_string();
+                                            format_pg_string(&mut e);
+                                            return StatementOutput::Invalid(e, true);
+                                        }
+                                    }
+                                },
+                                other_stmt => {
+                                    match tr.execute(&format!("{}", stmt), &[]) {
+                                        Ok(n) => {
+                                            total_changed += n;
+                                        },
+                                        Err(e) => {
+                                            let mut e = e.to_string();
+                                            format_pg_string(&mut e);
+                                            return StatementOutput::Invalid(e, true);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Won't really be called, if the statement set returns early on a commit statement
+                        // (guaranteed at the parsing stage). But this guarantees that commit isn't called automatically
+                        // when tr goes out of scope and its destructor is called.
+                        match tr.rollback() {
+                            Ok(_) => {
+                                StatementOutput::Invalid(format!("Transaction wasn't commited"), false)
+                            },
+                            Err(e) => {
+                                StatementOutput::Invalid(format!("{}",e), false)
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        StatementOutput::Invalid(format!("{}",e), false)    
+                    }
+                }
+            },
+            _ => {
+                StatementOutput::Invalid(format!("Expected transaction"), false)
+            }
+        }
+    }
+    
     fn exec(&mut self, stmt : &AnyStatement, subs : &HashMap<String, String>) -> StatementOutput {
         // let final_stmt = substitute_if_required(&s, subs);
 
@@ -159,8 +245,8 @@ impl Connection for PostgresConnection {
         // does not recognize create function for now.
 
         let ans = match stmt {
-            AnyStatement::Parsed(stmt, s) => {
-                let s = format!("{}", stmt);
+            AnyStatement::Parsed(_, s) | AnyStatement::ParsedTransaction(_, s) => {
+                // let s = format!("{}", stmt);
                 // let final_statement = substitute_if_required(&s, subs);
                 // println!("Final statement: {}", final_statement);
                 self.conn.execute(&s[..], &[])
@@ -399,7 +485,7 @@ fn get_postgres_functions(conn : &mut PostgresConnection, schema : &str) -> Opti
         order by proname;
         "#, schema);
 
-    let ans = conn.try_run(fn_query, &HashMap::new(), false) /*.map_err(|e| println!("{}", e) )*/ .ok()?;
+    let ans = conn.try_run(fn_query, &HashMap::new(), SafetyLock::default()) /*.map_err(|e| println!("{}", e) )*/ .ok()?;
     match ans.get(0)? {
         StatementOutput::Valid(_, fn_info) => {
             let mut fns = Vec::new();
@@ -531,7 +617,7 @@ fn get_postgres_schemata(conn : &mut PostgresConnection) -> Option<HashMap<Strin
     let tbl_query = String::from("select schemaname::text, tablename::text \
         from pg_catalog.pg_tables \
         where schemaname != 'pg_catalog' and schemaname != 'information_schema';");
-    let ans = conn.try_run(tbl_query, &HashMap::new(), false)
+    let ans = conn.try_run(tbl_query, &HashMap::new(), SafetyLock::default())
         /*.map_err(|e| println!("{}", e) )*/ .ok()?;
     let q_res = ans.get(0)?;
     match q_res {
@@ -577,7 +663,7 @@ fn get_postgres_views(conn : &mut PostgresConnection, schema : &str) -> Option<V
     from information_schema.views
     where table_schema like '{}' and table_schema not in ('information_schema', 'pg_catalog')
     order by schema_name, view_name;"#, schema);
-    let ans = conn.try_run(view_query, &HashMap::new(), false).ok()?;
+    let ans = conn.try_run(view_query, &HashMap::new(), SafetyLock::default()).ok()?;
     match ans.get(0)? {
         StatementOutput::Valid(_, view_info) => {
             let mut views = Vec::new();
@@ -621,7 +707,7 @@ fn get_postgres_pks(
         tbl_name,
         schema_name
     );
-    let ans = conn.try_run(pk_query, &HashMap::new(), false) /*.map_err(|e| println!("{}", e) )*/ .ok()?;
+    let ans = conn.try_run(pk_query, &HashMap::new(), SafetyLock::default()) /*.map_err(|e| println!("{}", e) )*/ .ok()?;
     if let Some(q_res) = ans.get(0) {
         match q_res {
             StatementOutput::Valid(_, col_info) => {
@@ -662,7 +748,7 @@ fn get_postgres_relations(conn : &mut PostgresConnection, schema_name : &str, tb
         tbl_name,
         schema_name
     );
-    let ans = conn.try_run(rel_query, &HashMap::new(), false) /*().map_err(|e| println!("{}", e) ) */ .ok()?;
+    let ans = conn.try_run(rel_query, &HashMap::new(), SafetyLock::default()) /*().map_err(|e| println!("{}", e) ) */ .ok()?;
     if let Some(q_res) = ans.get(0) {
         match q_res {
             StatementOutput::Valid(_, col_info) => {
@@ -698,7 +784,7 @@ fn get_postgres_relations(conn : &mut PostgresConnection, schema_name : &str, tb
 fn get_postgres_columns(conn : &mut PostgresConnection, schema_name : &str, tbl_name : &str) -> Option<DBObject> {
     let col_query = format!("select column_name::text, data_type::text \
         from information_schema.columns where table_name = '{}' and table_schema='{}';", tbl_name, schema_name);
-    let ans = conn.try_run(col_query, &HashMap::new(), false)
+    let ans = conn.try_run(col_query, &HashMap::new(), SafetyLock::default())
         /*.map_err(|e| println!("{}", e) )*/ .ok()?;
     if let Some(q_res) = ans.get(0) {
         match q_res {
@@ -708,7 +794,7 @@ fn get_postgres_columns(conn : &mut PostgresConnection, schema_name : &str, tbl_
                 let col_types = col_info.get_column(1)
                     .and_then(|c| { let s : Option<Vec<String>> = c.clone().try_into().ok(); s })?;
                 let pks = get_postgres_pks(conn, schema_name, tbl_name).unwrap_or(Vec::new());
-                let cols = crate::sql::pack_column_types(names, col_types, pks)?;
+                let cols = crate::sql::pack_column_types(names, col_types, pks).ok()?;
                 let rels = get_postgres_relations(conn, schema_name, tbl_name).unwrap_or(Vec::new());
 
                 let obj = DBObject::Table{ schema : schema_name.to_string(), name : tbl_name.to_string(), cols, rels };

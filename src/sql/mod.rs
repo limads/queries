@@ -62,6 +62,45 @@ use self::notify::*;
 
 // use listener::*;
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SafetyLock {
+    pub accept_ddl : bool,
+    pub accept_dml : bool
+}
+
+fn safety_msg(stmt : &str) -> Result<(), String> {
+    Err(format!("Cannot execute {} statement (disabled at settings)", stmt))
+}
+
+impl SafetyLock {
+
+    pub fn accepts(&self, stmt : &Statement) -> Result<(), String> {
+        match (stmt, self.accept_dml) {
+            (Statement::Delete { .. }, false) => {
+                safety_msg("delete")
+            },
+            (Statement::Update { .. }, false) => {
+                safety_msg("update")
+            },
+            (other, _) => match (other, self.accept_ddl) { 
+                (Statement::Truncate { .. }, false) => {
+                    safety_msg("truncate")
+                },
+                (Statement::Drop { .. }, false) => {
+                    safety_msg("drop")
+                },
+                (Statement::AlterTable { .. }, false) => {
+                    safety_msg("alter")
+                },
+                _ => {
+                    Ok(())
+                }
+            }
+        }
+    }
+    
+}
+
 #[cfg(feature="arrowext")]
 use datafusion::execution::context::ExecutionContext;
 
@@ -293,6 +332,9 @@ pub fn build_statement_result(any_stmt : &AnyStatement, n : usize) -> StatementO
             },
             _ => StatementOutput::Statement(format!("Statement executed"))
         },
+        AnyStatement::ParsedTransaction(stmts, _) => {
+            StatementOutput::Statement(format!("Transaction executed ({} statements, {} rows modified)", stmts.len(), n))
+        },
         AnyStatement::Raw(_, s, _) => {
 
             // Process statements that make sense to PostgreSQL but for some reason were not parsed by sqlparser.
@@ -371,7 +413,7 @@ pub fn append_relation(t_expr : &TableFactor, out : &mut String) {
             }
             *out += &name.to_string();
         },
-        TableFactor::Derived{ .. } | TableFactor::NestedJoin(_) | TableFactor::TableFunction{ .. } => {
+        TableFactor::Derived{ .. } | TableFactor::NestedJoin{ .. } | TableFactor::TableFunction{ .. } | TableFactor::UNNEST { .. } => {
 
         }
     }
@@ -381,7 +423,7 @@ pub fn table_name_from_sql(sql : &str) -> Option<(String, String)> {
     let dialect = PostgreSqlDialect{};
     let ast = Parser::parse_sql(&dialect, sql).ok()?;
     if let Some(Statement::Query(q)) = ast.get(0) {
-        if let SetExpr::Select(s) = &q.body {
+        if let SetExpr::Select(s) = q.body.as_ref() {
             let mut from_names = String::new();
             let mut relation = String::new();
             for t_expr in s.from.iter() {
@@ -416,25 +458,24 @@ pub fn pack_column_types(
     col_names : Vec<String>,
     col_types : Vec<String>,
     pks : Vec<String>
-) -> Option<Vec<(String, DBType, bool)>> {
+) -> Result<Vec<(String, DBType, bool)>, Box<dyn Error>> {
     if col_names.len() != col_types.len() {
-        println!("Column names different than column types length");
-        return None;
+        return Err("Column names different than column types length".into());
     }
     let mut types = Vec::new();
     for ty in col_types {
         if let Ok(t) = ty.parse::<DBType>() {
             types.push(t);
         } else {
-            println!("Unable to parse type: {:?}", ty);
-            return None;
+            println!();
+            return Err(format!("Unable to parse type: {:?}", ty).into());
         }
     }
     let cols : Vec<(String, DBType, bool)> = col_names.iter()
         .zip(types.iter())
         .map(|(s1, s2)| (s1.clone(), s2.clone(), pks.iter().find(|pk| &pk[..] == &s1[..]).is_some() ))
         .collect();
-    Some(cols)
+    Ok(cols)
 }
 
 pub fn wait_command_execution(call : &str, exec : &Arc<Mutex<(Executor, String)>>) -> Result<String, String> {

@@ -13,6 +13,8 @@ use std::fs::File;
 use std::io::{Read, Write};
 use postgres::Client;
 
+/* Report requires that all tables return at least one row. */
+
 // cat data.csv | queries report -l field.fodt > out.fodt
 
 /*

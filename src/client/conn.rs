@@ -83,7 +83,7 @@ impl Default for ConnectionInfo {
             host : String::from("Host"),
             user : String::from("User"),
             database : String::from("Database"),
-            dt : Local::now().to_string(),
+            dt : Local::now().to_string(),  
             // details : None,
             cert : None
         }
@@ -106,6 +106,7 @@ pub enum ConnectionAction {
     // ViewState(Vec<ConnectionInfo>)
 }
 
+// TODO rename to ConnectionHistory.
 pub struct ConnectionSet {
 
     final_state : Rc<RefCell<Vec<ConnectionInfo>>>,
@@ -321,20 +322,18 @@ fn validate_conn_info() {
 // #[test]
 fn conn_str_test() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
 
-    // Taken from Postgres docs at https://www.postgresql.org/docs/current/libpq-connect.html
-    let uris = [
-        "postgresql://",
-        "postgresql://localhost",
-        "postgresql://localhost:5433",
-        "postgresql://localhost/mydb",
-        "postgresql://user@localhost",
-        "postgresql://user:secret@localhost",
-
-        // Configurations are unsupported, since the conn str is auto-generated.
-        // But eventually the settings GUI might include those URI parameters as well.
-        "postgresql://other@localhost/otherdb?connect_timeout=10&application_name=myapp",
-        "postgresql://host1:123,host2:456/somedb?target_session_attrs=any&application_name=myapp"
-    ];
+    // Reference: https://www.postgresql.org/docs/current/libpq-connect.html
+    // Eventually the settings GUI might include those URI parameters as well.
+    // "postgresql://other@localhost/otherdb?connect_timeout=10&application_name=myapp",
+    // "postgresql://host1:123,host2:456/somedb?target_session_attrs=any&application_name=myapp"
+    
+    let info_noport = ConnectionInfo { host : format!("localhost"), user : format!("user"), database : format!("mydb"), ..Default::default() };
+    let uri = ConnURI::new(info_noport, "secret").unwrap();
+    assert!(&uri.uri[..] == "postgresql://user:secret@localhost:5432/mydb");
+    
+    let info_port = ConnectionInfo { host : format!("localhost:1234"), user : format!("user2"), database : format!("mydb2"), ..Default::default() };
+    let uri_port = ConnURI::new(info_port, "secret2").unwrap();
+    assert!(&uri_port.uri[..] == "postgresql://user2:secret2@localhost:1234/mydb2");
 
     Ok(())
 
@@ -342,13 +341,69 @@ fn conn_str_test() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
 
 /// Short-lived data structure used to collect information from the connection
 /// form. The URI contains all the credentials (including password) to connect
-/// to the database. Only the info field is persisted after the connection is established.
+/// to the database. Only the info field is persisted in the client component
+/// memory after the connection is established (or establishing it fails). This
+/// structure should never implement serialize, and/or be persisted to disk.
 #[derive(Debug, Clone)]
 pub struct ConnURI {
     pub info : ConnectionInfo,
     pub uri : String
 }
 
+impl ConnURI {
+
+    /* Builds a connection URI from the GTK widgets */
+    pub fn new(
+        info : ConnectionInfo,
+        password : &str
+    ) -> Result<ConnURI, String> {
+        
+        if info.user.chars().any(|c| c == ':' ) {
+            return Err(String::from("User field cannot contain ':' character"));
+        }
+        
+        if info.host.chars().any(|c| c == ':' ) {
+            return Err(String::from("Host field cannot contain ':' character"));
+        }
+
+        let mut uri = "postgresql://".to_owned();
+        uri += &info.user;
+        uri += ":";
+
+        if password.is_empty() {
+            return Err(format!("Missing password"));
+        }
+        uri += password;
+
+        uri += "@";
+        let split_port : Vec<&str> = info.host.split(":").collect();
+        let (host_prefix, port) = match split_port.len() {
+            0..=1 => {
+                (split_port[0], None)
+            },
+            2 => {
+                (split_port[0], Some(split_port[1]))
+            },
+            _n => {
+                return Err(format!("Host string can contain only a single colon"));
+            }
+        };
+        uri += host_prefix;
+        uri += ":";
+        if let Some(p) = port {
+            uri += p;
+        } else {
+            uri += "5432";
+        }
+        uri += "/";
+        uri += &info.database;
+        Ok(ConnURI { info, uri })
+    }
+
+}
+
+/* Extract connection info from GTK widgets (except password, which is held separately 
+at the uri field of ConnURI. */
 fn extract_conn_info(host_entry : &Entry, db_entry : &Entry, user_entry : &Entry) -> Result<ConnectionInfo, String> {
     let mut host_s = host_entry.text().as_str().to_owned();
     if host_s.is_empty() {
@@ -369,47 +424,15 @@ fn extract_conn_info(host_entry : &Entry, db_entry : &Entry, user_entry : &Entry
     Ok(info)
 }
 
-fn generate_conn_uri(
+fn generate_conn_uri_from_entries(
     host_entry : &Entry,
     db_entry : &Entry,
     user_entry : &Entry,
     password_entry : &PasswordEntry
 ) -> Result<ConnURI, String> {
     let info = extract_conn_info(host_entry, db_entry, user_entry)?;
-
-    let mut uri = "postgresql://".to_owned();
-    uri += &info.user;
-    uri += ":";
-
-    let password_s = password_entry.text().as_str().to_owned();
-    if password_s.is_empty() {
-        return Err(format!("Missing password"));
-    }
-    uri += &password_s;
-
-    uri += "@";
-    let split_port : Vec<&str> = info.host.split(":").collect();
-    let (host_prefix, port) = match split_port.len() {
-        0..=1 => {
-            (split_port[0], None)
-        },
-        2 => {
-            (split_port[0], Some(split_port[1]))
-        },
-        _n => {
-            return Err(format!("Host string can contain only a single colon"));
-        }
-    };
-    uri += host_prefix;
-    uri += ":";
-    if let Some(p) = port {
-        uri += p;
-    } else {
-        uri += "5432";
-    }
-    uri += "/";
-    uri += &info.database;
-    Ok(ConnURI { info, uri })
+    let pwd = password_entry.text().as_str().to_owned();
+    ConnURI::new(info, &pwd)
 }
 
 pub enum ErrorKind {
@@ -481,15 +504,14 @@ pub struct ActiveConnection {
 
 }
 
-pub struct ActiveConnState {
-
-}
+// pub struct ActiveConnState {
+// }
 
 impl ActiveConnection {
 
-    pub fn final_state(&self) -> ActiveConnState {
-        ActiveConnState { }
-    }
+    //pub fn final_state(&self) -> ActiveConnState {
+    //    ActiveConnState { }
+    //}
 
     pub fn sender(&self) -> &glib::Sender<ActiveConnectionAction> {
         &self.send
@@ -507,7 +529,13 @@ impl ActiveConnection {
         let (send, recv) = glib::MainContext::channel::<ActiveConnectionAction>(glib::source::PRIORITY_DEFAULT);
         let on_schema_update : Callbacks<Option<Vec<DBObject>>> = Default::default();
         let on_object_selected : Callbacks<Option<DBObject>> = Default::default();
-        let mut active_schedule = Rc::new(RefCell::new(false));
+        
+        /* Active schedule, unlike the other state variables, needs to be wrapped in a RefCell
+        because it is shared with any new callbacks that start when the user schedule a set of statements. */
+        let active_schedule = Rc::new(RefCell::new(false));
+        
+        // Thread that waits for SQL statements via the standard library mpsc channels (with a
+        // single producer).
         let mut listener = SqlListener::launch({
             let send = send.clone();
             move |mut results, mode| {
@@ -521,8 +549,17 @@ impl ActiveConnection {
                 }
             }
         });
+        
+        /* Keeps the current database schema. Must be Some(schema) when connected,
+        or None when not connected OR database information could not be received after
+        connection (those two conditions aren't discriminated). Potentially updated when
+        queries executes a DDL statement (create table, create view...). */
         let mut schema : Option<Vec<DBObject>> = None;
+        
+        /* Keeps the currently-selected object at the schema tree (might be a table, view,
+        column or schema. Must necessarily be a node of the schema variable above. */
         let mut selected_obj : Option<DBObject> = None;
+        
         recv.attach(None, {
             let send = send.clone();
             let (on_connected, on_disconnected, on_error, on_exec_result, on_single_query_result) = (
@@ -539,7 +576,8 @@ impl ActiveConnection {
             move |action| {
                 match action {
 
-                    // At this stage, the connection URI was successfully parsed, but the connection wasn't established yet.
+                    // At this stage, the connection URI was successfully parsed, 
+                    // but the connection hasn't been established yet.
                     ActiveConnectionAction::ConnectRequest(mut uri) => {
 
                         // Spawn a thread that captures the database connection URI. The URI
@@ -581,33 +619,59 @@ impl ActiveConnection {
                         }
                         on_connected.call((info, db_info));
                     },
+                    
                     ActiveConnectionAction::Disconnect => {
                         schema = None;
                         selected_obj = None;
+                        active_schedule.replace(false);
                         on_disconnected.call(());
                     },
+                    
+                    // When the user clicks the exec button or activates the execute action.
                     ActiveConnectionAction::ExecutionRequest(stmts) => {
 
-                        if listener.is_working() {
+                        if *(active_schedule.borrow()) {
+                            on_error.call(format!("Attempted to execute statement during active schedule"));
+                            return glib::Continue(true);
+                        }
+                        
+                        if listener.is_running() {
                             // This shouldn't happen. The user is prevented from sending statements
                             // when the engine is working.
                             on_error.call(format!("Previous statement not completed yet."));
                             return glib::Continue(true);
                         }
 
-                        match listener.send_commands(stmts, HashMap::new(), true, user_state.borrow().execution.statement_timeout as usize) {
+                        let us = user_state.borrow();
+                        match listener.send_commands(stmts, HashMap::new(), us.safety(), us.execution.statement_timeout as usize) {
                             Ok(_) => { },
                             Err(e) => {
                                 on_error.call(e.clone());
                             }
                         }
                     },
+                    
+                    // SingleQueryRequest is used when the schema tree is useed to generate a report.
                     ActiveConnectionAction::SingleQueryRequest => {
+                    
+                        if *(active_schedule.borrow()) {
+                            on_error.call(format!("Attempted to execute statement during active schedule"));
+                            return glib::Continue(true);
+                        }
+                        
+                        if listener.is_running() {
+                            // This shouldn't happen. The user is prevented from sending statements
+                            // when the engine is working.
+                            on_error.call(format!("Previous statement not completed yet."));
+                            return glib::Continue(true);
+                        }
+                        
                         match &selected_obj {
                             Some(DBObject::View { schema, name, .. }) | Some(DBObject::Table { schema, name, .. }) => {
                                 let cmd = format!("select * from {schema}.{name};");
                                 let timeout = user_state.borrow().execution.statement_timeout as usize;
-                                match listener.send_single_command(cmd, timeout) {
+                                let us = user_state.borrow();
+                                match listener.send_single_command(cmd, timeout, us.safety()) {
                                     Ok(_) => { },
                                     Err(e) => {
                                         on_error.call(e.clone());
@@ -617,7 +681,15 @@ impl ActiveConnection {
                             _ => { }
                         }
                     },
+                    
+                    // Execute action was clicked while execution mode is set to scheduled.
                     ActiveConnectionAction::StartSchedule(stmts) => {
+                    
+                        if *(active_schedule.borrow()) {
+                            on_error.call(format!("Tried to start schedule twice"));
+                            return glib::Continue(true);
+                        }
+                        
                         active_schedule.replace(true);
                         glib::timeout_add_local(Duration::from_secs(user_state.borrow().execution.execution_interval as u64), {
                             let active_schedule = active_schedule.clone();
@@ -628,15 +700,16 @@ impl ActiveConnection {
 
                                 // Just ignore this schedule step if the previous statement is not
                                 // executed yet. Queries will try to execute it again at the next timeout interval.
-                                if listener.is_working() {
+                                if listener.is_running() {
                                     return Continue(true);
                                 }
 
+                                let us = user_state.borrow();
                                 let send_ans = listener.send_commands(
                                     stmts.clone(),
                                     HashMap::new(),
-                                    true,
-                                    user_state.borrow().execution.statement_timeout as usize
+                                    us.safety(),
+                                    us.execution.statement_timeout as usize
                                 );
                                 match send_ans {
                                     Ok(_) => { },
@@ -644,13 +717,24 @@ impl ActiveConnection {
                                         on_error.call(e.clone());
                                     }
                                 }
-                                Continue(*active_schedule.borrow())
+                                let should_continue = *active_schedule.borrow();
+                                Continue(should_continue)
                             }
                         });
                     },
+                    
+                    // Execution was un-toggled in scheduled mode.
                     ActiveConnectionAction::EndSchedule => {
+                    
+                        if !*(active_schedule.borrow()) {
+                            on_error.call(format!("Tried to end schedule, but there is no active schedule."));
+                            return glib::Continue(true);
+                        }
+                        
                         active_schedule.replace(false);
                     },
+                    
+                    // Table import at the schema tree.
                     ActiveConnectionAction::TableImport(csv_path) => {
                         if let Some(obj) = &selected_obj {
                             match obj {
@@ -679,20 +763,12 @@ impl ActiveConnection {
                             }
                         }
                     },
+                    
+                    // A new set of results arrived to the client.
                     ActiveConnectionAction::ExecutionCompleted(results) => {
-                        let any_schema_updates = results.iter()
-                            .find(|res| {
-                                match res {
-                                    StatementOutput::Modification(_) => true,
-                                    _ => false
-                                }
-                            }).is_some();
-                        if any_schema_updates {
-                            let send = send.clone();
-                            listener.on_db_info_arrived(move |info| {
-                                send.send(ActiveConnectionAction::SchemaUpdate(info));
-                            });
-                        }
+                    
+                        // assert!(!listener.is_running());
+                        
                         let fst_error = results.iter()
                             .filter_map(|res| {
                                 match res {
@@ -705,7 +781,27 @@ impl ActiveConnection {
                         } else {
                             on_exec_result.call(results.clone());
                         }
+                        
+                        // This will block any new user statements until the schema information is updated.
+                        // If a new statement is issued at the on_exec_result callback, the info will only
+                        // be updated when all recursive calls are done (used during testing).
+                        /*let any_schema_updates = results.iter()
+                            .find(|res| {
+                                match res {
+                                    StatementOutput::Modification(_) => true,
+                                    _ => false
+                                }
+                            }).is_some();
+                        if any_schema_updates {
+                            let send = send.clone();
+                            listener.spawn_db_info(move |info| {
+                                send.send(ActiveConnectionAction::SchemaUpdate(info));
+                            });
+                        }*/
+                        
                     },
+                    
+                    // Results arrived from a report request.
                     ActiveConnectionAction::SingleQueryCompleted(out) => {
                         match out {
                             StatementOutput::Valid(_, tbl) => {
@@ -717,11 +813,14 @@ impl ActiveConnection {
                             _ => { }
                         }
                     },
+                    
+                    // Schema update after a DDL statement was executed by queries.
                     ActiveConnectionAction::SchemaUpdate(opt_schema) => {
                         schema = opt_schema.clone();
                         selected_obj = None;
                         on_schema_update.call(opt_schema.clone());
                     },
+                    
                     ActiveConnectionAction::ObjectSelected(obj_ixs) => {
                         match (&schema, obj_ixs) {
                             (Some(schema), Some(ixs)) => {
@@ -828,7 +927,6 @@ impl ActiveConnection {
 /*fn call_when_info_arrived(info : Callbacks<Option<DBInfo>>) {
     glib::timeout_add_local(Duration::from_millis(16), move || {
 
-
     });
 }*/
 
@@ -851,7 +949,7 @@ impl<'a> React<(&'a ConnectionBox, &'a SharedUserState)> for ActiveConnection {
                     unimplemented!()
                 }
 
-                match generate_conn_uri(&host_entry, &db_entry, &user_entry, &password_entry) {
+                match generate_conn_uri_from_entries(&host_entry, &db_entry, &user_entry, &password_entry) {
                     Ok(mut uri) => {
 
                         let mut state = state.borrow_mut();
@@ -1110,7 +1208,7 @@ impl React<ExecButton> for ActiveConnection {
     }
 
 }
-
+    
 impl React<SchemaTree> for ActiveConnection {
 
     fn react(&self, tree : &SchemaTree) {

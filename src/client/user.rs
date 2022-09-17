@@ -22,6 +22,7 @@ use archiver::MultiArchiverImpl;
 use stateful::PersistentState;
 use std::thread::JoinHandle;
 use serde::de::DeserializeOwned;
+use crate::sql::SafetyLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EditorSettings {
@@ -68,7 +69,13 @@ pub struct ExecutionSettings {
     pub execution_interval : i32,
 
     // Statement execution timeout, in seconds
-    pub statement_timeout : i32
+    pub statement_timeout : i32,
+    
+    // Whether to execute destructive ddl statements
+    pub accept_ddl  : bool,
+    
+    // Whether to execute destructive dml statements
+    pub accept_dml : bool
 }
 
 impl Default for ExecutionSettings {
@@ -78,7 +85,9 @@ impl Default for ExecutionSettings {
             row_limit : 500,
             column_limit : 25,
             execution_interval : 1,
-            statement_timeout : 5
+            statement_timeout : 5,
+            accept_ddl : false,
+            accept_dml : false
         }
     }
 
@@ -110,6 +119,17 @@ pub struct UserState {
 
     pub security : SecuritySettings
 
+}
+
+impl UserState {
+
+    pub fn safety(&self) -> SafetyLock {
+        SafetyLock {
+            accept_dml : self.execution.accept_dml,
+            accept_ddl : self.execution.accept_ddl
+        }
+    }
+    
 }
 
 use serde::Deserializer;
@@ -231,7 +251,7 @@ impl Default for SharedUserState {
 
     fn default() -> Self {
         SharedUserState(Rc::new(RefCell::new(UserState {
-            paned : archiver::PanedState { primary : 100, secondary : 400 },
+            paned : archiver::PanedState { primary : 320, secondary : 480 },
             window : archiver::WindowState { width : 1024, height : 768 },
             selected_template : 0,
             ..Default::default()
@@ -383,6 +403,20 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
                 state.borrow_mut().execution.statement_timeout = adj.value() as i32;
             }
         });
+        win.settings.exec_bx.ddl_switch.connect_state_set({
+            let state = self.clone();
+            move|switch, _| {
+                state.borrow_mut().execution.accept_ddl = switch.is_active();
+                Inhibit(false)
+            }
+        });
+        win.settings.exec_bx.dml_switch.connect_state_set({
+            let state = self.clone();
+            move|switch, _| {
+                state.borrow_mut().execution.accept_dml = switch.is_active();
+                Inhibit(false)
+            }
+        });
 
         // Editor
         win.settings.editor_bx.scheme_combo.connect_changed({
@@ -504,12 +538,15 @@ impl PersistentState<QueriesWindow> for SharedUserState {
         queries_win.settings.exec_bx.col_limit_spin.adjustment().set_value(state.execution.column_limit as f64);
         queries_win.settings.exec_bx.schedule_scale.adjustment().set_value(state.execution.execution_interval as f64);
         queries_win.settings.exec_bx.timeout_scale.adjustment().set_value(state.execution.statement_timeout as f64);
+        queries_win.settings.exec_bx.dml_switch.set_active(state.execution.accept_dml);
+        queries_win.settings.exec_bx.ddl_switch.set_active(state.execution.accept_ddl);
 
         let font = format!("{} {}", state.editor.font_family, state.editor.font_size);
         queries_win.settings.editor_bx.scheme_combo.set_active_id(Some(&state.editor.scheme));
         queries_win.settings.editor_bx.font_btn.set_title(&font);
         queries_win.settings.editor_bx.line_num_switch.set_active(state.editor.show_line_numbers);
         queries_win.settings.editor_bx.line_highlight_switch.set_active(state.editor.highlight_current_line);
+        
         queries_win.settings.security_bx.save_switch.set_active(state.security.save_conns);
     }
 

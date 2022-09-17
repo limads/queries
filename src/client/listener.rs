@@ -1,6 +1,5 @@
 use std::thread::{self, JoinHandle};
 use crate::sql::{StatementOutput, LocalStatement};
-// use super::SqlEngine;
 use std::sync::{Arc, Mutex, mpsc::{self, channel, Sender, Receiver}};
 use super::*;
 use std::collections::HashMap;
@@ -8,7 +7,7 @@ use std::time::Duration;
 use crate::server::Connection;
 use sqlparser::ast::Statement;
 use crate::sql::object::{DBObject, DBInfo};
-use crate::sql::parsing;
+use crate::sql::{parsing, SafetyLock};
 use crate::sql::parsing::AnyStatement;
 use std::ops::Deref;
 use stateful::Callbacks;
@@ -17,20 +16,20 @@ use std::io::Read;
 use crate::sql::copy::*;
 use crate::tables::table::*;
 
+#[derive(Debug, Clone)]
+pub struct ExecutionRequest {
+    sql : String,
+    subs : HashMap<String, String>,
+    safety : SafetyLock,
+    timeout : usize,
+    mode : ExecMode
+}
+
 #[derive(Clone)]
 pub struct SqlListener {
 
-    // _handle : JoinHandle<()>,
-
-    // ans_receiver : Option<Receiver<Vec<StatementOutput>>>,
-
-    // info_receiver : Receiver<Option<DBInfo>>,
-
-    // info_sender : Sender<()>,
-
     /// Carries a query sequence; sequence substitutions; and whether this query should be parsed at the client; and a timeout in seconds.
-
-    cmd_sender : Sender<(String, HashMap<String, String>, bool, usize, ExecMode)>,
+    cmd_sender : Sender<ExecutionRequest>,
 
     pub engine : Arc<Mutex<Option<Box<dyn Connection>>>>,
 
@@ -40,9 +39,6 @@ pub struct SqlListener {
 
     handle : Arc<JoinHandle<()>>
 
-    // on_result_arrived : Option<for<Vec<StatementOutput>>,
-
-    //loader : Arc<Mutex<FunctionLoader>>
 }
 
 impl SqlListener {
@@ -114,7 +110,7 @@ impl SqlListener {
     where
         F : Fn(Vec<StatementOutput>, ExecMode) + 'static + Send
     {
-        let (cmd_tx, cmd_rx) = mpsc::channel::<(String, HashMap<String, String>, bool, usize, ExecMode)>();
+        let (cmd_tx, cmd_rx) = mpsc::channel::<ExecutionRequest>();
         let engine : Arc<Mutex<Option<Box<dyn Connection>>>> = Arc::new(Mutex::new(None));
 
         /*// Channel listening thread
@@ -173,11 +169,12 @@ impl SqlListener {
             last_cmd : Arc::new(Mutex::new(Vec::new())),
             listen_channels : Arc::new(Mutex::new(Vec::new())),
             handle : Arc::new(handle)
+            
         }
     }
 
-    pub fn send_single_command(&self, sql : String, timeout : usize) -> Result<(), String> {
-        match self.cmd_sender.send((sql.clone(), HashMap::new(), true, timeout, ExecMode::Single)) {
+    pub fn send_single_command(&self, sql : String, timeout : usize, safety : SafetyLock) -> Result<(), String> {
+        match self.cmd_sender.send(ExecutionRequest { sql : sql.clone(), subs : HashMap::new(), safety, timeout, mode : ExecMode::Single }) {
             Ok(_) => {
 
             },
@@ -193,7 +190,7 @@ impl SqlListener {
     /// are correctly parsed, send the SQL to the server. If sequence is not
     /// correctly parsed, do not send anything to the server, and return the
     /// error to the user.
-    pub fn send_commands(&self, sql : String, subs : HashMap<String, String>, parse : bool, timeout : usize) -> Result<(), String> {
+    pub fn send_commands(&self, sql : String, subs : HashMap<String, String>, safety : SafetyLock, timeout : usize) -> Result<(), String> {
 
         // Before sending a command, it might be interesting to check if self.handle.is_running()
         // when this stabilizes at the stdlib. If it is not running (i.e. there is a panic at the
@@ -253,7 +250,14 @@ impl SqlListener {
             return Err(format!("Unable to acquire lock over last commands"));
         }*/
 
-        match self.cmd_sender.send((sql.clone(), subs, parse, timeout, ExecMode::Multiple)) {
+        let request = ExecutionRequest { 
+            sql : sql.clone(), 
+            subs, 
+            safety, 
+            timeout, 
+            mode : ExecMode::Multiple 
+        };
+        match self.cmd_sender.send(request) {
             Ok(_) => {
 
             },
@@ -315,7 +319,7 @@ impl SqlListener {
     //    self.info_sender.send(());
     // }
 
-    pub fn is_working(&self) -> bool {
+    pub fn is_running(&self) -> bool {
         self.engine.try_lock().is_err()
     }
 
@@ -324,12 +328,17 @@ impl SqlListener {
             Ok(info) => Ok(info),
             _ => Err(format!("Info unavailable"))
         }*/
-        if let Some(ref mut engine) = *self.engine.lock().unwrap() {
-            let opt_info = engine.db_info();
-            // if let Some(info) = &opt_info {
-            // println!("{}", crate::sql::object::build_er_diagram(String::new(), &info[..]));
-            // }
-            opt_info
+        if let Ok(ref mut opt_engine) = self.engine.lock() {
+            if let Some(ref mut engine) = opt_engine.as_mut() {
+                let opt_info = engine.db_info();
+                // if let Some(info) = &opt_info {
+                // println!("{}", crate::sql::object::build_er_diagram(String::new(), &info[..]));
+                // }
+                opt_info
+            } else {
+                println!("No active engine");
+                None
+            }
         } else {
             println!("Unable to acquire lock over SQL engine");
             None
@@ -338,13 +347,17 @@ impl SqlListener {
 
     /// Queries the database info, executing the given closure when the
     /// info arrives.
-    pub fn on_db_info_arrived(&self, f : impl Fn(Option<Vec<DBObject>>) + Send + 'static) {
+    pub fn spawn_db_info(&self, f : impl Fn(Option<Vec<DBObject>>) + Send + 'static) {
         let engine = self.engine.clone();
         thread::spawn(move|| {
-            if let Some(mut engine) = engine.lock().unwrap().as_mut() {
-                f(engine.db_info().map(|info| info.schema ));
+            if let Ok(mut opt_engine) = engine.lock() {
+                if let Some(mut engine) = opt_engine.as_mut() {
+                    f(engine.db_info().map(|info| info.schema ));
+                } else {
+                    f(None);
+                }
             } else {
-                f(None);
+                println!("Unable to acquire lock over engine");
             }
         });
     }
@@ -357,11 +370,15 @@ impl SqlListener {
     ) {
         let engine = self.engine.clone();
         thread::spawn(move|| {
-            if let Some(mut engine) = engine.lock().unwrap().as_mut() {
-                let ans = copy_table_from_csv(path, engine.as_mut(), action);
-                f(ans);
+            if let Ok(mut opt_engine) = engine.lock() {
+                if let Some(mut engine) = opt_engine.as_mut() {
+                    let ans = copy_table_from_csv(path, engine.as_mut(), action);
+                    f(ans);
+                } else {
+                    f(Err(String::from("No active connection")));
+                }
             } else {
-                f(Err(String::from("No active connection")));
+                println!("Unable to acquire lock over engine");
             }
         });
     }
@@ -370,6 +387,7 @@ impl SqlListener {
 
 /// The queries table environment only listens to "multiple" mode. Use
 /// "single" mode to query information that wont't be displayed as tables.
+#[derive(Debug, Clone, Copy)]
 pub enum ExecMode {
     Single,
     Multiple
@@ -378,7 +396,7 @@ pub enum ExecMode {
 fn spawn_listener_thread<F>(
     engine : Arc<Mutex<Option<Box<dyn Connection>>>>,
     result_cb : F,
-    cmd_rx : Receiver<(String, HashMap<String, String>, bool, usize, ExecMode)>
+    cmd_rx : Receiver<ExecutionRequest>
 ) -> JoinHandle<()>
 where
     F : Fn(Vec<StatementOutput>, ExecMode) + 'static + Send
@@ -386,38 +404,46 @@ where
     thread::spawn(move ||  {
         loop {
             match cmd_rx.recv() {
-                Ok((cmd, subs, parse, _timeout, exec_mode)) => {
+            
+                Ok(ExecutionRequest { sql, subs, safety, timeout, mode }) => {
+                
+                    let mut result = Vec::new();
+                    
                     match engine.lock() {
                         Ok(mut opt_eng) => match &mut *opt_eng {
                             Some(ref mut eng) => {
-                                let result = eng.try_run(cmd, &subs, parse);
-                                let res = match result {
-                                    Ok(ans) => {
-                                        ans
+                                result = match eng.try_run(sql, &subs, safety) {
+                                    Ok(stmt_results) => {
+                                        stmt_results
                                     },
                                     Err(e) => {
-                                        vec![StatementOutput::Invalid( e.to_string(), false )]
+                                        vec![StatementOutput::Invalid(e.to_string(), false )]
                                     }
                                 };
-                                result_cb(res, exec_mode);
                             },
                             None => {
-                                result_cb(vec![StatementOutput::Invalid(format!("Database connection is down. Please restart the connection"), false)], exec_mode);
+                                result = vec![StatementOutput::Invalid(format!("Database connection is down. Please restart the connection"), false)];
                             }
                         },
                         Err(_) => {
-
-                            // This is only reachable if the mutex is poisoned.
-                            println!("Unable to acquire lock over database engine.");
-
-                            break;
+                            // This is only reachable if the mutex is poisoned, in which case there is nothing
+                            // to do but restart the application. This should never be reached in ordinary use.
+                            result = vec![StatementOutput::Invalid(format!("Unable to acquire lock over database engine. Please restart the application."), false)];
                         }
                     }
+                    
+                    assert!(engine.try_lock().is_ok());
+                    
+                    /* It is important to call the result callback only after the engine mutex
+                    is unlocked, so that new statements can be promptly sent after results arrive
+                    (used during testing, but a good practice for ordinary use nevertheless). */
+                    result_cb(result, mode);
+                    
                 },
                 Err(e) => {
-                    println!("Command receiver thread closed");
 
-                    // At this point, the main thread is down. There is nothing to do except break the loop.
+                    // If this is reached, it means the main thread is down. 
+                    // There is nothing to do except break the loop.
                     break;
                 }
             }

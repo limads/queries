@@ -164,6 +164,18 @@ impl Table {
         Ok(self)
     }
 
+    pub fn empty(names : Vec<String>) -> Self {
+        let cols : Vec<_> = (0..names.len()).map(|_| Column::new_empty::<bool>() ).collect();
+        Table {
+            name : None,
+            relation : None,
+            names,
+            cols,
+            nrows : 0,
+            format : TableSettings::default()
+        }
+    }
+    
     pub fn from_rows(rows : &[postgres::row::Row]) -> Result<Table, &'static str> {
         let mut names : Vec<String> = rows.get(0)
             .map(|r| r.columns().iter().map(|c| c.name().to_string()).collect() )
@@ -399,11 +411,14 @@ impl Table {
                 return Err("Number of rows mismatch at table creation");
             }
         }
-        if names.iter().unique().count() == names.iter().count() {
+        
+        /*if names.iter().unique().count() == names.iter().count() {
             Ok(Self { name, relation : None, names, cols, nrows, format : Default::default(), })
         } else {
             Err("Column names are not unique")
-        }
+        }*/
+        
+        Ok(Self { name, relation : None, names, cols, nrows, format : Default::default(), })
     }
 
     /// Returns (name, relation) pair

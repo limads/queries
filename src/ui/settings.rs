@@ -200,7 +200,9 @@ pub struct ExecutionBox {
     pub row_limit_spin : SpinButton,
     pub col_limit_spin : SpinButton,
     pub schedule_scale : Scale,
-    pub timeout_scale : Scale
+    pub timeout_scale : Scale,
+    pub dml_switch : Switch,
+    pub ddl_switch : Switch
 }
 
 impl ExecutionBox {
@@ -236,8 +238,14 @@ impl ExecutionBox {
         // list.append(&NamedBox::new("Row overflow", Some("Which rows to display when results\n extrapolate the row limit"), schedule_scale.clone()).bx);
         list.append(&NamedBox::new("Execution interval", Some("Interval (in seconds)\nbetween scheduled executions"), schedule_scale.clone()).bx);
         list.append(&NamedBox::new("Statement timeout", Some("Maximum time (in seconds)\nto wait for database response"), timeout_scale.clone()).bx);
+        
+        let dml_switch = Switch::new();
+        let ddl_switch = Switch::new();
 
-        Self { list, row_limit_spin, col_limit_spin, schedule_scale, timeout_scale }
+        list.append(&NamedBox::new("Enable update and delete", Some("Allow execution of potentially destructive \ndata modification statements\n"), dml_switch.clone()).bx);
+        list.append(&NamedBox::new("Enable alter, drop and truncate", Some("Allow execution of potentially destructive \ndata definition statements\n"), ddl_switch.clone()).bx);
+            
+        Self { list, row_limit_spin, col_limit_spin, schedule_scale, timeout_scale, dml_switch, ddl_switch }
     }
 
 }
