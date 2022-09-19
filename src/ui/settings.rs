@@ -367,6 +367,8 @@ pub struct SecurityBox {
     pub cert_removed : gio::SimpleAction,
     pub exp_row : libadwaita::ExpanderRow,
     pub save_switch : Switch,
+   
+    // pub ssl_switch : Switch,
 
     // TODO remove the rows list if/when libadwaita API allows recovering the ExpanderRow rows.
     // While this is not possible, we must keep a shared reference to the rows to remove
@@ -406,7 +408,7 @@ pub fn append_certificate_row(exp_row : libadwaita::ExpanderRow, host : &str, ce
     super::set_margins(&cert_img, 12, 0);
 
     let row = ListBoxRow::new();
-    let bx = Box::new(Orientation::Horizontal, 0);
+    let bx = Box::new(Orientation::Vertical, 0);
     let bx_left = Box::new(Orientation::Horizontal, 0);
     bx_left.append(&host_img);
     bx_left.append(&lbl_host);
@@ -430,9 +432,8 @@ pub fn append_certificate_row(exp_row : libadwaita::ExpanderRow, host : &str, ce
     let exclude_btn = Button::builder().icon_name("user-trash-symbolic").build();
     exclude_btn.set_hexpand(false);
     exclude_btn.set_halign(Align::End);
-
     exclude_btn.style_context().add_class("flat");
-    bx.append(&exclude_btn);
+    bx_right.append(&exclude_btn);
 
     // Account for exclude btn space
     lbl_cert.set_margin_end(34);

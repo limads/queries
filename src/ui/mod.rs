@@ -390,6 +390,7 @@ impl QueriesWindow {
         sidebar.schema_tree.form.dialog.set_transient_for(Some(&window));
         sidebar.schema_tree.report_dialog.dialog.set_transient_for(Some(&window));
         sidebar.schema_tree.report_export_dialog.dialog.set_transient_for(Some(&window));
+        sidebar.schema_tree.react(&content.results.overview.conn_bx);
         find_dialog.dialog.set_transient_for(Some(&window));
 
         titlebar.header.set_title_widget(Some(&content.switcher));

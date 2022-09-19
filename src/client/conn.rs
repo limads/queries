@@ -63,11 +63,16 @@ pub struct ConnConfig {
 
 }
 
+const DEFAULT_HOST : &'static str = "Host:Port";
+
+const DEFAULT_USER : &'static str = "User";
+
+const DEFAULT_DB : &'static str = "Database";
+
 impl ConnectionInfo {
 
     pub fn is_default(&self) -> bool {
-        &self.host[..] == "Host" && &self.user[..] == "User" && &self.database[..] == "Database" //&&
-        // &self.encoding[..] == "Unknown" && &self.size[..] == "Unknown" && &self.locale[..] == "Unknown"
+        &self.host[..] == DEFAULT_HOST && &self.user[..] == DEFAULT_USER && &self.database[..] == DEFAULT_DB
     }
 
     pub fn is_like(&self, other : &Self) -> bool {
@@ -80,9 +85,9 @@ impl Default for ConnectionInfo {
 
     fn default() -> Self {
         Self {
-            host : String::from("Host"),
-            user : String::from("User"),
-            database : String::from("Database"),
+            host : String::from(DEFAULT_HOST),
+            user : String::from(DEFAULT_USER),
+            database : String::from(DEFAULT_DB),
             dt : Local::now().to_string(),  
             // details : None,
             cert : None
@@ -339,6 +344,17 @@ fn conn_str_test() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
 
 }
 
+pub fn is_local(info : &ConnectionInfo) -> bool {
+    info.host.starts_with("127.0.0.1") || info.host.starts_with("localhost")
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Security {
+    TLS,
+    SSL,
+    None
+}
+
 /// Short-lived data structure used to collect information from the connection
 /// form. The URI contains all the credentials (including password) to connect
 /// to the database. Only the info field is persisted in the client component
@@ -347,7 +363,8 @@ fn conn_str_test() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
 #[derive(Debug, Clone)]
 pub struct ConnURI {
     pub info : ConnectionInfo,
-    pub uri : String
+    pub uri : String,
+    pub security : Security
 }
 
 impl ConnURI {
@@ -362,9 +379,9 @@ impl ConnURI {
             return Err(String::from("User field cannot contain ':' character"));
         }
         
-        if info.host.chars().any(|c| c == ':' ) {
-            return Err(String::from("Host field cannot contain ':' character"));
-        }
+        // if info.host.chars().any(|c| c == ':' ) {
+        //    return Err(String::from("Host field cannot contain ':' character"));
+        // }
 
         let mut uri = "postgresql://".to_owned();
         uri += &info.user;
@@ -397,7 +414,18 @@ impl ConnURI {
         }
         uri += "/";
         uri += &info.database;
-        Ok(ConnURI { info, uri })
+        
+        // sslmode=verify-ca/verify-full
+        let local = is_local(&info);
+        let security = if !local {
+            uri += "?sslmode=require";
+            Security::SSL
+        } else {
+            Security::None
+        };
+        
+        println!("Conn URI: {}", uri);
+        Ok(ConnURI { info, uri, security })
     }
 
 }
@@ -487,7 +515,7 @@ pub struct ActiveConnection {
     on_connected : Callbacks<(ConnectionInfo, Option<DBInfo>)>,
 
     on_conn_failure : Callbacks<String>,
-
+    
     on_disconnected : Callbacks<()>,
 
     on_error : Callbacks<String>,
@@ -498,6 +526,8 @@ pub struct ActiveConnection {
 
     send : glib::Sender<ActiveConnectionAction>,
 
+    on_schema_invalidated : Callbacks<()>,
+    
     on_schema_update : Callbacks<Option<Vec<DBObject>>>,
 
     on_object_selected : Callbacks<Option<DBObject>>
@@ -529,6 +559,9 @@ impl ActiveConnection {
         let (send, recv) = glib::MainContext::channel::<ActiveConnectionAction>(glib::source::PRIORITY_DEFAULT);
         let on_schema_update : Callbacks<Option<Vec<DBObject>>> = Default::default();
         let on_object_selected : Callbacks<Option<DBObject>> = Default::default();
+        let on_schema_invalidated : Callbacks<Option<()>> = Default::default();
+        
+        let mut schema_valid = false;
         
         /* Active schedule, unlike the other state variables, needs to be wrapped in a RefCell
         because it is shared with any new callbacks that start when the user schedule a set of statements. */
@@ -572,6 +605,7 @@ impl ActiveConnection {
             let on_conn_failure = on_conn_failure.clone();
             let on_object_selected = on_object_selected.clone();
             let on_schema_update = on_schema_update.clone();
+            let on_schema_invalidated = on_schema_invalidated.clone();
             let user_state = (*user_state).clone();
             move |action| {
                 match action {
@@ -588,6 +622,8 @@ impl ActiveConnection {
                             move || {
                                 match PostgresConnection::try_new(uri.clone()) {
                                     Ok(mut conn) => {
+                                    
+                                        println!("Connected");
 
                                         let db_info = conn.db_info();
                                         if timeout_secs > 0 {
@@ -601,6 +637,9 @@ impl ActiveConnection {
                                         send.send(ActiveConnectionAction::ConnectAccepted(boxed::Box::new(conn), db_info)).unwrap();
                                     },
                                     Err(e) => {
+                                    
+                                        println!("Connection failure");
+                                        
                                         send.send(ActiveConnectionAction::ConnectFailure(e)).unwrap();
                                     }
                                 }
@@ -611,6 +650,9 @@ impl ActiveConnection {
                     // At this stage, the connection is active, and the URI is already
                     // forgotten.
                     ActiveConnectionAction::ConnectAccepted(conn, db_info) => {
+                    
+                        println!("Connection accepted");
+                        
                         schema = db_info.as_ref().map(|info| info.schema.clone() );
                         selected_obj = None;
                         let info = conn.conn_info();
@@ -629,6 +671,11 @@ impl ActiveConnection {
                     
                     // When the user clicks the exec button or activates the execute action.
                     ActiveConnectionAction::ExecutionRequest(stmts) => {
+                    
+                        if !schema_valid {
+                            on_error.call(format!("Cannot execute command right now (schema update pending)"));
+                            return glib::Continue(true);
+                        }
 
                         if *(active_schedule.borrow()) {
                             on_error.call(format!("Attempted to execute statement during active schedule"));
@@ -654,6 +701,11 @@ impl ActiveConnection {
                     // SingleQueryRequest is used when the schema tree is useed to generate a report.
                     ActiveConnectionAction::SingleQueryRequest => {
                     
+                        if !schema_valid {
+                            on_error.call(format!("Cannot execute command right now (schema update pending)"));
+                            return glib::Continue(true);
+                        }
+                        
                         if *(active_schedule.borrow()) {
                             on_error.call(format!("Attempted to execute statement during active schedule"));
                             return glib::Continue(true);
@@ -784,8 +836,10 @@ impl ActiveConnection {
                         
                         // This will block any new user statements until the schema information is updated.
                         // If a new statement is issued at the on_exec_result callback, the info will only
-                        // be updated when all recursive calls are done (used during testing).
-                        /*let any_schema_updates = results.iter()
+                        // be updated when all recursive calls are done (used during testing). Ideally, should
+                        // block execution of any new statements until schematree is updated with the catalog
+                        // changes.
+                        let any_schema_updates = results.iter()
                             .find(|res| {
                                 match res {
                                     StatementOutput::Modification(_) => true,
@@ -793,11 +847,13 @@ impl ActiveConnection {
                                 }
                             }).is_some();
                         if any_schema_updates {
+                            schema_valid = false;
+                            on_schema_invalidated.call(());
                             let send = send.clone();
                             listener.spawn_db_info(move |info| {
                                 send.send(ActiveConnectionAction::SchemaUpdate(info));
                             });
-                        }*/
+                        }
                         
                     },
                     
@@ -816,6 +872,7 @@ impl ActiveConnection {
                     
                     // Schema update after a DDL statement was executed by queries.
                     ActiveConnectionAction::SchemaUpdate(opt_schema) => {
+                        schema_valid = true;
                         schema = opt_schema.clone();
                         selected_obj = None;
                         on_schema_update.call(opt_schema.clone());
@@ -852,7 +909,8 @@ impl ActiveConnection {
             on_conn_failure,
             on_schema_update,
             on_object_selected,
-            on_single_query_result
+            on_single_query_result,
+            on_shema_invalidated
         }
     }
 
@@ -902,6 +960,13 @@ impl ActiveConnection {
         self.on_single_query_result.bind(f);
     }
 
+    pub fn connect_schema_invalidated<F>(&self, f : F)
+    where
+        F : Fn(()) + 'static
+    {
+        self.on_schema_invalidated.bind(f);
+    }
+    
     pub fn connect_schema_update<F>(&self, f : F)
     where
         F : Fn(Option<Vec<DBObject>>) + 'static
@@ -1208,7 +1273,7 @@ impl React<ExecButton> for ActiveConnection {
     }
 
 }
-    
+
 impl React<SchemaTree> for ActiveConnection {
 
     fn react(&self, tree : &SchemaTree) {

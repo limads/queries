@@ -32,6 +32,7 @@ use crate::client::ConnectionInfo;
 use std::time::SystemTime;
 use crate::client::{ConnURI, ConnConfig};
 use sqlparser::ast::Statement;
+use crate::client::Security;
 
 pub struct PostgresConnection {
 
@@ -52,49 +53,98 @@ impl PostgresConnection {
     does not hold in memory any security-sensitive information. */
     pub fn try_new(uri : ConnURI) -> Result<Self, String> {
 
+        // If a TLS certificate is configured, assume the client wants to connect
+        // via TLS.
         if let Some(cert) = uri.info.cert.as_ref() {
 
-            use native_tls::{Certificate, TlsConnector};
-            use postgres_native_tls::MakeTlsConnector;
+            match uri.security {
+                Security::TLS => {
+                
+                    use native_tls::{Certificate, TlsConnector};
+                    use postgres_native_tls::MakeTlsConnector;
 
-            let cert_content = fs::read(cert).map_err(|e| format!("{}", e) )?;
-            let cert = Certificate::from_pem(&cert_content).map_err(|e| format!("{}", e) )?;
-            let connector = TlsConnector::builder()
-                .add_root_certificate(cert)
-                .build().map_err(|e| format!("{}", e) )?;
-            let connector = MakeTlsConnector::new(connector);
-            match Client::connect(&uri.uri[..], connector) {
-                Ok(conn) => {
-                    Ok(Self{
-                        // conn_str : uri.uri,
-                        conn,
-                        exec : Arc::new(Mutex::new((Executor::new(), String::new()))),
-                        channel : None,
-                        info : uri.info
-                    })
+                    println!("Reading certificate");
+                    let cert_content = fs::read(cert).map_err(|e| format!("{}", e) )?;
+                    let cert = Certificate::from_pem(&cert_content)
+                        .map_err(|e| format!("{}", e) )?;
+                    let connector = TlsConnector::builder()
+                        .add_root_certificate(cert)
+                        .build().map_err(|e| format!("{}", e) )?;
+                    
+                    let connector = MakeTlsConnector::new(connector);
+                    println!("TLS connector built");
+                    println!("Attempting connection");
+                    match Client::connect(&uri.uri[..], connector) {
+                        Ok(conn) => {
+                            println!("Connected");
+                            Ok(Self{
+                                conn,
+                                exec : Arc::new(Mutex::new((Executor::new(), String::new()))),
+                                channel : None,
+                                info : uri.info
+                            })
+                        },
+                        Err(e) => {
+                            println!("Connection error");
+                            let mut e = e.to_string();
+                            format_pg_string(&mut e);
+                            Err(e)
+                        }
+                    }
                 },
-                Err(e) => {
-                    let mut e = e.to_string();
-                    format_pg_string(&mut e);
-                    Err(e)
+                Security::SSL => {
+                
+                    use openssl::ssl::{SslConnector, SslMethod};
+                    use postgres_openssl::MakeTlsConnector;
+                    
+                    let mut builder = SslConnector::builder(SslMethod::tls())
+                        .map_err(|e| format!("{}", e) )?;
+                    builder.set_ca_file(&cert)
+                        .map_err(|e| format!("{}", e) )?;
+                    let connector = MakeTlsConnector::new(builder.build());
+                    match Client::connect(&uri.uri[..], connector) {
+                        Ok(conn) => {
+                            println!("Connected");
+                            Ok(Self{
+                                conn,
+                                exec : Arc::new(Mutex::new((Executor::new(), String::new()))),
+                                channel : None,
+                                info : uri.info
+                            })
+                        },
+                        Err(e) => {
+                            println!("Connection error");
+                            let mut e = e.to_string();
+                            format_pg_string(&mut e);
+                            Err(e)
+                        }
+                    }
+                },
+                Security::None => {
+                    Err(format!("Certificate is configured for host, but security setting is None"))
                 }
             }
         } else {
-            match Client::connect(&uri.uri[..], NoTls{ }) {
-                Ok(conn) => {
-                    Ok(Self{
-                        // conn_str : uri.uri,
-                        conn,
-                        exec : Arc::new(Mutex::new((Executor::new(), String::new()))) ,
-                        channel : None,
-                        info : uri.info
-                    })
-                },
-                Err(e) => {
-                    let mut e = e.to_string();
-                    format_pg_string(&mut e);
-                    Err(e)
+            if crate::client::is_local(&uri.info) {
+                // Only connect without SSL/TLS when the client is local.
+                match Client::connect(&uri.uri[..], NoTls{ }) {
+                    Ok(conn) => {
+                        Ok(Self{
+                            // conn_str : uri.uri,
+                            conn,
+                            exec : Arc::new(Mutex::new((Executor::new(), String::new()))) ,
+                            channel : None,
+                            info : uri.info
+                        })
+                    },
+                    Err(e) => {
+                        let mut e = e.to_string();
+                        format_pg_string(&mut e);
+                        Err(e)
+                    }
                 }
+            } else {
+                Err(format!("Remote connections without an TLS/SSL certificate is unsupported.\nInform a certificate file path for this host at the security settings."))
             }
         }
     }

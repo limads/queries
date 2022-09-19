@@ -22,6 +22,7 @@ use serde::{Serialize, Deserialize};
 use crate::ui::NamedBox;
 use std::io::Write;
 use crate::client::ActiveConnectionAction;
+use crate::ui::ConnectionBox;
 
 //#[derive(Debug, Clone, Serialize, Deserialize)]
 //pub enum FormAction {
@@ -748,6 +749,26 @@ impl SchemaTree {
         });*/
     }*/
 
+}
+
+impl React<ConnectionBox> for SchemaTree {
+
+    fn react(&self, conn_bx : &ConnectionBox) {
+        let schema_tree = self.clone();
+        conn_bx.switch.connect_state_set(move |switch, _| {
+            println!("Switch changed");
+            if switch.is_active() {
+                schema_tree.repopulate(vec![DBObject::Schema { 
+                    name : String::from("Connecting..."), 
+                    children : Vec::new() 
+                }]);
+            } else {
+                schema_tree.clear();
+            }
+            glib::signal::Inhibit(false)
+        });
+    }
+    
 }
 
 impl React<ActiveConnection> for SchemaTree {

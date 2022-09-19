@@ -206,7 +206,7 @@ impl ConnectionRow {
 
     fn build() -> Self {
         // Change to "network-server-symbolic" when connected
-        let host = PackedImageLabel::build("preferences-system-network-proxy-symbolic", "Host");
+        let host = PackedImageLabel::build("preferences-system-network-proxy-symbolic", "Host:Port");
         let db = PackedImageLabel::build("db-symbolic", "Database");
         let user = PackedImageLabel::build("avatar-default-symbolic", "User");
         let bx = Box::new(Orientation::Vertical, 0);
@@ -465,7 +465,7 @@ impl ConnectionBox {
 
     // pub fn on_connected(f : Fn)
     pub fn build() -> Self {
-        let host = PackedImageEntry::build("preferences-system-network-proxy-symbolic", "Host");
+        let host = PackedImageEntry::build("preferences-system-network-proxy-symbolic", "Host:Port");
         let db = PackedImageEntry::build("db-symbolic", "Database");
         let cred_bx = Box::new(Orientation::Horizontal, 0);
         let user = PackedImageEntry::build("avatar-default-symbolic", "User");

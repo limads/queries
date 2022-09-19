@@ -97,6 +97,15 @@ pub struct ExecButton {
 
 impl ExecButton {
 
+    fn set_active(&self, active : bool) {
+        self.btn.set_sensitive(active);
+        self.exec_action.set_enabled(active);
+        self.clear_action.set_enabled(active);
+        self.restore_action.set_enabled(active);
+        self.schedule_action.set_enabled(active);
+        self.single_action.set_enabled(active);
+    }
+    
     fn build() -> Self {
         let exec_menu = gio::Menu::new();
 
@@ -223,6 +232,24 @@ impl React<ActiveConnection> for ExecButton {
                 restore_action.set_enabled(false);
             }
         });
+       
+       // TODO only let actions be valid when the schema is updated.
+       /* let mut is_valid : Rc<RefCell<bool>> = Default::default();
+        conn.connect_schema_invalidated({
+            let exec_btn = self.clone();
+            move |_| {
+                exec_btn.set_active(false);
+                is_valid.replace(false);
+            }
+        });
+        conn.connect_schema_update({
+            let exec_btn = self.clone();
+            move |_| {
+                
+                exec_btn.set_active(true);
+            }
+        });*/
+        
         /*conn.connect_db_error({
             let clear_action = self.clear_action.clone();
             let restore_action = self.restore_action.clone();

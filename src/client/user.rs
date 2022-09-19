@@ -101,9 +101,9 @@ pub struct UserState {
     pub window : archiver::WindowState,
 
     pub scripts : Vec<OpenedFile>,
-
-    #[serde(serialize_with = "ser_conns")]
-    #[serde(deserialize_with = "deser_conns")]
+    
+    // #[serde(serialize_with = "ser_conns")]
+    // #[serde(deserialize_with = "deser_conns")]
     pub conns : Vec<ConnectionInfo>,
 
     pub templates : Vec<String>,
@@ -251,7 +251,7 @@ impl Default for SharedUserState {
 
     fn default() -> Self {
         SharedUserState(Rc::new(RefCell::new(UserState {
-            paned : archiver::PanedState { primary : 320, secondary : 480 },
+            paned : archiver::PanedState { primary : 280, secondary : 320 },
             window : archiver::WindowState { width : 1024, height : 768 },
             selected_template : 0,
             ..Default::default()
