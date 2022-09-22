@@ -151,6 +151,10 @@ pub enum HTMLTag {
 
 impl Table {
 
+    pub fn display_content_at<'a>(&'a self, row_ix : usize, col_ix : usize, precision : usize) -> Option<Cow<'a, str>> {
+        Some(self.cols.get(col_ix)?.display_content_at_index(row_ix, precision))
+    }
+    
     /// Joints two tables, as long as they have the same number of rows and column names are unique.
     pub fn join(mut self, other : &Table) -> Result<Table, String> {
         if self.shape().0 != other.shape().0 {
@@ -164,6 +168,10 @@ impl Table {
         Ok(self)
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.cols.len() == 0 || self.cols[0].len() == 0
+    }
+    
     pub fn empty(names : Vec<String>) -> Self {
         let cols : Vec<_> = (0..names.len()).map(|_| Column::new_empty::<bool>() ).collect();
         Table {

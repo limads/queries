@@ -330,7 +330,7 @@ impl SqlListener {
         }*/
         if let Ok(ref mut opt_engine) = self.engine.lock() {
             if let Some(ref mut engine) = opt_engine.as_mut() {
-                let opt_info = engine.db_info();
+                let opt_info = engine.db_info().ok();
                 // if let Some(info) = &opt_info {
                 // println!("{}", crate::sql::object::build_er_diagram(String::new(), &info[..]));
                 // }
@@ -352,7 +352,7 @@ impl SqlListener {
         thread::spawn(move|| {
             if let Ok(mut opt_engine) = engine.lock() {
                 if let Some(mut engine) = opt_engine.as_mut() {
-                    f(engine.db_info().map(|info| info.schema ));
+                    f(engine.db_info().ok().map(|info| info.schema ));
                 } else {
                     f(None);
                 }

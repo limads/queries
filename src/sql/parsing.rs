@@ -27,6 +27,29 @@ pub enum AnyStatement {
     Local(LocalStatement)
 }
 
+impl AnyStatement {
+
+    pub fn from_sql(sql : &str) -> Option<Self> {
+        let dialect = PostgreSqlDialect {};
+        let mut ans = Parser::parse_sql(&dialect, &sql[..]).ok()?;
+        if ans.len() != 1 {
+            return None;
+        } else {
+            Some(AnyStatement::Parsed(ans.remove(0), sql.to_string()))
+        }
+    }
+    
+    pub fn sql(&self) -> &str {
+        match &self {
+            Self::Parsed(_, sql) => &sql[..],
+            Self::ParsedTransaction(_, sql) => &sql[..],
+            Self::Raw(_, sql, _) => &sql[..],
+            Self::Local(_) => unimplemented!()
+        }
+    }
+    
+}
+
 pub fn take_word<'a, I>(token_iter : &mut I) -> Option<String>
 where
     I : Iterator<Item=&'a Token>

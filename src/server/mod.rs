@@ -7,6 +7,7 @@ use crate::tables::table::Table;
 use crate::client::ConnectionInfo;
 use crate::client::ConnConfig;
 use crate::sql::SafetyLock;
+use std::error::Error;
 
 /*
 The client must parse the SQL file because it needs to dispatch statements to either the
@@ -55,13 +56,15 @@ where
 
     fn exec(&mut self, stmt : &AnyStatement, subs : &HashMap<String, String>) -> StatementOutput;
     
+    fn query_async(&mut self, stmts : &[AnyStatement]) -> Vec<StatementOutput>;
+    
     fn exec_transaction(&mut self, stmt : &AnyStatement) -> StatementOutput;
 
     fn listen_at_channel(&mut self, channel : String);
 
     fn conn_info(&self) -> ConnectionInfo;
 
-    fn db_info(&mut self) -> Option<DBInfo>;
+    fn db_info(&mut self) -> Result<DBInfo, Box<dyn Error>>;
 
     fn import(
         &mut self,
@@ -105,12 +108,24 @@ where
         
         match crate::sql::parsing::fully_parse_sql(&query_seq) {
             Ok(stmts) => {
-            
-                let mut results = Vec::new();
+                
                 if stmts.len() == 0 {
                     return Err(String::from("Empty statement sequence"));
                 }
-        
+                
+                // If all statements are queries, perform asynchronous execution.
+                let all_queries = stmts.iter().all(|stmt| {
+                    match stmt { 
+                        AnyStatement::Parsed(stmt, _) => crate::sql::is_like_query(&stmt),
+                        _ => false 
+                    }
+                } );
+                if all_queries {
+                    return Ok(self.query_async(&stmts[..]));
+                }
+                
+                // If sequence has at least one non-query statement, default to synchronous exection.
+                let mut results = Vec::new();
                 for any_stmt in stmts {
                     match any_stmt {
                         AnyStatement::Parsed(stmt, s) => match stmt {

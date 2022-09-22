@@ -559,9 +559,9 @@ impl ActiveConnection {
         let (send, recv) = glib::MainContext::channel::<ActiveConnectionAction>(glib::source::PRIORITY_DEFAULT);
         let on_schema_update : Callbacks<Option<Vec<DBObject>>> = Default::default();
         let on_object_selected : Callbacks<Option<DBObject>> = Default::default();
-        let on_schema_invalidated : Callbacks<Option<()>> = Default::default();
+        let on_schema_invalidated : Callbacks<()> = Default::default();
         
-        let mut schema_valid = false;
+        let mut schema_valid = true;
         
         /* Active schedule, unlike the other state variables, needs to be wrapped in a RefCell
         because it is shared with any new callbacks that start when the user schedule a set of statements. */
@@ -625,7 +625,14 @@ impl ActiveConnection {
                                     
                                         println!("Connected");
 
-                                        let db_info = conn.db_info();
+                                        let db_info = match conn.db_info() {
+                                            Ok(info) => Some(info),
+                                            Err(e) => {
+                                                println!("{}", e);
+                                                None
+                                            }
+                                        };
+                                        
                                         if timeout_secs > 0 {
                                             conn.configure(ConnConfig {
                                                 timeout : timeout_secs as usize * 1000
@@ -910,7 +917,7 @@ impl ActiveConnection {
             on_schema_update,
             on_object_selected,
             on_single_query_result,
-            on_shema_invalidated
+            on_schema_invalidated
         }
     }
 

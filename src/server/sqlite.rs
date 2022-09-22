@@ -15,6 +15,7 @@ use std::convert::{TryFrom, TryInto};
 use crate::client::ConnectionInfo;
 use crate::client::ConnConfig;
 use crate::sql::SafetyLock;
+use std::error::Error;
 
 pub struct SqliteConnection {
 
@@ -142,6 +143,10 @@ impl Connection for SqliteConnection {
         unimplemented!()
     }
     
+    fn query_async(&mut self, stmts : &[AnyStatement]) -> Vec<StatementOutput> {
+        unimplemented!()
+    }
+    
     fn exec(&mut self, stmt : &AnyStatement, subs : &HashMap<String, String>) -> StatementOutput {
         let ans = match stmt {
             AnyStatement::Parsed(_, s) | AnyStatement::ParsedTransaction(_, s) => {
@@ -161,7 +166,7 @@ impl Connection for SqliteConnection {
         unimplemented!()
     }
 
-    fn db_info(&mut self) -> Option<DBInfo> {
+    fn db_info(&mut self) -> Result<DBInfo, Box<dyn Error>> {
         let mut top_objs = Vec::new();
         if let Some(names) = get_sqlite_tbl_names(self) {
             for name in names {
@@ -169,14 +174,14 @@ impl Connection for SqliteConnection {
                     top_objs.push(obj);
                 } else {
                     println!("Failed to retrieve columns for table {}", name);
-                    return None;
+                    panic!()
                 }
             }
         } else {
             println!("Could not get SQLite table names");
-            return None;
+            panic!()
         }
-        Some(DBInfo { schema : top_objs, ..Default::default() })
+        Ok(DBInfo { schema : top_objs, ..Default::default() })
     }
 
 }

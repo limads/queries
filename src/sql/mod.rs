@@ -35,6 +35,20 @@ use sqlparser::tokenizer::{Tokenizer, Token, Word, Whitespace};
 use std::sync::{Arc, Mutex};
 use crate::command::Executor;
 
+pub fn is_like_query(s : &Statement) -> bool {
+    match s {
+        Statement::Query(_) | Statement::ShowCreate{ .. } | Statement::ShowTables{ .. } | 
+        Statement::ShowColumns{ .. } | Statement::ShowVariable{ .. } |
+        Statement::ShowCollation{ .. } | Statement::ShowVariables{ .. } | Statement::Analyze { .. } | 
+        Statement::Explain { .. } | Statement::ExplainTable{ .. } => {
+            true
+        },
+        _ => {
+            false
+        }
+    }
+}
+
 // TODO sqlparser is not accepting creating views with distinct clause.
 
 /// Database objects (schema, tables, columns).
@@ -236,6 +250,36 @@ pub enum StatementOutput {
     // Resulting from a local command invocation
     Empty
 
+}
+
+impl StatementOutput {
+
+    pub fn table(&self) -> Option<&Table> {
+        match self {
+            StatementOutput::Valid(_, tbl) => Some(&tbl),
+            _ => None
+        }
+    }
+    
+    pub fn error(&self) -> Result<(), Box<dyn Error>> {
+        match self {
+            StatementOutput::Invalid(msg, _) => Err(msg.clone().into()),
+            _ => Ok(())
+        }
+    }
+    
+    pub fn table_or_error(&self) -> Result<&Table, Box<dyn Error>> {
+        match self.table() {
+            Some(tbl) => Ok(tbl),
+            _ => match self.error() {
+                Err(e) => Err(e),
+                _ => {
+                    Err(String::from("Non-query statement").into())
+                }
+            }
+        }
+    }
+    
 }
 
 pub fn condense_errors(stmts : &[StatementOutput]) -> Option<String> {

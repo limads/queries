@@ -9,9 +9,12 @@ edition = "2018"
 gtk4 = "0.4"
 sourceview5 = { version = "0.4" }
 libadwaita = "0.1.0-beta-1"
-postgres = { version = "0.19.2", features = [ "with-chrono-0_4", "with-serde_json-1" ] }
+postgres = { version = "0.19.4", features = [ "with-chrono-0_4", "with-serde_json-1" ] }
 postgres-openssl = "0.5.0"
 postgres-native-tls = "0.5.0"
+tokio = { version = "1.21.1", features=["rt", "rt-multi-thread"] }
+tokio-postgres = { version = "0.7.7", features = ["with-chrono-0_4", "with-serde_json-1"] }
+futures = "0.3.24"
 openssl = "0.10.41"
 native-tls = "0.2"
 sqlparser = "0.23.0"
