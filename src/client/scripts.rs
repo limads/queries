@@ -1,4 +1,4 @@
-use stateful::React;
+use stateful::{React, Inherit};
 use stateful::{Callbacks, ValuedCallbacks};
 use gtk4::prelude::*;
 use gtk4::*;
@@ -46,6 +46,20 @@ impl AsRef<MultiArchiver> for OpenedScripts {
         &self.0
     }
 
+}
+
+impl Inherit for OpenedScripts {
+
+    type Parent = MultiArchiver;
+    
+    fn parent<'a>(&'a self) -> &'a Self::Parent {
+        &self.0
+    }
+    
+    fn parent_mut<'a>(&'a mut self) -> &'a mut Self::Parent {
+        &mut self.0
+    }
+    
 }
 
 impl React<SaveDialog> for OpenedScripts {

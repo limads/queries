@@ -354,15 +354,17 @@ impl EditableCombo {
 
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Certificate {
     pub host : String,
-    pub cert : String
+    pub cert : String,
+    pub is_tls : bool
 }
 
 #[derive(Debug, Clone)]
 pub struct SecurityBox {
     pub list : ListBox,
+    pub scrolled : ScrolledWindow,
     pub cert_added : gio::SimpleAction,
     pub cert_removed : gio::SimpleAction,
     pub exp_row : libadwaita::ExpanderRow,
@@ -373,7 +375,9 @@ pub struct SecurityBox {
     // TODO remove the rows list if/when libadwaita API allows recovering the ExpanderRow rows.
     // While this is not possible, we must keep a shared reference to the rows to remove
     // them.
-    pub rows : Rc<RefCell<Vec<ListBoxRow>>>
+    pub rows : Rc<RefCell<Vec<ListBoxRow>>>,
+    pub tls_toggle : ToggleButton,
+    pub ssl_toggle : ToggleButton
 
 }
 
@@ -383,8 +387,9 @@ fn validate((host, cert) : &(String, String), rows : &[ListBoxRow]) -> bool {
 
     for row in rows.iter() {
         let bx = row.child().unwrap().clone().downcast::<Box>().unwrap();
-        let bx_left = super::get_child_by_index::<Box>(&bx, 0);
-        let lbl = super::get_child_by_index::<Label>(&bx_left, 1);
+        let bx_entries = super::get_child_by_index::<Box>(&bx, 0);
+        let bx_top = super::get_child_by_index::<Box>(&bx_entries, 0);
+        let lbl = super::get_child_by_index::<Label>(&bx_top, 1);
         if &lbl.text()[..] == &host[..] {
             return false;
         }
@@ -395,10 +400,25 @@ fn validate((host, cert) : &(String, String), rows : &[ListBoxRow]) -> bool {
     !host.is_empty() && cert.chars().count() > 4 /*&& cert.ends_with(".crt") || cert.ends_with(".pem") */
 }
 
-pub fn append_certificate_row(exp_row : libadwaita::ExpanderRow, host : &str, cert : &str, rows : &Rc<RefCell<Vec<ListBoxRow>>>) {
+pub fn append_certificate_row(
+    exp_row : libadwaita::ExpanderRow, 
+    host : &str, 
+    cert : &str, 
+    is_tls : bool, 
+    rows : &Rc<RefCell<Vec<ListBoxRow>>>,
+    cert_added : &gio::SimpleAction,
+    cert_removed : &gio::SimpleAction
+) {
 
+    let mut cert_str = cert.to_string();
+    if is_tls {
+        cert_str += " (TLS)";
+    } else {
+        cert_str += " (SSL)";
+    }
+    
     let lbl_host = Label::new(Some(host));
-    let lbl_cert = Label::new(Some(cert));
+    let lbl_cert = Label::new(Some(&cert_str));
 
     super::set_margins(&lbl_host, 0, 12);
     super::set_margins(&lbl_cert, 0, 12);
@@ -408,22 +428,20 @@ pub fn append_certificate_row(exp_row : libadwaita::ExpanderRow, host : &str, ce
     super::set_margins(&cert_img, 12, 0);
 
     let row = ListBoxRow::new();
-    let bx = Box::new(Orientation::Vertical, 0);
-    let bx_left = Box::new(Orientation::Horizontal, 0);
-    bx_left.append(&host_img);
-    bx_left.append(&lbl_host);
-
-    bx_left.set_hexpand(true);
-    bx_left.set_halign(Align::Start);
-    let bx_right = Box::new(Orientation::Horizontal, 0);
-
-    bx_right.append(&cert_img);
-    bx_right.append(&lbl_cert);
-    bx_right.set_hexpand(true);
-    bx_right.set_halign(Align::Start);
-
-    bx.append(&bx_left);
-    bx.append(&bx_right);
+    let bx = Box::new(Orientation::Horizontal, 0);
+    
+    let bx_top = Box::new(Orientation::Horizontal, 0);
+    bx_top.append(&host_img);
+    bx_top.append(&lbl_host);
+    bx_top.set_hexpand(true);
+    bx_top.set_halign(Align::Start);
+    
+    let bx_bottom = Box::new(Orientation::Horizontal, 0);
+    bx_bottom.append(&cert_img);
+    bx_bottom.append(&lbl_cert);
+    bx_bottom.set_hexpand(true);
+    bx_bottom.set_halign(Align::Start);
+    
     row.set_child(Some(&bx));
     exp_row.add_row(&row);
     rows.borrow_mut().push(row.clone());
@@ -433,7 +451,14 @@ pub fn append_certificate_row(exp_row : libadwaita::ExpanderRow, host : &str, ce
     exclude_btn.set_hexpand(false);
     exclude_btn.set_halign(Align::End);
     exclude_btn.style_context().add_class("flat");
-    bx_right.append(&exclude_btn);
+    
+    let bx_entries = Box::new(Orientation::Vertical, 0);
+    bx_entries.append(&bx_top);
+    bx_entries.append(&bx_bottom);
+    bx_entries.set_hexpand(true);
+    bx_entries.set_halign(Align::Fill);
+    bx.append(&bx_entries);
+    bx.append(&exclude_btn);
 
     // Account for exclude btn space
     lbl_cert.set_margin_end(34);
@@ -458,17 +483,38 @@ pub fn append_certificate_row(exp_row : libadwaita::ExpanderRow, host : &str, ce
     });
     row.add_controller(&ev);
     exclude_btn.connect_clicked({
-    let exp_row = exp_row.clone();
+        let exp_row = exp_row.clone();
+        let rows = rows.clone();
+        let host = host.to_string();
+        let cert = cert.to_string();
+        let cert_removed = cert_removed.clone();
         move |_| {
             exp_row.remove(&row);
+            let mut rows = rows.borrow_mut();
+            if let Some(ix) = rows.iter().position(|r| r == &row) {
+                rows.remove(ix);
+            }
+
+            cert_removed.activate(
+                Some(&serde_json::to_string(&Certificate {
+                    host : host.clone(),
+                    cert : cert.clone(),
+                    is_tls
+                }).unwrap().to_variant())
+            );
+            println!("Removed");
         }
     });
+    
+    cert_added.activate(Some(&serde_json::to_string(&Certificate { host : host.to_string(), is_tls, cert : cert.to_string() }).unwrap().to_variant()));
 }
 
 impl SecurityBox {
 
     pub fn build() -> Self {
+        let scrolled = ScrolledWindow::new();
         let list = ListBox::new();
+        scrolled.set_child(Some(&list));
         configure_list(&list);
 
         //btn_bx.left_btn.connect_clicked(move |_| {
@@ -483,18 +529,21 @@ impl SecurityBox {
         let save_bx = NamedBox::new("Remember credentials", Some("Store credentials (except passwords)\nand load them at future sessions"), save_switch.clone());
         save_row.set_child(Some(&save_bx.bx));
 
-        let entry = Entry::new();
-        let model = ListStore::new(&[glib::types::Type::STRING]);
+        // TODO populate entry completion with all known hosts.
+        // TODO populate file completion with relative path.
+        
+        // let entry = Entry::new();
+        // let model = ListStore::new(&[glib::types::Type::STRING]);
         // let pos = model.append();
-        model.set(&model.append(), &[(0, &String::from("mycompletion") as &dyn ToValue)]);
-        model.set(&model.append(), &[(0, &String::from("myothercompletion") as &dyn ToValue)]);
-        model.set(&model.append(), &[(0, &String::from("othercompletion") as &dyn ToValue)]);
+        // model.set(&model.append(), &[(0, &String::from("mycompletion") as &dyn ToValue)]);
+        // model.set(&model.append(), &[(0, &String::from("myothercompletion") as &dyn ToValue)]);
+        // model.set(&model.append(), &[(0, &String::from("othercompletion") as &dyn ToValue)]);
 
         // let renderer = CellRendererText::builder().foreground("#000000").foreground_set(true).build();
-        let completion = EntryCompletion::builder().model(&model).minimum_key_length(0) /*.cell_area(&area).*/ /*.popup_completion(true)*/ .text_column(0).build();
+        // let completion = EntryCompletion::builder().model(&model).minimum_key_length(0) /*.cell_area(&area).*/ /*.popup_completion(true)*/ .text_column(0).build();
         // completion.pack_start(&renderer, true);
-        entry.set_icon_from_icon_name(EntryIconPosition::Primary, Some("document-open-symbolic"));
-        entry.set_completion(Some(&completion));
+        // entry.set_icon_from_icon_name(EntryIconPosition::Primary, Some("document-open-symbolic"));
+        // entry.set_completion(Some(&completion));
         //completion.add_attribute(&renderer, "text", 0);
 
         // list.append(&NamedBox::new("Certificate", Some("Inform the TLS certificate path if the \nconnection require it"), entry).bx);
@@ -510,7 +559,7 @@ impl SecurityBox {
         host_entry.set_hexpand(true);
         host_entry.set_halign(Align::Fill);
         host_entry.set_primary_icon_name(Some("preferences-system-network-proxy-symbolic"));
-        host_entry.set_placeholder_text(Some("Host"));
+        host_entry.set_placeholder_text(Some("Host:Port"));
 
         let cert_entry = Entry::new();
         cert_entry.set_primary_icon_name(Some("application-certificate-symbolic"));
@@ -518,8 +567,26 @@ impl SecurityBox {
         cert_entry.set_hexpand(true);
         cert_entry.set_halign(Align::Fill);
 
-        add_bx.append(&host_entry);
-        add_bx.append(&cert_entry);
+        let tls_toggle = ToggleButton::new();
+        tls_toggle.set_label("TLS");
+        let ssl_toggle = ToggleButton::new();
+        ssl_toggle.set_label("SSL");
+        tls_toggle.set_active(true);
+        ssl_toggle.set_group(Some(&tls_toggle));
+        
+        let add_bx_top = Box::new(Orientation::Horizontal, 0);
+        let add_bx_bottom = Box::new(Orientation::Horizontal, 0);
+        
+        add_bx_top.append(&host_entry);
+        add_bx_bottom.append(&cert_entry);
+        add_bx_bottom.append(&tls_toggle);
+        add_bx_bottom.append(&ssl_toggle);
+        let add_bx_left = Box::new(Orientation::Vertical, 0);
+        add_bx_left.append(&add_bx_top);
+        add_bx_left.append(&add_bx_bottom);
+        add_bx.append(&add_bx_left);
+        add_bx_top.style_context().add_class("linked");
+        add_bx_bottom.style_context().add_class("linked");
         add_bx.style_context().add_class("linked");
 
         let add_btn = Button::new();
@@ -527,7 +594,13 @@ impl SecurityBox {
         add_btn.set_icon_name("list-add-symbolic");
         add_btn.set_sensitive(false);
         super::set_margins(&add_bx, 12, 12);
+        add_btn.set_halign(Align::End);
+        add_btn.set_hexpand(false);
+        add_bx_left.set_hexpand(true);
+        add_bx_left.set_halign(Align::Fill);
+        add_bx.append(&add_btn);
 
+        // TODO just get lisboxrows from list, or else certificates added at startup won't count.
         let mut rows : Rc<RefCell<Vec<ListBoxRow>>> = Rc::new(RefCell::new(Vec::new()));
         let cert = Rc::new(RefCell::new((String::new(), String::new())));
         host_entry.connect_changed({
@@ -580,20 +653,22 @@ impl SecurityBox {
             let (host_entry, cert_entry) = (host_entry.clone(), cert_entry.clone());
             let cert_added = cert_added.clone();
             let rows = rows.clone();
+            let tls_toggle = tls_toggle.clone();
+            let cert_removed = cert_removed.clone();
             move |btn| {
                 let mut cert = cert.borrow_mut();
                 host_entry.set_text("");
                 cert_entry.set_text("");
-                append_certificate_row(exp_row.clone(), &cert.0, &cert.1, &rows);
-                let c = Certificate { host : cert.0.clone(), cert : cert.1.clone() };
-                cert_added.activate(Some(&serde_json::to_string(&c).unwrap().to_variant()));
+                let is_tls = tls_toggle.is_active();
+                append_certificate_row(exp_row.clone(), &cert.0, &cert.1, is_tls, &rows, &cert_added, &cert_removed);
+                let c = Certificate { host : cert.0.clone(), cert : cert.1.clone(), is_tls };
                 btn.set_sensitive(false);
                 cert.0 = String::new();
                 cert.1 = String::new();
             }
         });
 
-        let rem_btn = Button::new();
+        /*let rem_btn = Button::new();
         rem_btn.style_context().add_class("flat");
         rem_btn.set_icon_name("list-remove-symbolic");
 
@@ -602,29 +677,19 @@ impl SecurityBox {
             let exp_row = exp_row.clone();
             let rows = rows.clone();
             move |btn| {
-                let bx_left = super::get_sibling_by_index::<_, Box>(btn, 0);
-                let bx_right = super::get_sibling_by_index::<_, Box>(btn, 1);
-                let lbl_left = super::get_child_by_index::<Label>(&bx_left, 1);
-                let lbl_right = super::get_child_by_index::<Label>(&bx_right, 1);
-                let parent_bx = bx_left.parent().clone().unwrap().downcast::<Box>().unwrap();
+                let entries_bx = super::get_sibling_by_index::<_, Box>(btn, 0);
+                let bx_top = super::get_child_by_index::<Box>(&entries_bx, 0);
+                let bx_bottom = super::get_child_by_index::<Box>(&entries_bx, 1);
+                let lbl_top = super::get_child_by_index::<Label>(&bx_top, 1);
+                let lbl_bottom = super::get_child_by_index::<Label>(&bx_bottom, 1);
+                let parent_bx = btn.parent().clone().unwrap().downcast::<Box>().unwrap();
                 let row = parent_bx.parent().clone().unwrap().downcast::<ListBoxRow>().unwrap();
                 exp_row.remove(&row);
 
-                let mut rows = rows.borrow_mut();
-                if let Some(ix) = rows.iter().position(|r| r == &row) {
-                    rows.remove(ix);
-                }
-
-                cert_removed.activate(
-                    Some(&serde_json::to_string(&Certificate {
-                        host : lbl_left.text().to_string(),
-                        cert : lbl_right.text().to_string()
-                    }).unwrap().to_variant())
-                );
+                
             }
-        });
+        });*/
 
-        add_bx.append(&add_btn);
         // add_bx.append(&rem_btn);
 
         exp_row.add_row(&add_row);
@@ -639,7 +704,7 @@ impl SecurityBox {
         //    }
         //});
 
-        Self { list, cert_added, cert_removed, exp_row, rows, save_switch }
+        Self { list, cert_added, cert_removed, exp_row, rows, save_switch, tls_toggle, ssl_toggle, scrolled }
     }
 }
 
@@ -685,7 +750,7 @@ impl QueriesSettings {
         let report_bx = ReportingBox::build();
         settings.stack.add_named(&editor_bx.list, Some(SETTINGS[0]));
         settings.stack.add_named(&exec_bx.list, Some(SETTINGS[1]));
-        settings.stack.add_named(&security_bx.list, Some(SETTINGS[2]));
+        settings.stack.add_named(&security_bx.scrolled, Some(SETTINGS[2]));
         settings.stack.add_named(&report_bx.list, Some(SETTINGS[3]));
         Self { settings, editor_bx, exec_bx, security_bx, report_bx }
     }

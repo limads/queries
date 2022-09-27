@@ -110,8 +110,8 @@ pub struct UserState {
 
     pub selected_template : usize,
 
-    #[serde(skip)]
-    pub unmatched_certs : Vec<Certificate>,
+    // #[serde(skip)]
+    pub certs : Vec<Certificate>,
 
     pub editor : EditorSettings,
 
@@ -135,7 +135,7 @@ impl UserState {
 use serde::Deserializer;
 use serde::Serializer;
 
-const KEY : [u8; 32] = [
+/*const KEY : [u8; 32] = [
     const_random::const_random!(u8),
     const_random::const_random!(u8),
     const_random::const_random!(u8),
@@ -232,7 +232,7 @@ fn deser_conns<'de, D>(deser : D) -> Result<Vec<ConnectionInfo>, D::Error>
             Ok(Vec::new())
         }
     }
-}
+}*/
 
 #[derive(Clone)]
 pub struct SharedUserState(Rc<RefCell<UserState>>);
@@ -279,7 +279,7 @@ impl Default for SharedUserState {
 
 }*/
 
-/*impl React<super::ConnectionSet> for SharedUserState {
+impl React<super::ConnectionSet> for SharedUserState {
 
     fn react(&self, set : &ConnectionSet) {
         set.connect_removed({
@@ -339,16 +339,16 @@ impl React<super::OpenedScripts> for SharedUserState {
         });
     }
 
-}*/
+}
 
-/*fn add_file(state : &SharedUserState, file : OpenedFile) {
+fn add_file(state : &SharedUserState, file : OpenedFile) {
     let mut state = state.borrow_mut();
     if let Some(path) = &file.path {
         if state.scripts.iter().find(|f| &f.path.as_ref().unwrap()[..] == &path[..] ).is_none() {
             state.scripts.push(file);
         }
     }
-}*/
+}
 
 impl React<crate::ui::QueriesWindow> for SharedUserState {
 
@@ -465,19 +465,28 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
             let state = self.clone();
             move |_, param| {
                 if let Some(s) = param {
-                    let cert : Certificate = serde_json::from_str(&s.get::<String>().unwrap()).unwrap();
+                    let cert_str = s.get::<String>().unwrap();
+                    let cert : Certificate = serde_json::from_str(&cert_str).unwrap();
                     let mut state = state.borrow_mut();
 
-                    let mut updated = false;
-                    while let Some(ix) = state.conns.iter().position(|c| c.host == cert.host ) {
-                        state.conns[ix].cert = Some(cert.cert.clone());
-                        updated = true;
+                    // let mut updated = false;
+                    
+                    let mut conn_iter = state.conns
+                        .iter_mut()
+                        .filter(|conn| &conn.host[..] == &cert.host[..] );
+                    while let Some(conn) = conn_iter.next() {
+                        conn.cert = Some(cert.cert.clone());
+                        conn.is_tls = Some(cert.is_tls);
+                        // updated = true;
                     }
-
-                    if !updated {
-                        state.unmatched_certs.push(cert);
+                    
+                    // if !updated {
+                    //    state.unmatched_certs.push(cert);
+                    // }
+                    if state.certs.iter().find(|c| &c.cert[..] == &cert.cert[..] ).is_none() {
+                        state.certs.push(cert);
                     }
-
+                    
                 }
             }
         });
@@ -487,9 +496,17 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
                 if let Some(s) = param {
                     let cert : Certificate = serde_json::from_str(&s.get::<String>().unwrap()).unwrap();
                     let mut state = state.borrow_mut();
-                    while let Some(ix) = state.conns.iter().position(|c| c.host == cert.host ) {
-                        state.conns[ix].cert = None;
+                    for conn in state.conns.iter_mut().filter(|c| c.host == cert.host ) {
+                        conn.cert = None;
+                        conn.is_tls = None;
                     }
+
+                    for i in (0..state.certs.len()).rev() {
+                        if &state.certs[i].cert[..] == &cert.cert[..] {
+                            state.certs.remove(i);
+                        }
+                    }
+                    
                 }
             }
         });
@@ -505,6 +522,16 @@ impl PersistentState<QueriesWindow> for SharedUserState {
 
     fn persist(&self, path : &str) -> JoinHandle<bool> {
         self.try_borrow_mut().and_then(|mut s| {
+            s.conns.sort_by(|a, b| {
+                a.host.cmp(&b.host).then(a.database.cmp(&b.database)).then(a.user.cmp(&b.user))
+            });
+            s.conns.dedup_by(|a, b| {
+                &a.host[..] == &b.host[..] && &a.database[..] == &b.database[..] && &a.user[..] == &b.user[..]
+            });
+            
+            // Only preserve connections that have been accepted at least once.
+            s.conns.retain(|c| !c.is_default() && !c.host.is_empty() && !c.database.is_empty() && !c.user.is_empty() && c.dt.is_some() );
+            
             s.scripts.iter_mut().for_each(|mut script| { script.content.as_mut().map(|c| c.clear() ); } );
             Ok(())
         });
@@ -512,7 +539,21 @@ impl PersistentState<QueriesWindow> for SharedUserState {
     }
 
     fn update(&self, queries_win : &QueriesWindow) {
+        
+        // The cert_added action is still inert here because we haven't called react<win> for update.
         let state = self.borrow();
+        for cert in &state.certs {
+            crate::ui::append_certificate_row(
+                queries_win.settings.security_bx.exp_row.clone(),
+                &cert.host,
+                &cert.cert,
+                cert.is_tls,
+                &queries_win.settings.security_bx.rows,
+                &queries_win.settings.security_bx.cert_added,
+                &queries_win.settings.security_bx.cert_removed
+            );
+        }
+
         queries_win.paned.set_position(state.paned.primary);
         queries_win.sidebar.paned.set_position(state.paned.secondary);
         queries_win.window.set_default_size(state.window.width, state.window.height);
@@ -521,17 +562,7 @@ impl PersistentState<QueriesWindow> for SharedUserState {
         } else {
             queries_win.titlebar.sidebar_toggle.set_active(true);
         }
-        for conn in state.conns.iter() {
-            if let Some(cert) = conn.cert.as_ref() {
-                crate::ui::append_certificate_row(
-                    queries_win.settings.security_bx.exp_row.clone(),
-                    &conn.host,
-                    cert,
-                    &queries_win.settings.security_bx.rows
-                );
-            }
-        }
-
+        
         // TODO missing statement timeout (perhaps just disconnect when timeout is reached).
         // let state = state.borrow();
         queries_win.settings.exec_bx.row_limit_spin.adjustment().set_value(state.execution.row_limit as f64);
@@ -558,6 +589,7 @@ impl PersistentState<QueriesWindow> for SharedUserState {
 pub fn set_client_state(user_state : &SharedUserState, client : &QueriesClient) {
     let state = user_state.borrow();
     client.conn_set.add_connections(&state.conns);
+    client.conn_set.add_certificates(&state.certs);
     client.scripts.add_files(&state.scripts);
     // crate::log_debug_if_required("Client updated with user state");
 }

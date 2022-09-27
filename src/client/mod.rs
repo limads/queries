@@ -18,24 +18,26 @@ impl QueriesClient {
             env : Environment::new(),
             scripts : OpenedScripts::new(),
         };
-        client.update(&user_state);
+        
+        let mut state = user_state.borrow_mut();
+
+        // The connection and scripts vectors are moved out of state
+        // because they will be re-set when the implementations for those
+        // signals is called. Note nothing is done here because the MainLoop hasn't been
+        // started yet, but those actions are queued for when it does and the
+        // state is re-updated accordingly.
+        for conn in mem::take(&mut state.conns) {
+            client.conn_set.send.send(ConnectionAction::Add(Some(conn.clone())));
+        }
+        for script in mem::take(&mut state.scripts) {
+            client.scripts.sender().send(MultiArchiverAction::Add(script.clone()));
+        }
+        
         client
     }
 
-    pub fn update(&self, state : &SharedUserState) {
-        let mut state = state.borrow_mut();
-
-        // The connection and scripts vectors are moved out of state
-        // because they will be re-set by the connect_added events. Adding them
-        // via the events guarantees the GUI is automatically updated.
-        for conn in mem::take(&mut state.conns) {
-            self.conn_set.send.send(ConnectionAction::Add(Some(conn.clone())));
-        }
-
-        for script in mem::take(&mut state.scripts) {
-            self.scripts.sender().send(MultiArchiverAction::Add(script.clone()));
-        }
-    }
+    // pub fn update(&self, state : &SharedUserState) { 
+    // }
 
 }
 

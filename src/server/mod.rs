@@ -37,9 +37,9 @@ mod pg;
 
 pub use pg::*;
 
-mod sqlite;
+// mod sqlite;
 
-pub use sqlite::*;
+// pub use sqlite::*;
 
 // mod arrow;
 

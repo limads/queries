@@ -43,6 +43,12 @@ use queries4::ui::*;
 
 }*/
 
+fn register_resource() {
+    let bytes = glib::Bytes::from_static(include_bytes!(concat!(env!("OUT_DIR"), "/", "compiled.gresource")));
+    let resource = gio::Resource::from_data(&bytes).unwrap();
+    gio::resources_register(&resource);
+}
+
 // gtk-encode-symbolic-svg -o . queries-symbolic.svg 16x16
 
 // GTK_THEME=Adwaita:dark cargo run
@@ -68,6 +74,8 @@ fn main() {
     systemd_journal_logger::init();
     log::set_max_level(log::LevelFilter::Info);
 
+    register_resource();
+    
     if let Err(e) = gtk4::init() {
         log::error!("{}", e);
         return;
@@ -110,7 +118,8 @@ fn main() {
     // Take shared ownership of the client state, because they will be needed to
     // persist the client state before the application closes (which is done outside
     // connect_activate). The state is updated for both of these structures just before
-    // the window is closed.
+    // the window is closed. We have to do this because client is moved to the connect_activate
+    // closure, but we need to keep a reference to its state after that happens.
     let script_final_state = client.scripts.final_state();
     let conn_final_state = client.conn_set.final_state();
 
@@ -135,14 +144,18 @@ fn main() {
                 .build();
             let queries_win = QueriesWindow::from(window);
 
+            // It is critical that updating the window here is done before setting the react signal
+            // below while the widgets are inert and thus do not change the state recursively.
             user_state.update(&queries_win);
 
+            // Now the window has been updated by the state, it is safe to add the callback signals.
             user_state.react(&queries_win);
 
             client.conn_set.react(&queries_win.content.results.overview.conn_list);
             client.conn_set.react(&client.active_conn);
             client.conn_set.react(&queries_win);
-            client.active_conn.react(&(&queries_win.content.results.overview.conn_bx, &user_state));
+            client.conn_set.react(&queries_win.content.results.overview.conn_bx);
+            client.active_conn.react(&queries_win.content.results.overview.conn_bx);
             client.active_conn.react(&queries_win.titlebar.exec_btn);
             client.active_conn.react(&queries_win.sidebar.schema_tree);
 
@@ -196,6 +209,8 @@ fn main() {
 
             (&queries_win.content.editor, &user_state).react(&queries_win.settings);
             (&client.env, &user_state).react(&queries_win.settings);
+            user_state.react(&client.conn_set);
+            user_state.react(&client.scripts);
 
             // It is important to make this call to add scripts and connections
             // only after all signals have been setup, to guarantee the GUI will update
@@ -208,6 +223,8 @@ fn main() {
         }
     });
 
+    // The final states for scripts and conn_set are updated just when the window is
+    // closed, which happens before application::run unblocks the main thread.
     application.run();
 
     user_state.replace_with(|user_state| {

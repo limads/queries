@@ -26,6 +26,7 @@ use std::hash::Hash;
 use crate::client::SharedUserState;
 use super::listener::ExecMode;
 use crate::tables::table::Table;
+use crate::ui::Certificate;
 
 // The actual connection info that is persisted on disk (excludes password for obvious
 // security reasons).
@@ -49,9 +50,11 @@ pub struct ConnectionInfo {
 
     // Optional path to certificate
     pub cert : Option<String>,
+    
+    pub is_tls : Option<bool>,
 
     // When this connection was last established (datetime-formatted).
-    pub dt : String
+    pub dt : Option<String>
 
 }
 
@@ -88,9 +91,10 @@ impl Default for ConnectionInfo {
             host : String::from(DEFAULT_HOST),
             user : String::from(DEFAULT_USER),
             database : String::from(DEFAULT_DB),
-            dt : Local::now().to_string(),  
+            dt : None,
             // details : None,
-            cert : None
+            cert : None,
+            is_tls : None
         }
     }
 
@@ -106,6 +110,12 @@ pub enum ConnectionAction {
     Switch(Option<i32>),
     Add(Option<ConnectionInfo>),
     Update(ConnectionInfo),
+    UpdateHost(String),
+    UpdateUser(String),
+    UpdateDB(String),
+    EraseCertificate(String),
+    // QueryCertificate(String),
+    AddCertificate(Certificate),
     Remove(i32),
     CloseWindow
     // ViewState(Vec<ConnectionInfo>)
@@ -143,6 +153,12 @@ impl ConnectionSet {
         self.final_state.clone()
     }
 
+    pub fn add_certificates(&self, certs : &[Certificate]) {
+        for cert in certs {
+            self.send.send(ConnectionAction::AddCertificate(cert.clone()));
+        }
+    }
+    
     pub fn add_connections(&self, conns : &[ConnectionInfo]) {
         for conn in conns.iter() {
             if !conn.host.is_empty() && !conn.database.is_empty() && !conn.user.is_empty() {
@@ -166,12 +182,39 @@ impl ConnectionSet {
             let (selected, added, updated, removed) = (selected.clone(), added.clone(), updated.clone(), removed.clone());
             let final_state = final_state.clone();
             // let on_view = on_view.clone();
+            let mut certs = Vec::new();
             move |action| {
                 println!("{:?} {:?}", action, conns.0);
                 match action {
                     ConnectionAction::Switch(opt_ix) => {
                         conns.1 = opt_ix;
                         selected.call(opt_ix.map(|ix| (ix, conns.0[ix as usize].clone() )));
+                    },
+                    
+                    /* This is called at startup via UserState::update->append_certificate_row->cert_added.activate,
+                    which is also called every time the user presses the add certificate button. */
+                    ConnectionAction::AddCertificate(cert) => {
+                        for conn in &mut conns.0[..] {
+                            if &conn.host[..] == &cert.host[..] {
+                                conn.is_tls = Some(cert.is_tls);
+                                conn.cert = Some(cert.cert.clone());
+                            }
+                        }
+                        certs.push(cert);
+                    },
+                    
+                    ConnectionAction::EraseCertificate(host) => {
+                        for conn in &mut conns.0[..] {
+                            if &conn.host[..] == &host[..] {
+                                conn.cert = None;
+                                conn.is_tls = None;
+                            }
+                        }
+                        for i in (0..(certs.len())).rev() {
+                            if &certs[i].host[..] == &host[..] {
+                                certs.remove(i);
+                            }
+                        }
                     },
                     ConnectionAction::Add(opt_conn) => {
                         /*if let Some(conn) = &opt_conn {
@@ -182,7 +225,10 @@ impl ConnectionSet {
 
                         // If the user clicked the 'plus' button, this will be None. If the connection
                         // was added from the settings file, there will be a valid value here.
-                        let conn = opt_conn.unwrap_or_default();
+                        let mut conn = opt_conn.unwrap_or_default();
+                        update_certificate(&mut conn, &certs);
+                        println!("Adding {:?}", conn);
+                        
                         conns.0.push(conn.clone());
 
                         // The selection will be re-set when the list triggers the callback at connect_added.
@@ -190,25 +236,49 @@ impl ConnectionSet {
 
                         added.call(conn.clone());
                     },
+                    
+                    ConnectionAction::UpdateHost(host) => {
+                        if let Some(ix) = conns.1 {
+                            conns.0[ix as usize].host = host;
+                        }
+                    },
+                    
+                    ConnectionAction::UpdateUser(user) => {
+                        if let Some(ix) = conns.1 {
+                            conns.0[ix as usize].user = user;
+                        }
+                    },
+                    
+                    ConnectionAction::UpdateDB(db) => {
+                        if let Some(ix) = conns.1 {
+                            conns.0[ix as usize].database = db;
+                        }
+                    },
+                    
+                    // Called when the user connects to the database
+                    // and the date field is set at ActiveConnection::Accepted.
                     ConnectionAction::Update(mut info) => {
 
                         // On update, it might be the case the info is the same as some
                         // other connection. Must decide how to resolve duplicates (perhaps
                         // remove old one by sending ConnectionAction::remove(other_equal_ix)?).
                         if let Some(ix) = conns.1 {
-                            info.dt = Local::now().to_string();
+                            
+                            info.dt = Some(Local::now().to_string());
+                            
                             conns.0[ix as usize] = info;
+                            update_certificate(&mut conns.0[ix as usize], &certs);
+                            
                             updated.call((ix, conns.0[ix as usize].clone()));
                         } else {
-                            panic!()
+                            println!("No connection selected");
                         }
-                        // TODO update settings
                     },
+                    
                     ConnectionAction::Remove(ix) => {
                         let _rem_conn = conns.0.remove(ix as usize);
                         removed.call(ix);
                         selected.call(None);
-                        // TODO remove from settings
                     },
                     ConnectionAction::CloseWindow => {
                         // println!("Replacing with {:?}", conns.0);
@@ -246,13 +316,56 @@ impl ConnectionSet {
 
 }
 
+fn update_certificate(conn : &mut ConnectionInfo, certs : &[Certificate]) {
+    if !conn.is_default() {
+        if let Some(cert) = certs.iter().find(|c| &c.host[..] == &conn.host[..] ) {
+            conn.cert = Some(cert.cert.clone());
+            conn.is_tls = Some(cert.is_tls);
+        }
+    }
+}
+
 impl React<ConnectionBox> for ConnectionSet {
 
-    fn react(&self, _conn_bx : &ConnectionBox) {
-        // conn_bx.switch.connect_activate(move |switch| {
-        // });
+    fn react(&self, conn_bx : &ConnectionBox) {
+        conn_bx.host.entry.connect_changed({
+            let send = self.send.clone();
+            move |entry| {
+                let txt = entry.text().to_string();
+                if &txt[..] != "" {
+                    send.send(ConnectionAction::UpdateHost(txt));
+                } else {
+                    send.send(ConnectionAction::UpdateHost("Host:Port".to_string()));
+                }
+                
+            }
+        });
+        conn_bx.user.entry.connect_changed({
+            let send = self.send.clone();
+            move |entry| {
+                let txt = entry.text().to_string();
+                if &txt[..] != "" {
+                    send.send(ConnectionAction::UpdateUser(txt));
+                } else {
+                    send.send(ConnectionAction::UpdateUser("User".to_string()));
+                }
+                
+            }
+        });
+        conn_bx.db.entry.connect_changed({
+            let send = self.send.clone();
+            move |entry| {
+                let txt = entry.text().to_string();
+                if &txt[..] != "" {
+                    send.send(ConnectionAction::UpdateDB(txt));
+                } else {
+                    send.send(ConnectionAction::UpdateDB("Database".to_string()));
+                }
+               
+            }
+        });
     }
-
+    
 }
 
 impl React<ConnectionList> for ConnectionSet {
@@ -290,6 +403,10 @@ impl React<ActiveConnection> for ConnectionSet {
         conn.connect_db_connected(move |(conn_info, _)| {
             send.send(ConnectionAction::Update(conn_info));
         });
+        let send = self.send.clone();
+        conn.connect_db_conn_failure(move |(conn_info, _)| {
+            send.send(ConnectionAction::Update(conn_info));
+        });
     }
 
 }
@@ -302,19 +419,25 @@ impl React<QueriesWindow> for ConnectionSet {
             send.send(ConnectionAction::CloseWindow);
             Inhibit(false)
         });
+        win.settings.security_bx.cert_removed.connect_activate({
+            let send = self.send.clone();
+            move |_, param| {
+                if let Some(s) = param {
+                    let cert : Certificate = serde_json::from_str(&s.get::<String>().unwrap()).unwrap();
+                    send.send(ConnectionAction::EraseCertificate(cert.host.to_string()));
+                }
+           }
+       });
+       win.settings.security_bx.cert_added.connect_activate({
+            let send = self.send.clone();
+            move |_, param| {
+                if let Some(s) = param {
+                    let cert : Certificate = serde_json::from_str(&s.get::<String>().unwrap()).unwrap();
+                    send.send(ConnectionAction::AddCertificate(cert));
+                }
+           }
+       });
     }
-
-}
-
-fn validate_host() {
-
-}
-
-fn validate_dbname() {
-
-}
-
-fn validate_params() {
 
 }
 
@@ -332,9 +455,9 @@ fn conn_str_test() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
     // "postgresql://other@localhost/otherdb?connect_timeout=10&application_name=myapp",
     // "postgresql://host1:123,host2:456/somedb?target_session_attrs=any&application_name=myapp"
     
-    let info_noport = ConnectionInfo { host : format!("localhost"), user : format!("user"), database : format!("mydb"), ..Default::default() };
-    let uri = ConnURI::new(info_noport, "secret").unwrap();
-    assert!(&uri.uri[..] == "postgresql://user:secret@localhost:5432/mydb");
+    // let info_noport = ConnectionInfo { host : format!("localhost"), user : format!("user"), database : format!("mydb"), ..Default::default() };
+    // let uri = ConnURI::new(info_noport, "secret").unwrap();
+    // assert!(&uri.uri[..] == "postgresql://user:secret@localhost:5432/mydb");
     
     let info_port = ConnectionInfo { host : format!("localhost:1234"), user : format!("user2"), database : format!("mydb2"), ..Default::default() };
     let uri_port = ConnURI::new(info_port, "secret2").unwrap();
@@ -345,7 +468,11 @@ fn conn_str_test() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
 }
 
 pub fn is_local(info : &ConnectionInfo) -> bool {
-    info.host.starts_with("127.0.0.1") || info.host.starts_with("localhost")
+    if let Some(fst_part) = info.host.split(":").next() {
+        fst_part.trim() == "127.0.0.1" || fst_part.trim() == "localhost"
+    } else {
+        false
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -364,7 +491,7 @@ pub enum Security {
 pub struct ConnURI {
     pub info : ConnectionInfo,
     pub uri : String,
-    pub security : Security
+    // pub security : Security
 }
 
 impl ConnURI {
@@ -395,37 +522,40 @@ impl ConnURI {
         uri += "@";
         let split_port : Vec<&str> = info.host.split(":").collect();
         let (host_prefix, port) = match split_port.len() {
-            0..=1 => {
-                (split_port[0], None)
-            },
+            // 1 => {
+            // (split_port[0], None)
+            //    return Err(
+            // },
             2 => {
-                (split_port[0], Some(split_port[1]))
+                (split_port[0], split_port[1])
             },
             _n => {
-                return Err(format!("Host string can contain only a single colon"));
+                return Err(format!("Invalid host value (expected host:port)\n(ex. 127.0.0.1:5432"));
             }
         };
         uri += host_prefix;
         uri += ":";
-        if let Some(p) = port {
-            uri += p;
-        } else {
-            uri += "5432";
-        }
+        // if let Some(p) = port {
+        //    uri += p;
+        // } else {
+        uri += port;
+        // }
         uri += "/";
         uri += &info.database;
         
         // sslmode=verify-ca/verify-full
         let local = is_local(&info);
-        let security = if !local {
-            uri += "?sslmode=require";
-            Security::SSL
-        } else {
-            Security::None
-        };
+        println!("is local = {:?}", local);
+        if !local {
+            if info.is_tls == Some(true) {
+                uri += "?tlsmode=require";
+            } else if info.is_tls == Some(false) {
+                uri += "?sslmode=require";
+            }
+        }
         
         println!("Conn URI: {}", uri);
-        Ok(ConnURI { info, uri, security })
+        Ok(ConnURI { info, uri })
     }
 
 }
@@ -479,7 +609,7 @@ pub enum ActiveConnectionAction {
 
     ConnectAccepted(boxed::Box<dyn Connection>, Option<DBInfo>),
 
-    ConnectFailure(String),
+    ConnectFailure(ConnectionInfo, String),
 
     Disconnect,
 
@@ -514,7 +644,7 @@ pub struct ActiveConnection {
 
     on_connected : Callbacks<(ConnectionInfo, Option<DBInfo>)>,
 
-    on_conn_failure : Callbacks<String>,
+    on_conn_failure : Callbacks<(ConnectionInfo, String)>,
     
     on_disconnected : Callbacks<()>,
 
@@ -555,7 +685,7 @@ impl ActiveConnection {
         let (on_connected, on_disconnected, on_error) : ActiveConnCallbacks = Default::default();
         let on_exec_result : Callbacks<Vec<StatementOutput>> = Default::default();
         let on_single_query_result : Callbacks<Table> = Default::default();
-        let on_conn_failure : Callbacks<String> = Default::default();
+        let on_conn_failure : Callbacks<(ConnectionInfo, String)> = Default::default();
         let (send, recv) = glib::MainContext::channel::<ActiveConnectionAction>(glib::source::PRIORITY_DEFAULT);
         let on_schema_update : Callbacks<Option<Vec<DBObject>>> = Default::default();
         let on_object_selected : Callbacks<Option<DBObject>> = Default::default();
@@ -611,14 +741,23 @@ impl ActiveConnection {
                 match action {
 
                     // At this stage, the connection URI was successfully parsed, 
-                    // but the connection hasn't been established yet.
+                    // but the connection hasn't been established yet. This URI is captured from
+                    // the entries, so no certificate is associated with it yet.
                     ActiveConnectionAction::ConnectRequest(mut uri) => {
 
                         // Spawn a thread that captures the database connection URI. The URI
                         // and the sensitive information (password) is forgotten when this thread dies.
                         thread::spawn({
                             let send = send.clone();
-                            let timeout_secs = user_state.borrow().execution.statement_timeout;
+                            let us = user_state.borrow();
+                            if let Some(cert) = us.certs.iter().find(|cert| &cert.host[..] == &uri.info.host[..] ) {
+                                uri.info.cert = Some(cert.cert.clone());
+                                uri.info.is_tls = Some(cert.is_tls);
+                            }
+                            
+                            println!("Final URI: {:?}", uri);
+                            
+                            let timeout_secs = us.execution.statement_timeout;
                             move || {
                                 match PostgresConnection::try_new(uri.clone()) {
                                     Ok(mut conn) => {
@@ -644,10 +783,8 @@ impl ActiveConnection {
                                         send.send(ActiveConnectionAction::ConnectAccepted(boxed::Box::new(conn), db_info)).unwrap();
                                     },
                                     Err(e) => {
-                                    
                                         println!("Connection failure");
-                                        
-                                        send.send(ActiveConnectionAction::ConnectFailure(e)).unwrap();
+                                        send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(), e)).unwrap();
                                     }
                                 }
                             }
@@ -666,6 +803,9 @@ impl ActiveConnection {
                         if let Err(e) = listener.update_engine(conn) {
                             println!("{}", e);
                         }
+                        // if let Some(info) = &mut db_info {
+                        //    info.info.dt = Some(Local::now().to_string());
+                        // }
                         on_connected.call((info, db_info));
                     },
                     
@@ -896,8 +1036,8 @@ impl ActiveConnection {
                         }
                         on_object_selected.call(selected_obj.clone());
                     },
-                    ActiveConnectionAction::ConnectFailure(e) => {
-                        on_conn_failure.call(e.clone());
+                    ActiveConnectionAction::ConnectFailure(info, e) => {
+                        on_conn_failure.call((info, e.clone()));
                     },
                     ActiveConnectionAction::Error(e) => {
                         on_error.call(e.clone());
@@ -948,7 +1088,7 @@ impl ActiveConnection {
 
     pub fn connect_db_conn_failure<F>(&self, f : F)
     where
-        F : Fn(String) + 'static
+        F : Fn((ConnectionInfo, String)) + 'static
     {
         self.on_conn_failure.bind(f);
     }
@@ -1002,10 +1142,10 @@ impl ActiveConnection {
     });
 }*/
 
-impl<'a> React<(&'a ConnectionBox, &'a SharedUserState)> for ActiveConnection {
+impl React<ConnectionBox> for ActiveConnection {
 
-    fn react(&self, r : &(&'a ConnectionBox, &'a SharedUserState)) {
-        let conn_bx = r.0;
+    fn react(&self, conn_bx : &ConnectionBox) {
+        // let conn_bx = r.0;
         let (host_entry, db_entry, user_entry, password_entry) = (
             conn_bx.host.entry.clone(),
             conn_bx.db.entry.clone(),
@@ -1013,41 +1153,47 @@ impl<'a> React<(&'a ConnectionBox, &'a SharedUserState)> for ActiveConnection {
             conn_bx.password.entry.clone()
         );
         let send = self.send.clone();
-        let state = r.1.clone();
+        // let state = r.1.clone();
         conn_bx.switch.connect_state_set(move |switch, _state| {
 
             if switch.is_active() {
-                if host_entry.text().starts_with("file") {
-                    unimplemented!()
-                }
+                
+                // if host_entry.text().starts_with("file") {
+                //    unimplemented!()
+                // }
 
                 match generate_conn_uri_from_entries(&host_entry, &db_entry, &user_entry, &password_entry) {
                     Ok(mut uri) => {
 
-                        let mut state = state.borrow_mut();
-                        for c in state.conns.iter() {
-                            if c.host == uri.info.host {
-                                if let Some(cert) = c.cert.as_ref() {
+                        // let mut state = state.borrow_mut();
+                        /*// If there is already a bound certificate
+                        for conn in state.conns.iter() {
+                            if conn.host == uri.info.host {
+                                if let Some(cert) = conn.cert.as_ref() {
                                     uri.info.cert = Some(cert.to_string());
+                                    uri.info.is_tls = conn.is_tls;
                                 }
                             }
                         }
-
+                        // Match certificate to this new host, if there is a pending certificate.
                         if uri.info.cert.is_none() {
-                            for c in state.unmatched_certs.clone().iter() {
+                            for c in state.certs.clone().iter() {
                                 if c.host == uri.info.host {
                                     uri.info.cert = Some(c.cert.to_string());
                                     while let Some(ix) = state.conns.iter().cloned().position(|conn| conn.host == c.host ) {
                                         state.conns[ix].cert = Some(c.cert.to_string());
+                                        state.conns[ix].is_tls = Some(c.is_tls);
                                     }
                                 }
                             }
-                        }
+                        }*/
 
                         send.send(ActiveConnectionAction::ConnectRequest(uri)).unwrap();
                     },
                     Err(e) => {
-                        send.send(ActiveConnectionAction::Error(e)).unwrap();
+                        let info = extract_conn_info(&host_entry, &db_entry, &user_entry).unwrap_or_default();
+                        send.send(ActiveConnectionAction::ConnectFailure(info, e)).unwrap();
+                        // crate::ui::disconnect_with_delay(switch.clone());
                     }
                 }
             } else {

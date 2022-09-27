@@ -1,0 +1,61 @@
+{
+    "app-id" : "com.github.limads.Queries",
+    "runtime" : "org.gnome.Platform",
+    "runtime-version" : "42",
+    "sdk" : "org.gnome.Sdk",
+    "sdk-extensions" : [
+        "org.freedesktop.Sdk.Extension.rust-stable"
+    ],
+    "command" : "queries",
+    "finish-args" : [
+        "--share=network",
+        "--share=ipc",
+        "--socket=wayland",
+        "--socket=x11",
+        "--socket=fallback-x11",
+        "--device=dri",
+        "--socket=system-bus",
+        "--socket=session-bus",
+        "--filesystem=home"
+    ],
+    "build-options" : {
+        "append-path" : "/usr/lib/sdk/rust-stable/bin",
+        "build-args" : [
+            "--share=network"
+        ],
+        "env" : {
+            "RUST_BACKTRACE" : "1",
+            "RUST_LOG" : "Queries=debug"
+        }
+    },
+    "cleanup" : [
+        "/include",
+        "/lib/pkgconfig",
+        "/man",
+        "/share/doc",
+        "/share/gtk-doc",
+        "/share/man",
+        "/share/pkgconfig",
+        "*.la",
+        "*.a"
+    ],
+    "modules" : [
+        {
+	        "name" : "Queries",
+	        "builddir" : true,
+	        "buildsystem" : "simple",
+	        "build-commands" : [
+	        	"cargo build --manifest-path=${FLATPAK_BUILDER_BUILDDIR}/Cargo.toml --verbose"
+	        ],
+	        "sources" : [
+		    {
+		        "type" : "git",
+		        "url" : "file:///home/diego/Software/gnome/queries"
+		    }
+	        ],
+	        "post-install" : [
+	        	"sh /run/build/Queries/postinstall.sh"
+	        ]
+	    }
+    ]
+}

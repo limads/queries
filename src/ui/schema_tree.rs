@@ -778,6 +778,8 @@ impl React<ActiveConnection> for SchemaTree {
         conn.connect_db_connected(move |(_conn_info, db_info)| {
             if let Some(db_info) = db_info {
                 schema_tree.repopulate(db_info.schema);
+            } else {
+                schema_tree.repopulate(vec![DBObject::Schema { name : format!("Catalog unavailable"), children : Vec::new() }]);
             }
         });
         conn.connect_db_disconnected({

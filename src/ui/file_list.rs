@@ -40,7 +40,7 @@ impl FileList {
 
 }
 
-fn add_file(list : &ListBox, path : &str) {
+pub fn add_file(list : &ListBox, path : &str) {
     let lbl = PackedImageLabel::build("text-x-generic-symbolic", path);
     /*let img_close = Image::from_icon_name(
         Some("application-exit-symbolic"),

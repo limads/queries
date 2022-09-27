@@ -274,7 +274,11 @@ impl React<ActiveConnection> for QueriesContent {
                 connect_toast_dismissed(&toast, &curr_toast);
                 *last_toast = Some(toast);
                 results_page.set_icon_name(Some("db-symbolic"));
-                stack.set_visible_child_name("overview");
+                if let Some(curr_name) = stack.visible_child_name() {
+                    if &curr_name[..] != "overview" {
+                        stack.set_visible_child_name("overview");   
+                    }
+                }
             }
         });
         conn.connect_db_conn_failure({
@@ -282,7 +286,8 @@ impl React<ActiveConnection> for QueriesContent {
             let results_page = self.results_page.clone();
             let stack = self.results.stack.clone();
             let curr_toast = self.curr_toast.clone();
-            move |err : String| {
+            move |(info, err)| {
+                println!("Db failure");
                 let mut last_toast = curr_toast.borrow_mut();
                 if let Some(t) = last_toast.take() {
                     t.dismiss();
@@ -292,7 +297,11 @@ impl React<ActiveConnection> for QueriesContent {
                 connect_toast_dismissed(&toast, &curr_toast);
                 *last_toast = Some(toast);
                 results_page.set_icon_name(Some("db-symbolic"));
-                stack.set_visible_child_name("overview");
+                if let Some(curr_name) = stack.visible_child_name() {
+                    if &curr_name[..] != "overview" {
+                        stack.set_visible_child_name("overview");   
+                    }
+                }
             }
         });
         conn.connect_exec_result({

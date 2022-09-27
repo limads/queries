@@ -61,14 +61,17 @@ pub struct PostgresConnection {
 
 }
 
-async fn connect(rt : &tokio::runtime::Runtime, uri : &ConnURI) -> Result<tokio_postgres::Client, String> {
+async fn connect(
+    rt : &tokio::runtime::Runtime, 
+    uri : &ConnURI
+) -> Result<tokio_postgres::Client, String> {
 
     // If a TLS certificate is configured, assume the client wants to connect
     // via TLS.
     if let Some(cert) = uri.info.cert.as_ref() {
 
-        match uri.security {
-            Security::TLS => {
+        match uri.info.is_tls {
+            Some(true) => {
             
                 use native_tls::{Certificate, TlsConnector};
                 use postgres_native_tls::MakeTlsConnector;
@@ -104,7 +107,7 @@ async fn connect(rt : &tokio::runtime::Runtime, uri : &ConnURI) -> Result<tokio_
                     }
                 }
             },
-            Security::SSL => {
+            Some(false) => {
             
                 use openssl::ssl::{SslConnector, SslMethod};
                 use postgres_openssl::MakeTlsConnector;
@@ -134,9 +137,12 @@ async fn connect(rt : &tokio::runtime::Runtime, uri : &ConnURI) -> Result<tokio_
                     }
                 }
             },
-            Security::None => {
-                Err(format!("Certificate is configured for host, but security setting is None"))
+            None => {
+                Err(format!("Secure connection modality unspecified"))
             }
+            // Security::None => {
+            //    Err(format!("Certificate is configured for host, but security setting is None"))
+            // }
         }
     } else {
         if crate::client::is_local(&uri.info) {
@@ -472,6 +478,8 @@ impl Connection for PostgresConnection {
 
     fn db_info(&mut self) -> Result<DBInfo, Box<dyn Error>> {
         
+        println!("Querying info...");
+        
         let mut col_queries = Vec::new();
         let mut pk_queries = Vec::new();
         let mut rel_queries = Vec::new();
@@ -545,9 +553,17 @@ impl Connection for PostgresConnection {
             top_objs.push(schema_obj);
         }
         
-        let details = query_db_details(self, &self.info.database.clone()[..])?;
+        println!("Schema: {:?}", top_objs);
+        let details = match query_db_details(self, &self.info.database.clone()[..]) {
+            Ok(details) => Some(details),
+            Err(e) => {
+                println!("{}", e);
+                None
+            }
+        };
 
-        Ok(DBInfo { schema : top_objs, details : Some(details) })
+        println!("Details: {:?}", details);
+        Ok(DBInfo { schema : top_objs, details })
 
         /*} else {
             // println!("Failed retrieving database schemata");

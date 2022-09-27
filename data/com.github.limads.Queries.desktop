@@ -1,10 +1,10 @@
 [Desktop Entry]
 Name=Queries
 GenericName=Queries
-Comment=Extensible Relational database client
+Comment=SQL Client
 Categories=Productivity;GTK
 Icon=queries
 Exec=queries
 Terminal=false
 Type=Application
-
+MimeType=application/x-sql

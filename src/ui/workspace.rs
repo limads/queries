@@ -102,7 +102,7 @@ impl<'a> React<(&'a Environment, &'a SharedUserState)> for QueriesWorkspace {
 }
 
 fn configure_plot_page(tab_page : &libadwaita::TabPage, panel : &Panel) {
-    tab_page.set_icon(Some(&gio::ThemedIcon::new("folder-templates-symbolic")));
+    tab_page.set_icon(Some(&gio::ThemedIcon::new("roll-symbolic")));
     tab_page.set_title("Plot");
 }
 
