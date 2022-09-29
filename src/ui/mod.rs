@@ -169,7 +169,7 @@ impl React<QueriesWorkspace> for QueriesContent {
         });
         let results_page = self.results_page.clone();
         ws.tab_view.connect_page_attached(move |tab_view, page, pos| {
-            results_page.set_icon_name(Some("queries-symbolic"));
+            results_page.set_icon_name(Some("table-symbolic"));
         });
     }
 
@@ -722,17 +722,17 @@ pub fn configure_dialog(dialog : &impl GtkWindowExt) {
 
 pub fn get_type_icon_name(ty : &DBType) -> &'static str {
     match ty {
-        DBType::Bool => "type-boolean",
-        DBType::I16 | DBType::I32 | DBType::I64 => "type-integer",
-        DBType::F32 | DBType::F64 | DBType::Numeric => "type-real",
-        DBType::Text => "type-text",
-        DBType::Date => "type-date",
-        DBType::Time => "type-time",
-        DBType::Json => "type-json",
-        DBType::Xml => "type-xml",
-        DBType::Bytes => "type-binary",
-        DBType::Array => "type-array",
-        DBType::Unknown | DBType::Trigger => "type-unknown",
+        DBType::Bool => "type-boolean-symbolic",
+        DBType::I16 | DBType::I32 | DBType::I64 => "type-integer-symbolic",
+        DBType::F32 | DBType::F64 | DBType::Numeric => "type-real-symbolic",
+        DBType::Text => "type-text-symbolic",
+        DBType::Date => "type-date-symbolic",
+        DBType::Time => "type-time-symbolic",
+        DBType::Json => "type-json-symbolic",
+        DBType::Xml => "type-xml-symbolic",
+        DBType::Bytes => "type-binary-symbolic",
+        DBType::Array => "type-array-symbolic",
+        DBType::Unknown | DBType::Trigger => "type-unknown-symbolic",
     }
 }
 

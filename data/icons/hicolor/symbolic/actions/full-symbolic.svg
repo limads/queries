@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <svg
-   xmlns:dc="http://purl.org/dc/elements/1.1/"
-   xmlns:cc="http://creativecommons.org/ns#"
-   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-   xmlns:svg="http://www.w3.org/2000/svg"
-   xmlns="http://www.w3.org/2000/svg"
-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    width="16"
    height="16"
    viewBox="0 0 4.2333332 4.2333335"
    version="1.1"
    id="svg8"
-   inkscape:version="1.0.1 (3bc2e813f5, 2020-09-07)"
-   sodipodi:docname="full.svg">
+   inkscape:version="1.1.1 (3bf5ae0d25, 2021-09-20)"
+   sodipodi:docname="full-symbolic.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:dc="http://purl.org/dc/elements/1.1/">
   <defs
      id="defs2" />
   <sodipodi:namedview
@@ -23,9 +23,9 @@
      borderopacity="1.0"
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
-     inkscape:zoom="31.678384"
-     inkscape:cx="2.734089"
-     inkscape:cy="8.0091377"
+     inkscape:zoom="39.104196"
+     inkscape:cx="5.4214131"
+     inkscape:cy="7.6590246"
      inkscape:document-units="mm"
      inkscape:current-layer="g845"
      inkscape:document-rotation="0"
@@ -35,7 +35,8 @@
      inkscape:window-height="1016"
      inkscape:window-x="0"
      inkscape:window-y="0"
-     inkscape:window-maximized="1" />
+     inkscape:window-maximized="1"
+     inkscape:pagecheckerboard="0" />
   <metadata
      id="metadata5">
     <rdf:RDF>
@@ -44,7 +45,6 @@
         <dc:format>image/svg+xml</dc:format>
         <dc:type
            rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
-        <dc:title />
       </cc:Work>
     </rdf:RDF>
   </metadata>
@@ -60,24 +60,23 @@
         <g
            id="g845"
            transform="translate(-0.00191075,-0.11199701)">
-          <circle
-             style="fill:#3d3d3d;fill-opacity:1;stroke:#3d3d3d;stroke-width:0.3;stroke-miterlimit:4;stroke-dasharray:none"
+          <g
              id="path833"
-             cx="1.3946533"
-             cy="1.9403578"
-             r="1.2291892" />
-          <circle
-             style="fill:#3d3d3d;fill-opacity:1;stroke:#ffffff;stroke-width:0.118;stroke-miterlimit:4;stroke-dasharray:none"
-             id="circle847"
-             cx="2.7127256"
-             cy="1.9403578"
-             r="1.447639" />
-          <circle
-             style="fill:#3d3d3d;stroke:#3d3d3d;stroke-width:0.3;stroke-miterlimit:4;stroke-dasharray:none;fill-opacity:0;stroke-opacity:0"
-             id="circle839"
-             cx="1.379254"
-             cy="1.9403578"
-             r="1.2291892" />
+             style="fill:#000000"
+             transform="matrix(0.92401838,0,0,0.92401838,1.687568,0.04389426)">
+            <path
+               style="color:#000000;fill:#000000;stroke-width:0.3;-inkscape-stroke:none"
+               d="M 2.6084431,1.9403578 A 1.2291892,1.2291892 0 0 1 1.379254,3.169547 1.2291892,1.2291892 0 0 1 0.15006483,1.9403578 1.2291892,1.2291892 0 0 1 1.379254,0.71116865 1.2291892,1.2291892 0 0 1 2.6084431,1.9403578 Z"
+               id="path829" />
+            <path
+               style="color:#000000;fill:#000000;-inkscape-stroke:none"
+               d="M 1.3789062,0.56054687 C 0.61897856,0.56054687 0,1.1795254 0,1.9394531 c 0,0.7599277 0.61897856,1.3808594 1.3789062,1.3808594 0.7599277,0 1.3789063,-0.6209317 1.3789063,-1.3808594 0,-0.7599277 -0.6189786,-1.37890622 -1.3789063,-1.37890623 z m 0,0.30078126 c 0.5977959,0 1.0800782,0.48032917 1.0800782,1.07812497 0,0.5977958 -0.4822823,1.0800781 -1.0800782,1.0800782 -0.59779576,0 -1.07812495,-0.4822824 -1.07812495,-1.0800782 0,-0.5977958 0.48032919,-1.07812497 1.07812495,-1.07812497 z"
+               id="path831" />
+          </g>
+          <path
+             id="path1385"
+             style="fill:#000000;stroke-width:0.238267"
+             d="M 1.3149516,0.50143443 A 1.305337,1.305337 0 0 0 0.00946526,1.8069182 1.305337,1.305337 0 0 0 1.3149516,3.1119241 1.305337,1.305337 0 0 0 2.0588964,2.878906 1.305337,1.305337 0 0 1 1.4973548,1.8069182 1.305337,1.305337 0 0 1 2.0588964,0.73445338 1.305337,1.305337 0 0 0 1.3149516,0.50143443 Z" />
         </g>
       </g>
     </g>

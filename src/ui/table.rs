@@ -20,6 +20,33 @@ pub struct TableWidget {
 
 }
 
+const TABLE_CSS : &'static str = r#"
+.scrolledwindow {
+  background-color : #FFFFFF;
+}
+
+.table-cell {
+  padding-left: 10px;
+  padding-right: 10px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  border : 1px solid #F0F0F0;
+  /*border : 1px solid #000000;*/
+  background-color : #FFFFFF;
+}
+
+.selected {
+  background-color : #F5F6F7;
+  border : 1px solid #E9E9E9;
+}
+
+.first-row {
+  /*background-color : #E9E9E9;*/
+  font-weight : bold;
+  border-bottom : 1px solid #F0F0F0;
+}
+"#;
+
 impl TableWidget {
 
     pub fn new_from_table(tbl : &Table, max_nrows : usize, max_ncols : usize) -> Self {
@@ -35,7 +62,10 @@ impl TableWidget {
         let grid = Grid::new();
         // let _message = Label::new(None);
         let provider = CssProvider::new();
-        provider.load_from_path("assets/styles/tables.css");
+        
+        // provider.load_from_path("assets/styles/tables.css");
+        provider.load_from_data(TABLE_CSS.as_bytes());
+        
         let parent_ctx = grid.style_context();
         parent_ctx.add_provider(&provider,800);
 

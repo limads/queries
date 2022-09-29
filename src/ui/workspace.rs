@@ -110,8 +110,8 @@ fn configure_table_page(tab_page : &libadwaita::TabPage, table : &Table) {
     let source = table.source();
     let (icon, mut title) = match (source.name, source.relation) {
         (Some(name), Some(rel)) => (format!("{}", rel), name.to_string()),
-        (Some(name), None) => (format!("queries"), name.to_string()),
-        _ => (format!("queries"), format!("Unknown"))
+        (Some(name), None) => (format!("table-symbolic"), name.to_string()),
+        _ => (format!("table-symbolic"), format!("Unknown"))
     };
     let (nrows, ncols) = table.shape();
     title += &format!(" ({} x {})", nrows, ncols);

@@ -2,26 +2,26 @@
 <!-- Generator: Adobe Illustrator 18.1.1, SVG Export Plug-In . SVG Version: 6.00 Build 0)  -->
 
 <svg
-   xmlns:dc="http://purl.org/dc/elements/1.1/"
-   xmlns:cc="http://creativecommons.org/ns#"
-   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-   xmlns:svg="http://www.w3.org/2000/svg"
-   xmlns="http://www.w3.org/2000/svg"
-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    version="1.1"
    id="Capa_1"
    x="0px"
    y="0px"
    viewBox="0 0 16 16"
    xml:space="preserve"
-   sodipodi:docname="unknown.svg"
-   inkscape:version="0.92.4 (5da689c313, 2019-01-14)"
+   sodipodi:docname="type-unknown-symbolic.svg"
+   inkscape:version="1.1.1 (3bf5ae0d25, 2021-09-20)"
    width="16"
-   height="16"><metadata
+   height="16"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata
    id="metadata57"><rdf:RDF><cc:Work
        rdf:about=""><dc:format>image/svg+xml</dc:format><dc:type
-         rdf:resource="http://purl.org/dc/dcmitype/StillImage" /><dc:title /></cc:Work></rdf:RDF></metadata><defs
+         rdf:resource="http://purl.org/dc/dcmitype/StillImage" /></cc:Work></rdf:RDF></metadata><defs
    id="defs55" /><sodipodi:namedview
    pagecolor="#ffffff"
    bordercolor="#666666"
@@ -36,12 +36,13 @@
    id="namedview53"
    showgrid="false"
    inkscape:zoom="13.520481"
-   inkscape:cx="-24.632339"
-   inkscape:cy="-0.9101148"
+   inkscape:cx="2.4407416"
+   inkscape:cy="-0.92452332"
    inkscape:window-x="0"
-   inkscape:window-y="27"
+   inkscape:window-y="0"
    inkscape:window-maximized="1"
-   inkscape:current-layer="g18" />
+   inkscape:current-layer="g18"
+   inkscape:pagecheckerboard="0" />
 <g
    id="g20"
    transform="translate(0,-1.455)">
@@ -55,17 +56,13 @@
 		
 		
 		
-	<text
-   xml:space="preserve"
-   style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:21.11164856px;line-height:1;font-family:'Ubuntu mono';-inkscape-font-specification:'Ubuntu mono';letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.5277912"
-   x="3.328125"
-   y="15.3925"
-   id="text839"><tspan
-     sodipodi:role="line"
-     id="tspan837"
-     x="3.328125"
-     y="15.3925"
-     style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:16px;font-family:Sans;-inkscape-font-specification:Sans;fill:#3d3d3d;fill-opacity:1;stroke-width:0.5277912">?</tspan></text>
+	<g
+   aria-label="?"
+   id="text839"
+   style="font-size:21.1116px;font-family:'Ubuntu mono';-inkscape-font-specification:'Ubuntu mono';letter-spacing:0px;word-spacing:0px;stroke-width:0.527791;fill:#000000"><path
+     d="M 8.8671875,11.455 H 6.046875 v -0.382813 q 0,-0.640625 0.2578125,-1.1328121 0.2578125,-0.5 1.0859375,-1.265625 l 0.5,-0.453125 Q 8.3359375,7.8143749 8.5390625,7.4549999 8.75,7.0956249 8.75,6.7362499 8.75,6.1893749 8.375,5.8846874 8,5.5721874 7.328125,5.5721874 q -0.6328125,0 -1.3671875,0.265625 -0.734375,0.2578125 -1.53125,0.7734375 V 4.1581249 Q 5.375,3.8299999 6.15625,3.6737499 q 0.78125,-0.15625 1.5078125,-0.15625 1.90625,0 2.9062505,0.78125 1,0.7734375 1,2.265625 0,0.765625 -0.304688,1.375 -0.304687,0.6015625 -1.039062,1.296875 L 9.7265625,9.6815624 Q 9.1953125,10.165937 9.03125,10.462812 8.8671875,10.751875 8.8671875,11.103437 Z M 6.046875,12.61125 H 8.8671875 V 15.3925 H 6.046875 Z"
+     style="-inkscape-font-specification:Sans;fill:#000000"
+     id="path840" /></g>
 
 
 

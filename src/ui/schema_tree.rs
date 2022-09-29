@@ -181,7 +181,9 @@ impl SchemaTree {
 
     pub fn build() -> Self {
         let type_icons = load_type_icons();
-        let tbl_icon = Pixbuf::from_file_at_scale(&icon_path("queries-symbolic.svg").unwrap(), 16, 16, true).unwrap();
+        
+        // let tbl_icon = Pixbuf::from_file_at_scale(&icon_path("queries-symbolic.svg").unwrap(), 16, 16, true).unwrap();
+        
         // let tbl_image = Image::from_icon_name(Some("grid-black"), IconSize::SmallToolbar);
         // let tbl_icon = tbl_image.get_pixbuf().unwrap();
 
@@ -224,11 +226,23 @@ impl SchemaTree {
         // table_menu.upcast::<Popover>().set_transition_type(RevealerTransitionType::SlideRight);
         // schema_menu.upcast::<Popover>().set_transition_type(RevealerTransitionType::SlideRight);
 
-        let schema_icon = Pixbuf::from_file_at_scale(&icon_path("db.svg").unwrap(), 16, 16, true).unwrap();
+        let mut icons = archiver::load_icons_as_pixbufs_from_resource(
+            "/com/github/limads/queries",
+            &["table-symbolic", "db-symbolic", "fn-dark-symbolic", "clock-app-symbolic", "view-symbolic", "key-symbolic"]
+        ).unwrap();
+        
+        /*let schema_icon = Pixbuf::from_file_at_scale(&icon_path("db.svg").unwrap(), 16, 16, true).unwrap();
         let fn_icon = Pixbuf::from_file_at_scale(&icon_path("fn-dark.svg").unwrap(), 16, 16, true).unwrap();
         let clock_icon = Pixbuf::from_file_at_scale(&icon_path("clock-app-symbolic.svg").unwrap(), 16, 16, true).unwrap();
         let view_icon = Pixbuf::from_file_at_scale(&icon_path("view.svg").unwrap(), 16, 16, true).unwrap();
-        let key_icon = Pixbuf::from_file_at_scale(&icon_path("key-symbolic.svg").unwrap(), 16, 16, true).unwrap();
+        let key_icon = Pixbuf::from_file_at_scale(&icon_path("key-symbolic.svg").unwrap(), 16, 16, true).unwrap();*/
+        let schema_icon = icons.remove("db-symbolic").unwrap();
+        let fn_icon = icons.remove("fn-dark-symbolic").unwrap();
+        let clock_icon = icons.remove("clock-app-symbolic").unwrap();
+        let view_icon = icons.remove("view-symbolic").unwrap();
+        let key_icon = icons.remove("key-symbolic").unwrap();
+        let tbl_icon = icons.remove("table-symbolic").unwrap();
+        
         let tree_view = TreeView::new();
         tree_view.set_valign(Align::Fill);
         tree_view.set_vexpand(true);
@@ -896,11 +910,19 @@ impl React<ActiveConnection> for SchemaTree {
 }
 
 fn load_type_icons() -> Rc<HashMap<DBType, Pixbuf>> {
-    let mut type_icons = HashMap::new();
-    for ty in ALL_TYPES.iter() {
+    /*for ty in ALL_TYPES.iter() {
         let path = icon_path(&format!("{}.svg", super::get_type_icon_name(ty))).unwrap();
         let pix = Pixbuf::from_file_at_scale(&path, 16, 16, true).unwrap();
         type_icons.insert(*ty, pix);
+    }*/
+    let mut names = Vec::new();
+    for ty in ALL_TYPES.iter() {
+        names.push(super::get_type_icon_name(ty));
+    }
+    let pixbufs = archiver::load_icons_as_pixbufs_from_resource("/com/github/limads/queries", &names[..]).unwrap();
+    let mut type_icons = HashMap::new();
+    for ty in ALL_TYPES.iter() {
+        type_icons.insert(ty.clone(), pixbufs[super::get_type_icon_name(ty)].clone());
     }
     Rc::new(type_icons)
 }
@@ -937,7 +959,7 @@ fn configure_tree_view(tree_view : &TreeView) -> TreeStore {
     model
 }
 
-fn icon_path(filename : &str) -> Result<String, &'static str> {
+/*fn icon_path(filename : &str) -> Result<String, &'static str> {
     // let exe_dir = exec_dir()?;
     // let path = exe_dir + "/../../assets/icons/" + filename;
     Ok(format!("/home/diego/Software/gnome/queries/assets/icons/{}", filename))
@@ -948,7 +970,7 @@ fn exec_dir() -> Result<String, &'static str> {
     let exe_dir = exe_path.as_path().parent().ok_or("CLI executable has no parent dir")?
         .to_str().ok_or("Could not convert path to str")?;
     Ok(exe_dir.to_string())
-}
+}*/
 
 #[derive(Debug, Clone)]
 pub struct ImportDialog {

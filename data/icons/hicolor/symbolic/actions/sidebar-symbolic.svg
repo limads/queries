@@ -25,9 +25,9 @@
      inkscape:pageshadow="2"
      inkscape:zoom="32"
      inkscape:cx="10.03125"
-     inkscape:cy="14.015625"
+     inkscape:cy="7.828125"
      inkscape:document-units="mm"
-     inkscape:current-layer="layer1"
+     inkscape:current-layer="g820"
      showgrid="false"
      units="px"
      inkscape:window-width="1920"
@@ -59,20 +59,14 @@
       <g
          id="g820"
          transform="rotate(-90,2.2049769,294.86184)">
-        <rect
-           style="fill:none;fill-opacity:1;stroke:#3d3d3d;stroke-width:0.3;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
-           id="rect815"
-           height="3.5532002"
-           x="0.42837358"
-           y="293.08524"
-           width="3.553" />
-        <rect
-           y="293.60056"
-           x="0.78836334"
-           height="0.54973531"
-           width="2.8358912"
+        <path
+           style="color:#000000;fill:#3d3d3d;-inkscape-stroke:none"
+           d="m 0.27929688,292.93555 v 0.15039 3.70312 H 4.1308594 v -3.85351 z m 0.29882812,0.29882 h 3.2539063 v 3.25391 H 0.578125 Z"
+           id="rect815" />
+        <path
            id="rect850"
-           style="fill:#3d3d3d;fill-opacity:1;stroke:#3d3d3d;stroke-width:0.07028002;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1" />
+           style="fill:#3d3d3d;stroke:none;stroke-width:0.0787467"
+           d="M 0.78836334,293.46349 H 3.6243633 v 0.69016 H 0.78836334 Z" />
       </g>
     </g>
   </g>

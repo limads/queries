@@ -128,7 +128,8 @@ fn main() {
         move |app| {
             if let Some(display) = gdk::Display::default() {
                 let theme = IconTheme::for_display(&display);
-                theme.add_search_path("/home/diego/Software/gnome/queries/assets/icons");
+                // theme.add_search_path("/home/diego/Software/gnome/queries/assets/icons");
+                theme.add_resource_path("/com/github/limads/queries/icons");
             } else {
                 log::warn!("Unable to get default GDK display");
             }
