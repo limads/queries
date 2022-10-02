@@ -837,7 +837,7 @@ impl ActiveConnection {
                         }
 
                         let us = user_state.borrow();
-                        match listener.send_commands(stmts, HashMap::new(), us.safety(), us.execution.statement_timeout as usize) {
+                        match listener.send_commands(stmts, HashMap::new(), us.safety(), false, us.execution.statement_timeout as usize) {
                             Ok(_) => { },
                             Err(e) => {
                                 on_error.call(e.clone());
@@ -908,6 +908,7 @@ impl ActiveConnection {
                                     stmts.clone(),
                                     HashMap::new(),
                                     us.safety(),
+                                    true,
                                     us.execution.statement_timeout as usize
                                 );
                                 match send_ans {

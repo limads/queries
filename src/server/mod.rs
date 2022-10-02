@@ -10,9 +10,12 @@ use crate::sql::SafetyLock;
 use std::error::Error;
 
 /*
-The client must parse the SQL file because it needs to dispatch statements to either the
+
+This module contains the backend-agnostic query parsing and execution logic.
+
+The client must parse the SQL file mainly because it needs to dispatch statements to either the
 Client::exec (if statement isn't a query) or Client::query (if statement is a query). While
-it is not a hard driver error to swap those, calling exec with queries wouldn't return any
+it is not a driver error to swap those, calling exec with queries wouldn't return any
 results. 
 
 But the issue is that sqlparser does not understand the full PostgreSQL dialect, so
@@ -20,15 +23,17 @@ we end up with the situation that a few PostgreSQL statements aren't supported b
 Perhaps this will change in the future if the parser achieves feature parity with the
 server parser.
 
-Another reason for parsing SQL is that we must know what the columns are, even if
+Other reasons for parsing SQL client-side before execution are:
+
+- We must know what the columns are, even if
 the server does not return any results. Since the postgres driver binds column information
 to the rows (rather than the iterable returned by query or query_raw), when there are zero
 rows we want to show an empty table to the user, but with the column names.
 
-Another reason for parsing SQL is to inform the user of destructive actions, and possibly
+- To inform the user of destructive actions, and possibly
 block them.
 
-Another reason for parsing SQL is to determine if a table/view/function was created/dropped,
+- To determine if a table/view/function was created/dropped,
 so that the SchemaTree can be updated.
 
 */
@@ -80,32 +85,10 @@ where
         &mut self,
         query_seq : String,
         subs : &HashMap<String, String>,
-        lock : SafetyLock
+        lock : SafetyLock,
+        is_schedule : bool
     ) -> Result<Vec<StatementOutput>, String> {
 
-        // Substitute $() (variable) and ${} (command) macros before parsing the SQL.
-        // let (query_seq, copies) = Self::substitute_copies(query_seq)?;
-        // println!("Captured copies: {:?}", copies);
-        /*match parse {
-            // true => match crate::sql::parsing::partially_parse_sql(&query_seq, &subs) {
-                Ok(stmts) => {
-                    self.run_parsed_sql(stmts, &subs)
-                },
-                Err(SQLError::Lexing(err)) | Err(SQLError::Parsing(err)) | Err(SQLError::Unsupported(err)) => {
-                    Err(err)
-                },
-                /*Err(SQLError::Lexing(err)) => {
-                    Err(err)
-                },
-                Err(SQLError::Parsing(err)) => {
-                    self.run_unparsed_sql(query_seq, &subs)
-                }*/
-            },
-            false => {
-                self.run_unparsed_sql(query_seq, &subs)
-            }
-        }*/
-        
         match crate::sql::parsing::fully_parse_sql(&query_seq) {
             Ok(stmts) => {
                 
@@ -113,13 +96,18 @@ where
                     return Err(String::from("Empty statement sequence"));
                 }
                 
-                // If all statements are queries, perform asynchronous execution.
                 let all_queries = stmts.iter().all(|stmt| {
                     match stmt { 
                         AnyStatement::Parsed(stmt, _) => crate::sql::is_like_query(&stmt),
                         _ => false 
                     }
                 } );
+                
+                if !all_queries && is_schedule {
+                    return Err(String::from("Execution of non-query statements in \nschedule mode is not supported"));
+                }
+                
+                // If sequence is exclusively composed of query statements, perform asysnchronous execution.
                 if all_queries {
                     return Ok(self.query_async(&stmts[..]));
                 }

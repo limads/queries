@@ -21,6 +21,7 @@ pub struct ExecutionRequest {
     sql : String,
     subs : HashMap<String, String>,
     safety : SafetyLock,
+    is_schedule : bool,
     timeout : usize,
     mode : ExecMode
 }
@@ -174,7 +175,7 @@ impl SqlListener {
     }
 
     pub fn send_single_command(&self, sql : String, timeout : usize, safety : SafetyLock) -> Result<(), String> {
-        match self.cmd_sender.send(ExecutionRequest { sql : sql.clone(), subs : HashMap::new(), safety, timeout, mode : ExecMode::Single }) {
+        match self.cmd_sender.send(ExecutionRequest { sql : sql.clone(), subs : HashMap::new(), safety, timeout, is_schedule : false, mode : ExecMode::Single }) {
             Ok(_) => {
 
             },
@@ -190,7 +191,7 @@ impl SqlListener {
     /// are correctly parsed, send the SQL to the server. If sequence is not
     /// correctly parsed, do not send anything to the server, and return the
     /// error to the user.
-    pub fn send_commands(&self, sql : String, subs : HashMap<String, String>, safety : SafetyLock, timeout : usize) -> Result<(), String> {
+    pub fn send_commands(&self, sql : String, subs : HashMap<String, String>, safety : SafetyLock, is_schedule : bool, timeout : usize) -> Result<(), String> {
 
         // Before sending a command, it might be interesting to check if self.handle.is_running()
         // when this stabilizes at the stdlib. If it is not running (i.e. there is a panic at the
@@ -254,6 +255,7 @@ impl SqlListener {
             sql : sql.clone(), 
             subs, 
             safety, 
+            is_schedule,
             timeout, 
             mode : ExecMode::Multiple 
         };
@@ -405,14 +407,14 @@ where
         loop {
             match cmd_rx.recv() {
             
-                Ok(ExecutionRequest { sql, subs, safety, timeout, mode }) => {
+                Ok(ExecutionRequest { sql, subs, safety, is_schedule, timeout, mode }) => {
                 
                     let mut result = Vec::new();
                     
                     match engine.lock() {
                         Ok(mut opt_eng) => match &mut *opt_eng {
                             Some(ref mut eng) => {
-                                result = match eng.try_run(sql, &subs, safety) {
+                                result = match eng.try_run(sql, &subs, safety, is_schedule) {
                                     Ok(stmt_results) => {
                                         stmt_results
                                     },
