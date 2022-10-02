@@ -1,3 +1,5 @@
+echo "Running postinstall"
+
 PKG_CONFIG_PATH=/app/lib:/app/lib/pkgconfig
 ICON_SRC=/run/build/Queries/data/icons/hicolor
 ICON_DST=/app/share/icons/hicolor
@@ -15,4 +17,7 @@ install -D ${FLATPAK_BUILDER_BUILDDIR}/data/${FLATPAK_ID}.gschema.xml ${FLATPAK_
 mkdir -p ${FLATPAK_DEST}/share/appdata ${FLATPAK_DEST}/share/app-info/xmls
 gzip ${FLATPAK_BUILDER_BUILDDIR}/data/${FLATPAK_ID}.appdata.xml --keep
 install -D ${FLATPAK_BUILDER_BUILDDIR}/data/${FLATPAK_ID}.appdata.xml.gz ${FLATPAK_DEST}/share/app-info/xmls
+
+echo "Installing executable"
+
 install -D ${CARGO_TARGET_PATH}/queries ${FLATPAK_DEST}/bin
