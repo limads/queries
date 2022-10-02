@@ -14,13 +14,13 @@ use stateful::React;
 use archiver::MultiArchiverImpl;
 use stateful::PersistentState;
 
-use queries4::*;
+use queries::*;
 
-use queries4::client::*;
+use queries::client::*;
 
-use queries4::server::*;
+use queries::server::*;
 
-use queries4::ui::*;
+use queries::ui::*;
 
 // TODO views with a homonimous table are not being shown at the schema tree.
 
@@ -93,21 +93,21 @@ fn main() {
     // theme.add_resource_path("/assets");
 
     let application = Application::builder()
-        .application_id(queries4::APP_ID)
+        .application_id(queries::APP_ID)
         .build();
 
     let style_manager = libadwaita::StyleManager::default();
     style_manager.set_color_scheme(libadwaita::ColorScheme::Default);
 
-    /*let user_state = if let Some(s) = SharedUserState::recover(queries4::SETTINGS_PATH) {
-        queries4::log_debug_if_required("User state loaded");
+    /*let user_state = if let Some(s) = SharedUserState::recover(queries::SETTINGS_PATH) {
+        queries::log_debug_if_required("User state loaded");
         s
     } else {
-        queries4::log_debug_if_required("No user state found. Starting from Default.");
+        queries::log_debug_if_required("No user state found. Starting from Default.");
         Default::default()
     };*/
-    let user_state = if let Some(mut path) = archiver::get_datadir(queries4::APP_ID) {
-        path.push(queries4::SETTINGS_FILE);
+    let user_state = if let Some(mut path) = archiver::get_datadir(queries::APP_ID) {
+        path.push(queries::SETTINGS_FILE);
         SharedUserState::recover(&path.to_str().unwrap()).unwrap_or_default()
     } else {
         log::warn!("Unable to get datadir for state recovery");
@@ -234,8 +234,8 @@ fn main() {
         user_state.clone()
     });
 
-    if let Some(mut path) = archiver::get_datadir(queries4::APP_ID) {
-        path.push(queries4::SETTINGS_FILE);
+    if let Some(mut path) = archiver::get_datadir(queries::APP_ID) {
+        path.push(queries::SETTINGS_FILE);
         user_state.persist(&path.to_str().unwrap());
     } else {
         log::warn!("Unable to get datadir for state persistence");
