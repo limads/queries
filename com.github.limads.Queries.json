@@ -45,7 +45,7 @@
 	        "builddir" : true,
 	        "buildsystem" : "simple",
 	        "build-commands" : [
-	        	"cargo build --manifest-path=${FLATPAK_BUILDER_BUILDDIR}/Cargo.toml --verbose"
+	        	"cargo build --release --manifest-path=${FLATPAK_BUILDER_BUILDDIR}/Cargo.toml --verbose"
 	        ],
 	        "sources" : [
 		    {
