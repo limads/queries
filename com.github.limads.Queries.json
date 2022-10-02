@@ -54,7 +54,7 @@
 		    }
 	        ],
 	        "post-install" : [
-	        	"sh /run/build/Queries/postinstall.sh"
+	        	"sh ${FLATPAK_BUILDER_BUILDDIR}/postinstall.sh"
 	        ]
 	    }
     ]
