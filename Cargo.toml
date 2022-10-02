@@ -38,6 +38,10 @@ archiver = { git="https://github.com/limads/archiver.git" }
 log = "0.4.17"
 systemd-journal-logger = "0.5.0"
 
+[[bin]]
+name="queries"
+path="src/main.rs"
+
 # For testing purposes only
 rand = "0.8.5"
 
