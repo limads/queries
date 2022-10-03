@@ -2,7 +2,7 @@
 Name=Queries
 GenericName=Queries
 Comment=SQL Client
-Categories=Productivity;GTK
+Categories=Development;Office
 Icon=com.github.limads.Queries
 Exec=queries
 Terminal=false
