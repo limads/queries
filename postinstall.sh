@@ -17,16 +17,5 @@ install -D ${FLATPAK_BUILDER_BUILDDIR}/data/${FLATPAK_ID}.gschema.xml ${FLATPAK_
 mkdir -p ${FLATPAK_DEST}/share/appdata ${FLATPAK_DEST}/share/app-info/xmls
 gzip ${FLATPAK_BUILDER_BUILDDIR}/data/${FLATPAK_ID}.appdata.xml --keep
 install -D ${FLATPAK_BUILDER_BUILDDIR}/data/${FLATPAK_ID}.appdata.xml.gz ${FLATPAK_DEST}/share/app-info/xmls
-
-echo "Installing executable"
-
-echo "Out: ${CARGO_TARGET_PATH}"
-
-echo "Out: $(ls $CARGO_TARGET_PATH)"
-
+mkdir -p ${FLATPAK_DEST}/bin
 install -D ${CARGO_TARGET_PATH}/queries ${FLATPAK_DEST}/bin
-
-echo "Executable installed to ${FLATPAK_DEST}/bin"
-
-echo "Out bin folder: $(ls ${FLATPAK_DEST}/bin)"
-
