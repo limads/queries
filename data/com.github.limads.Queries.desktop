@@ -3,8 +3,10 @@ Name=Queries
 GenericName=Queries
 Comment=SQL Client
 Categories=Productivity;GTK
-Icon=queries
+Icon=com.github.limads.Queries
 Exec=queries
 Terminal=false
 Type=Application
-MimeType=application/x-sql
+MimeType=text/plain
+Keywords=Database;SQL;Postgres;
+

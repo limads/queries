@@ -1,5 +1,3 @@
-echo "Running postinstall"
-
 PKG_CONFIG_PATH=/app/lib:/app/lib/pkgconfig
 ICON_SRC=/run/build/Queries/data/icons/hicolor
 ICON_DST=/app/share/icons/hicolor
