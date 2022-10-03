@@ -27,7 +27,6 @@
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/key-symbolic.svg">../icons/hicolor/symbolic/actions/key-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/roll-symbolic.svg">../icons/hicolor/symbolic/actions/roll-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-time-symbolic.svg">../icons/hicolor/symbolic/actions/type-time-symbolic.svg</file>
-    <file alias="tables.css">../tables.css</file>
   </gresource>
 </gresources>
 

@@ -41,7 +41,7 @@
     ],
     "modules" : [
         {
-	        "name" : "queries",
+	        "name" : "Queries",
 	        "builddir" : true,
 	        "buildsystem" : "simple",
 	        "build-commands" : [

@@ -1,10 +1,10 @@
 echo "Running postinstall"
 
 PKG_CONFIG_PATH=/app/lib:/app/lib/pkgconfig
-ICON_SRC=/run/build/queries/data/icons/hicolor
+ICON_SRC=/run/build/Queries/data/icons/hicolor
 ICON_DST=/app/share/icons/hicolor
 FLATPAK_ICON_DST=/app/share/app-info/icons/flatpak
-CARGO_TARGET_PATH=/run/build/queries/target/release
+CARGO_TARGET_PATH=/run/build/Queries/target/release
 
 mkdir -p ${ICON_DST}/scalable/apps ${ICON_DST}/symbolic/apps ${FLATPAK_ICON_DST}/64x64 ${FLATPAK_ICON_DST}/128x128
 install -D ${ICON_SRC}/scalable/apps/${FLATPAK_ID}.svg ${ICON_DST}/scalable/apps
@@ -20,4 +20,12 @@ install -D ${FLATPAK_BUILDER_BUILDDIR}/data/${FLATPAK_ID}.appdata.xml.gz ${FLATP
 
 echo "Installing executable"
 
+echo "Out: ${CARGO_TARGET_PATH}"
+
+echo "Out: $(ls $CARGO_TARGET_PATH)"
+
 install -D ${CARGO_TARGET_PATH}/queries ${FLATPAK_DEST}/bin
+
+echo "Executable installed to ${FLATPAK_DEST}/bin"
+
+
