@@ -28,4 +28,5 @@ install -D ${CARGO_TARGET_PATH}/queries ${FLATPAK_DEST}/bin
 
 echo "Executable installed to ${FLATPAK_DEST}/bin"
 
+echo "Out bin folder: $(ls ${FLATPAK_DEST}/bin)"
 
