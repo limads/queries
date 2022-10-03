@@ -1,7 +1,7 @@
 echo "Running postinstall"
 
 PKG_CONFIG_PATH=/app/lib:/app/lib/pkgconfig
-ICON_SRC=/run/build/Queries/data/icons/hicolor
+ICON_SRC=/run/build/queries/data/icons/hicolor
 ICON_DST=/app/share/icons/hicolor
 FLATPAK_ICON_DST=/app/share/app-info/icons/flatpak
 CARGO_TARGET_PATH=/run/build/queries/target/release
