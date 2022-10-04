@@ -1,5 +1,5 @@
 use archiver::*;
-use queries4::client::*;
+use queries::client::*;
 use std::sync::Arc;
 use std::process::{Command, Stdio};
 mod common;
