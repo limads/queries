@@ -236,7 +236,7 @@ impl ExecutionBox {
         list.append(&NamedBox::new("Row limit", None, row_limit_spin.clone()).bx);
         list.append(&NamedBox::new("Column limit", None, col_limit_spin.clone()).bx);
         // list.append(&NamedBox::new("Row overflow", Some("Which rows to display when results\n extrapolate the row limit"), schedule_scale.clone()).bx);
-        list.append(&NamedBox::new("Execution interval", Some("Interval (in seconds)\nbetween scheduled executions"), schedule_scale.clone()).bx);
+        list.append(&NamedBox::new("Schedule interval", Some("Interval (in seconds)\nbetween scheduled executions"), schedule_scale.clone()).bx);
         list.append(&NamedBox::new("Statement timeout", Some("Maximum time (in seconds)\nto wait for database response"), timeout_scale.clone()).bx);
         
         let dml_switch = Switch::new();

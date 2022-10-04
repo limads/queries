@@ -22,6 +22,8 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use archiver::{MultiArchiver, MultiArchiverImpl, MultiArchiverAction};
 
+// TODO At startup, remove script from scriptlist if its path does not exist anymore.
+
 pub struct OpenedScripts(MultiArchiver);
 
 impl OpenedScripts  {
