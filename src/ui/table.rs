@@ -304,13 +304,8 @@ impl TableWidget {
                 self.update_table_dimensions(nrows as i32, ncols as i32);
             }
             for (j, col) in row.enumerate() {
-                if i == 0 {
-                    let header_cell = self.create_data_cell(col.as_ref(), i, j, nrows, ncols);
-                    self.grid.attach(&header_cell, j as i32, i as i32, 1, 1);
-                } else {
-                    let cell = self.create_data_cell(col.as_ref(), i, j, nrows, ncols);
-                    self.grid.attach(&cell, j as i32, i as i32, 1, 1);
-                }
+                let cell = self.create_data_cell(col.as_ref(), i, j, nrows, ncols);
+                self.grid.attach(&cell, j as i32, i as i32, 1, 1);
             }
         }
     }
