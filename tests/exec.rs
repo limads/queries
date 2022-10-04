@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::process::{Command, Stdio};
 mod common;
 use std::thread;
-use queries4::sql::StatementOutput;
+use queries::sql::StatementOutput;
 use std::rc::Rc;
 use std::cell::RefCell;
 
@@ -408,7 +408,7 @@ pub fn execution() {
             }
         });
         conn.connect_db_conn_failure(move |e| {
-            panic!("{}", e);
+            panic!("{:?}", e);
         });
         conn.connect_db_disconnected(move|_| {
             panic!("Database disconnected");
