@@ -1,7 +1,7 @@
 use archiver::*;
 use queries::client::*;
-use std::sync::Arc;
-use std::process::{Command, Stdio};
+
+
 mod common;
 use std::thread;
 use queries::sql::StatementOutput;
@@ -392,7 +392,7 @@ pub fn execution() {
     immediately after connection and after any results arrive. Panics on any errors. */
     common::run_with_temp_db(|temp| {
         gtk4::init();
-        let mut user_state = SharedUserState::default();
+        let user_state = SharedUserState::default();
         {
             let mut us = user_state.borrow_mut();
             us.execution.accept_dml = true;

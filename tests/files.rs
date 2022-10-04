@@ -1,7 +1,7 @@
 use archiver::*;
 use queries::client::*;
-use std::sync::Arc;
-use std::process::{Command, Stdio};
+
+
 mod common;
 
 // cargo test -- --nocapture
@@ -9,46 +9,46 @@ mod common;
 pub fn files() {
     gtk4::init();
     let scripts = OpenedScripts::new();
-    scripts.connect_new(|f : OpenedFile| {
+    scripts.connect_new(|_f : OpenedFile| {
         // println!("New {f:?}");
     });
-    scripts.connect_added(|f : OpenedFile| {
+    scripts.connect_added(|_f : OpenedFile| {
         // println!("Added {f:?}");
     });
-    scripts.connect_selected(|f : Option<OpenedFile> | {
+    scripts.connect_selected(|_f : Option<OpenedFile> | {
 
     });
-    scripts.connect_opened(|f : OpenedFile| {
+    scripts.connect_opened(|_f : OpenedFile| {
 
     });
-    scripts.connect_closed(|f : (OpenedFile, usize)|{
+    scripts.connect_closed(|_f : (OpenedFile, usize)|{
 
     });
-    scripts.connect_close_confirm(|f : OpenedFile| {
+    scripts.connect_close_confirm(|_f : OpenedFile| {
 
     });
-    scripts.connect_file_changed(|f : OpenedFile| {
+    scripts.connect_file_changed(|_f : OpenedFile| {
 
     });
-    scripts.connect_file_persisted(|f : OpenedFile| {
+    scripts.connect_file_persisted(|_f : OpenedFile| {
 
     });
-    scripts.connect_error(|e : String| {
+    scripts.connect_error(|_e : String| {
 
     });
-    scripts.connect_on_active_text_changed(|f : Option<String>| {
+    scripts.connect_on_active_text_changed(|_f : Option<String>| {
 
     });
-    scripts.connect_window_close(|f : ()| {
+    scripts.connect_window_close(|_f : ()| {
 
     });
-    scripts.connect_save_unknown_path(|f : String| {
+    scripts.connect_save_unknown_path(|_f : String| {
 
     });
-    scripts.connect_buffer_read_request(|f : usize| {
+    scripts.connect_buffer_read_request(|_f : usize| {
         String::new()
     });
-    scripts.connect_name_changed(|f : (usize, String)| {
+    scripts.connect_name_changed(|_f : (usize, String)| {
 
     });
     scripts.send(MultiArchiverAction::NewRequest);
