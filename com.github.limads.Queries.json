@@ -14,8 +14,6 @@
         "--socket=x11",
         "--socket=fallback-x11",
         "--device=dri",
-        "--socket=system-bus",
-        "--socket=session-bus",
         "--filesystem=home"
     ],
     "build-options" : {
