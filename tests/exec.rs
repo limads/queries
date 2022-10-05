@@ -1,7 +1,6 @@
 use archiver::*;
 use queries::client::*;
-
-
+use gtk4::glib;
 mod common;
 use std::thread;
 use queries::sql::StatementOutput;
@@ -384,6 +383,16 @@ const SCHEMA_DROP : &'static str = r#"
 DROP SCHEMA myschema;
 "#;
 
+fn exec_next_statement(stmt_ix : &Rc<RefCell<usize>>, all_stmts : &[String], sender : &glib::Sender<ActiveConnectionAction>) {
+    let mut stmt_ix = stmt_ix.borrow_mut();
+    *stmt_ix += 1; 
+    if *stmt_ix < all_stmts.len() {
+        sender.send(ActiveConnectionAction::ExecutionRequest(all_stmts[*stmt_ix].to_string())).unwrap();
+    } else {
+        println!("All statements executed");
+    }
+}
+
 // cargo test -- execution --nocapture
 #[test]
 pub fn execution() {
@@ -392,12 +401,37 @@ pub fn execution() {
     immediately after connection and after any results arrive. Panics on any errors. */
     common::run_with_temp_db(|temp| {
         gtk4::init();
+        let stmt_ix = Rc::new(RefCell::new(0));
+        
         let user_state = SharedUserState::default();
         {
             let mut us = user_state.borrow_mut();
             us.execution.accept_dml = true;
             us.execution.accept_ddl = true;
         }
+        
+        let privs = privileges();
+        let all_stmts = [
+            TABLE_CREATION.to_string(),
+            // CREATE_FUNC.to_string(), 
+            // CREATE_TRIGGER.to_string(), 
+            // CREATE_RULE.to_string(), 
+            // CREATE_TYPE.to_string(), 
+            CREATE_VIEW.to_string(),
+            // POLICY.to_string(), 
+            // INDEX_CREATION.to_string(), 
+            // INDEX_ALT.to_string(), 
+            SCHEMA_CREATION.to_string(), 
+            INSERTION.to_string(), 
+            UPDATE.to_string(), 
+            DELETE.to_string(), 
+            QUERIES.to_string(),
+            TABLE_ALT.to_string(), 
+            privs.to_string(),
+            TABLE_DROP.to_string(), 
+            SCHEMA_DROP.to_string(),
+        ];
+        
         let conn = ActiveConnection::new(&user_state);
         conn.connect_db_connected({
             let sender = conn.sender().clone();
@@ -416,40 +450,23 @@ pub fn execution() {
         conn.connect_db_error(|e| {
             panic!("{}", e);
         });
-        conn.connect_schema_update( move |update| {
-            println!("Schema updated: {:?}", update);
+        conn.connect_schema_update({
+            let stmt_ix = stmt_ix.clone(); 
+            let sender = conn.sender().clone();
+            let all_stmts = all_stmts.clone();
+            move |update| {
+                // Called after create table/create view statements
+                exec_next_statement(&stmt_ix, &all_stmts[..], &sender);
+            }
         });
         conn.connect_exec_result({
             let sender = conn.sender().clone();
-            let privs = privileges();
-            let stmt_ix = Rc::new(RefCell::new(0));
-            let all_stmts = [
-                TABLE_CREATION.to_string(),
-                // CREATE_FUNC.to_string(), 
-                // CREATE_TRIGGER.to_string(), 
-                // CREATE_RULE.to_string(), 
-                // CREATE_TYPE.to_string(), 
-                CREATE_VIEW.to_string(),
-                // POLICY.to_string(), 
-                // INDEX_CREATION.to_string(), 
-                // INDEX_ALT.to_string(), 
-                SCHEMA_CREATION.to_string(), 
-                INSERTION.to_string(), 
-                UPDATE.to_string(), 
-                DELETE.to_string(), 
-                QUERIES.to_string(),
-                TABLE_ALT.to_string(), 
-                privs.to_string(),
-                TABLE_DROP.to_string(), 
-                SCHEMA_DROP.to_string(),
-            ];
-            
+            let stmt_ix = stmt_ix.clone();
             move |res| {
-            
-                for r in res {
+                for r in &res {
                     match r {
                         StatementOutput::Invalid(msg, by_engine) => {
-                            if by_engine {
+                            if *by_engine {
                                 println!("Statement rejected by server: {}", msg);
                             } else {
                                 println!("Statement rejected by client: {}", msg);
@@ -461,14 +478,19 @@ pub fn execution() {
                     }
                 }
                 
-                thread::sleep_ms(500);
-                
-                let mut stmt_ix = stmt_ix.borrow_mut();
-                *stmt_ix += 1; 
-                if *stmt_ix < all_stmts.len() {
-                    sender.send(ActiveConnectionAction::ExecutionRequest(all_stmts[*stmt_ix].clone())).unwrap();
-                } else {
-                    println!("All statements executed");
+                // If there is at least one create/alter, that means the next call will happen at the schema update callback.
+                let changed_schema = res.iter().any(|o| {
+                    match o {
+                        StatementOutput::Modification(s) => {
+                            s.starts_with("Create") || s.starts_with("Alter") || s.starts_with("Drop")
+                        },
+                        _ => {
+                            false
+                        }
+                    }
+                });
+                if !changed_schema {
+                    exec_next_statement(&stmt_ix, &all_stmts[..], &sender);
                 }
             }
         });

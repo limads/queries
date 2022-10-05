@@ -5,11 +5,6 @@ For a copy, see http://www.gnu.org/licenses.*/
 
 use gtk4::prelude::*;
 use gtk4::*;
-use sourceview5::prelude::*;
-use glib::MainContext;
-use std::rc::Rc;
-use std::cell::RefCell;
-use std::boxed;
 use stateful::React;
 use crate::client::ConnectionInfo;
 use crate::ui::PackedImageEntry;
@@ -38,32 +33,11 @@ impl QueriesOverview {
         let info_bx = Box::new(Orientation::Vertical, 0);
         info_bx.append(&conn_bx.bx);
         info_bx.append(&detail_bx.bx);
-        // info_bx.set_width_request(OVERVIEW_RIGHT_WIDTH_REQUEST);
-        // info_bx.set_margin_start(18);
-        // info_bx.set_margin_end(18);
-
         let bx = Box::new(Orientation::Horizontal, 0);
-        //bx.append(&conn_list.scroll);
         bx.append(&conn_list.bx);
         bx.append(&info_bx);
-
-        // super::set_margins(&bx, 198, 0);
         bx.set_halign(Align::Center);
         bx.set_valign(Align::Center);
-
-        /*conn_bx.switch.connect_activate({
-            let add_btn = conn_list.add_btn.clone();
-            let remove_btn = conn_list.remove_btn.clone();
-            move |switch| {
-                if switch.is_active() {
-                    add_btn.set_sensitive(false);
-                    remove_btn.set_sensitive(false);
-                } else {
-                    add_btn.set_sensitive(true);
-                    remove_btn.set_sensitive(true);
-                }
-            }
-        });*/
 
         Self { conn_list, conn_bx, detail_bx, bx }
     }
@@ -121,21 +95,6 @@ impl DetailBox {
 
 }
 
-impl React<ConnectionSet> for DetailBox {
-
-    fn react(&self, conns : &ConnectionSet) {
-        let detail_bx = self.clone();
-        conns.connect_selected(move |opt_sel| {
-            if let Some((sel_ix, sel_info)) = opt_sel {
-                // Set connection details
-            } else {
-
-            }
-        });
-    }
-
-}
-
 impl React<ActiveConnection> for DetailBox {
 
     fn react(&self, conn : &ActiveConnection) {
@@ -146,7 +105,7 @@ impl React<ActiveConnection> for DetailBox {
                 self.uptime_lbl.clone(),
                 self.locale_lbl.clone()
             );
-            move |(conn_info, db_info)| {
+            move |(_conn_info, db_info)| {
                 if let Some(details) = db_info.as_ref().and_then(|info| info.details.as_ref() ) {
                     server_lbl.set_text(&details.server);
                     size_lbl.set_text(&details.size);
@@ -196,7 +155,7 @@ impl ConnectionRow {
         row
     }
 
-    fn extract(row : &ListBoxRow) -> Option<Self> {
+    fn _extract(row : &ListBoxRow) -> Option<Self> {
         let bx = row.child()?.downcast::<Box>().ok()?;
         let bx_host = super::get_child_by_index::<Box>(&bx, 0);
         let bx_db = super::get_child_by_index::<Box>(&bx, 1);
@@ -221,10 +180,6 @@ impl ConnectionRow {
         row.set_selectable(true);
         let viewp = Viewport::new(None::<&Adjustment>, None::<&Adjustment>);
 
-        // let provider = CssProvider::new();
-        // provider.load_from_data("* { border-bottom : 1px solid #d9dada; } ".as_bytes());
-        // provider.load_from_data("* { box-shadow: 0 1px 1px 0px #d9dada; } ".as_bytes());
-        // viewp.style_context().add_provider(&provider, 800);
         viewp.set_child(Some(&bx));
         row.set_child(Some(&viewp));
         ConnectionRow { row, host, db, user }
@@ -236,10 +191,8 @@ impl ConnectionRow {
 pub struct ConnectionList {
     pub list : ListBox,
     pub scroll : ScrolledWindow,
-    // add_row : ListBoxRow,
     pub bx : Box,
     pub add_btn : Button,
-    // pub local_btn : Button,
     pub remove_btn : Button
 }
 
@@ -253,14 +206,10 @@ impl ConnectionList {
         list.set_selection_mode(SelectionMode::Single);
         let scroll = ScrolledWindow::new();
         scroll.set_width_request(600);
-        // list.set_width_request(600);
         scroll.set_valign(Align::Fill);
         scroll.set_vexpand(true);
 
-        // let provider = CssProvider::new();
         scroll.set_has_frame(false);
-        // provider.load_from_data(".scrolledwindow { border : 1px solid #d9dada; } ".as_bytes());
-        // scroll.style_context().add_provider(&provider, 800);
 
         list.set_show_separators(true);
         super::set_margins(&list, 1, 1);
@@ -276,7 +225,6 @@ impl ConnectionList {
         let title = super::title_label("Connections");
         let bx = Box::new(Orientation::Vertical, 0);
 
-        // bx.append(&title);
         let title_bx = Box::new(Orientation::Horizontal, 0);
         title_bx.append(&title);
         title_bx.append(&btn_bx.bx);
@@ -285,12 +233,6 @@ impl ConnectionList {
 
         scroll.set_child(Some(&list));
         bx.append(&scroll);
-        // let adj = Adjustment::builder().page_size(10.).page_increment(10.).step_increment(10.).lower(0.).upper(100.).value(0.).build();
-        // let adj = PageRange::new(0, 3);
-        // list.set_adjustment(Some(&adj));
-        // bx.append(&list);
-
-        // bx.append(&btn_bx);
         bx.set_margin_end(72);
 
         list.connect_row_selected({
@@ -304,14 +246,14 @@ impl ConnectionList {
         conn_list
     }
 
-    fn clear(&self) {
+    fn _clear(&self) {
         while self.list.observe_children().n_items() > 1 {
             self.list.remove(&self.list.row_at_index(0).unwrap());
         }
     }
 
-    fn set(&self, info_slice : &[ConnectionInfo]) {
-        self.clear();
+    fn _set(&self, info_slice : &[ConnectionInfo]) {
+        self._clear();
         for info in info_slice.iter() {
             let n = self.list.observe_children().n_items();
             let new_row = ConnectionRow::from(info);
@@ -326,7 +268,6 @@ impl ConnectionList {
                 if row.index() == (n-1) as i32 {
                     let new_row = ConnectionRow::build();
                     list.insert(&new_row.row, (n-1) as i32);
-                    // rows.push(new_row);
                 }
             }
         });
@@ -346,14 +287,6 @@ impl React<ConnectionSet> for ConnectionList {
             }
         });
 
-        // Row index here is not set yet.
-        /*conns.connect_updated({
-            let list = self.list.clone();
-            move |(ix, info)| {
-                let conn_row = ConnectionRow::extract(&list.row_at_index(ix).unwrap()).unwrap();
-                conn_row.user.lbl.set_text(&format!("{}\t\t\t\t{}", info.user, info.dt));
-            }
-        });*/
         conns.connect_removed({
             let list = self.list.clone();
             move |ix| {
@@ -375,8 +308,6 @@ impl React<ActiveConnection> for ConnectionList {
             if list.is_sensitive() {
                 list.set_sensitive(false);
             }
-
-            // TODO add connection to settings
         });
 
         let (add_btn, remove_btn) = (self.add_btn.clone(), self.remove_btn.clone());
@@ -404,27 +335,6 @@ impl React<ConnectionBox> for ConnectionList {
                 }
             });
         }
-
-        /*bx.host.entry.connect_changed({
-            let list = self.list.clone();
-            move |entry| {
-                change_text_at_conn_row(&list, 0, &entry)
-            }
-        });
-
-        bx.db.entry.connect_changed({
-            let list = self.list.clone();
-            move |entry| {
-                change_text_at_conn_row(&list, 1, &entry)
-            }
-        });
-
-        bx.user.entry.connect_changed({
-            let list = self.list.clone();
-            move |entry| {
-                change_text_at_conn_row(&list, 2, &entry)
-            }
-        });*/
     }
 
 }
@@ -464,25 +374,6 @@ pub struct ConnectionBox {
 
 impl ConnectionBox {
 
-    /*pub fn connect_db_connected(&self) -> glib::Receiver<ConnectionInfo> {
-        let (send, recv) = MainContext::default().channel();
-        self.swtich.connect_activate(move|| {
-            send.send(Default::default())
-        });
-        recv
-    }*/
-
-    /*pub fn disconnect_with_delay(
-        _switch : Switch
-    ) {
-        //let switch = switch.clone();
-        glib::timeout_add_local(160, move || {
-            //&switch.set_state(false);
-            glib::Continue(false)
-        });
-    }*/
-
-    // pub fn on_connected(f : Fn)
     pub fn build() -> Self {
         let host = PackedImageEntry::build("preferences-system-network-proxy-symbolic", "Host:Port");
         let db = PackedImageEntry::build("db-symbolic", "Database");
@@ -490,7 +381,6 @@ impl ConnectionBox {
         let user = PackedImageEntry::build("avatar-default-symbolic", "User");
         let password = PackedImagePasswordEntry::build("dialog-password-symbolic", "Password");
         let switch = Switch::new();
-        // super::set_margins(&switch, 6, 12);
         switch.set_valign(Align::Center);
         switch.set_vexpand(false);
         cred_bx.append(&user.bx);
@@ -529,20 +419,12 @@ impl ConnectionBox {
         &self.password.entry
     }
 
-    fn set_db_loaded_mode(&self) {
+    fn _set_db_loaded_mode(&self) {
         self.entries().iter().for_each(|entry| entry.set_sensitive(false) );
-        // self.db_file_btn.set_sensitive(false);
     }
 
     pub fn set_non_db_mode(&self) {
         self.entries().iter().for_each(|entry| entry.set_sensitive(true) );
-        // self.db_file_btn.set_sensitive(true);
-        // self.connected.set(false);
-        // if let Ok(mut db_p) = self.db_path.try_borrow_mut() {
-        //    *db_p = Vec::new();
-        //}  else {
-        //    println!("Could not get mutable reference to db path");
-        //}
     }
 
     pub fn update_info(&self, info : &ConnectionInfo) {
@@ -552,7 +434,7 @@ impl ConnectionBox {
         self.password.entry.set_text("");
     }
 
-    fn check_entries_clear(&self) -> bool {
+    fn _check_entries_clear(&self) -> bool {
         for entry in self.entries().iter().take(3) {
             let txt = entry.text().to_string();
             if !txt.is_empty() {
@@ -578,7 +460,7 @@ impl React<ConnectionSet> for ConnectionBox {
         connections.connect_selected({
             let conn_bx = self.clone();
             move |opt_sel| {
-                if let Some((sel_ix, sel_info)) = opt_sel {
+                if let Some((_sel_ix, sel_info)) = opt_sel {
                     conn_bx.set_sensitive(true);
                     if sel_info.is_default() {
                         conn_bx.host.entry.set_text("");
@@ -603,7 +485,7 @@ impl React<ConnectionSet> for ConnectionBox {
         });
         connections.connect_added({
             let conn_bx = self.clone();
-            move |info| {
+            move |_info| {
                 conn_bx.set_sensitive(true);
             }
         });
@@ -621,127 +503,6 @@ impl React<ActiveConnection> for ConnectionBox {
     }
 
 }
-
-/*
-{
-        let conn_popover = self.clone();
-        self.db_file_dialog.connect_response(move |dialog, resp| {
-            match resp {
-                ResponseType::Other(1) => {
-                    let fnames = dialog.get_filenames();
-                    if let Ok(mut db_p) = conn_popover.db_path.try_borrow_mut() {
-                        if fnames.len() >= 1 {
-                            conn_popover.clear_entries();
-                            db_p.clear();
-                            db_p.extend(fnames.clone());
-                            let path = &fnames[0];
-                            let db_name = if let Some(ext) = path.extension().map(|ext| ext.to_str()) {
-                                match ext {
-                                    Some("csv") | Some("txt") => {
-                                        "In-memory"
-                                    },
-                                    Some("db") | Some("sqlite3") | Some("sqlite") => {
-                                        if let Some(path_str) = path.to_str() {
-                                            path_str
-                                        } else {
-                                            "(Non UTF-8 path)"
-                                        }
-                                    },
-                                    _ => {
-                                        "(Unknown extension)"
-                                    }
-                                }
-                            } else {
-                                "(Unknown extension)"
-                            };
-                            conn_popover.entries[3].set_text(db_name);
-                        }
-                    } else {
-                        println!("Failed to get lock over db path");
-                    }
-                },
-                _ => { }
-            }
-        });
-    }
-    */
-    /*
-    fn create_csv_vtab(path : PathBuf, t_env : &mut TableEnvironment, status_stack : StatusStack, switch : Switch) {
-    let opt_name = path.clone().file_name()
-        .and_then(|n| n.to_str() )
-        .map(|n| n.to_string() )
-        .and_then(|name| name.split('.').next().map(|n| n.to_string()) );
-    if let Some(name) = opt_name {
-        if let Err(e) = t_env.create_csv_table(path, &name) {
-            println!("{}", e);
-            status_stack.update(Status::ClientErr(e));
-            Self::disconnect_with_delay(switch.clone());
-        }
-    } else {
-        println!("Error retrieving table name from: {:?}", path);
-    }
-}
-
-fn _upload_csv(path : PathBuf, t_env : &mut TableEnvironment, status_stack : StatusStack, switch : Switch) {
-    if let Some(name) = path.clone().file_name().map(|n| n.to_str()) {
-        if let Some(name) = name.map(|n| n.split('.').next()) {
-            if let Some(name) = name {
-                let mut content = String::new();
-                if let Ok(mut f) = File::open(path) {
-                    if let Ok(_) = f.read_to_string(&mut content) {
-                        let t = Table::new_from_text(content);
-                        match t {
-                            Ok(t) => {
-                                match t.sql_string(name) {
-                                    Ok(sql) => {
-                                        // TODO there is a bug here when the user executes the first query, because
-                                        // the first call to indle callback will retrieve the create/insert statements,
-                                        // not the actual user query.
-                                        if let Err(e) = t_env.prepare_and_send_query(sql, HashMap::new(), false) {
-                                            status_stack.update(Status::ClientErr(e));
-                                        }
-                                    },
-                                    Err(e) =>  {
-                                        status_stack.update(Status::ClientErr(
-                                            format!("Failed to generate SQL: {}", e)
-                                        ));
-                                        Self::disconnect_with_delay(switch.clone());
-                                    }
-                                }
-                            },
-                            Err(e) => {
-                                status_stack.update(Status::ClientErr(
-                                    format!("Could not generate SQL: {}", e))
-                                );
-                                Self::disconnect_with_delay(switch.clone());
-                            }
-                        }
-                    } else {
-                        status_stack.update(Status::ClientErr(
-                            format!("Could not read CSV content to string"))
-                        );
-                        Self::disconnect_with_delay(switch.clone());
-                    }
-                } else {
-                    status_stack.update(Status::ClientErr(
-                        format!("Could not open file"))
-                    );
-                    Self::disconnect_with_delay(switch.clone());
-                }
-            } else {
-                println!("Could not get mutable reference to tenv or recover file name");
-            }
-        } else {
-            status_stack.update(Status::ClientErr(
-                format!("File should have any of the extensions: .csv|.db|.sqlite"))
-            );
-            Self::disconnect_with_delay(switch.clone());
-        }
-    } else {
-        println!("Could not recover file name as string");
-    }
-}
-*/
 
 pub fn disconnect_with_delay(switch : Switch) {
     glib::timeout_add_local(Duration::from_millis(160), move || {

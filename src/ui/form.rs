@@ -5,13 +5,7 @@ For a copy, see http://www.gnu.org/licenses.*/
 
 use gtk4::prelude::*;
 use gtk4::*;
-use libadwaita;
-use crate::client::ActiveConnection;
-use stateful::React;
-use crate::client::Environment;
-use crate::sql::StatementOutput;
-use crate::client::OpenedScripts;
-use crate::sql::object::{DBObject, DBType};
+use crate::sql::object::{DBObject};
 
 pub const MAX_ENTRIES : usize = 32;
 

@@ -13,18 +13,15 @@ use crate::client::OpenedScripts;
 use sourceview5::View;
 use sourceview5::prelude::*;
 use crate::ui::ExecButton;
-use std::boxed;
 use archiver::OpenedFile;
 use std::cell::RefCell;
 use std::rc::Rc;
 use sourceview5::{SearchContext, SearchSettings};
 use sourceview5::Buffer;
-use sourceview5::*;
-use sourceview5::prelude::*;
 use crate::client::SharedUserState;
 use crate::ui::QueriesSettings;
 use crate::client::EditorSettings;
-use regex::Regex;
+
 use archiver::MultiArchiverImpl;
 
 #[derive(Debug, Clone)]
@@ -41,12 +38,13 @@ pub struct QueriesEditor {
 
     pub save_dialog : SaveDialog,
     pub open_dialog : OpenDialog,
-    pub export_dialog : ExportDialog
+    pub export_dialog : ExportDialog,
+    user_state : SharedUserState
 }
 
 impl QueriesEditor {
 
-    pub fn build() -> Self {
+    pub fn build(user_state : &SharedUserState) -> Self {
         let stack = Stack::new();
         let script_list = ScriptList::build();
         let save_dialog = SaveDialog::build();
@@ -62,7 +60,7 @@ impl QueriesEditor {
         }
         open_dialog.react(&script_list);
         let ignore_file_save_action = gio::SimpleAction::new("ignore_file_save", Some(&i32::static_variant_type()));
-        Self { views, stack, script_list, save_dialog, open_dialog, ignore_file_save_action, export_dialog }
+        Self { views, stack, script_list, save_dialog, open_dialog, ignore_file_save_action, export_dialog, user_state : user_state.clone() }
     }
 
     pub fn configure(&self, settings : &EditorSettings) {
@@ -167,7 +165,7 @@ impl React<ExecButton> for QueriesEditor {
     fn react(&self, btn : &ExecButton) {
         let weak_views : [glib::WeakRef<sourceview5::View>; 16] = self.views.clone().map(|view| view.downgrade() );
         let exec_action = btn.exec_action.clone();
-        btn.btn.connect_clicked(move |_btn| {
+        btn.queue_exec_action.connect_activate(move |_, _| {
             let selected_view = exec_action.state().unwrap().get::<i32>().unwrap();
             if selected_view >= 0 {
                 if let Some(view) = weak_views[selected_view as usize].upgrade() {
@@ -187,42 +185,6 @@ impl React<ExecButton> for QueriesEditor {
     }
 
 }
-
-/* pub fn get_n_untitled(&self) -> usize {
-    self.files.borrow().iter()
-        .filter(|f| f.name.starts_with("Untitled") )
-        .filter_map(|f| f.name.split(' ').nth(1) )
-        .last()
-        .and_then(|suff| suff.split('.').next() )
-        .and_then(|n| n.parse::<usize>().ok() )
-        .unwrap_or(0)
-}
-
-pub fn mark_current_saved(&self) {
-    if let Some(row) = self.list_box.get_selected_row() {
-        let lbl = Self::get_label_from_row(&row);
-        let txt = lbl.get_text();
-        if txt.as_str().ends_with("*") {
-            lbl.set_text(&txt[0..(txt.len()-1)]);
-        }
-    } else {
-        println!("No selected row");
-    }
-}
-
-pub fn mark_current_unsaved(&self) {
-    if let Some(row) = self.list_box.get_selected_row() {
-        let lbl = Self::get_label_from_row(&row);
-        let txt = lbl.get_text();
-        if !txt.as_str().ends_with("*") {
-            lbl.set_text(&format!("{}*", txt));
-        } else {
-            // println!("Text already marked as unsaved");
-        }
-    } else {
-        println!("No selected row");
-    }
-}*/
 
 pub fn retrieve_statements_from_buffer(view : &sourceview5::View) -> Result<Option<String>, String> {
     let buffer = view.buffer();
@@ -253,37 +215,15 @@ impl ScriptList {
 
     pub fn build() -> Self {
         let btn_bx = super::ButtonPairBox::build("document-new-symbolic", "document-open-symbolic");
-        /*let new_btn = Button::builder().icon_name("document-new-symbolic") /*.label("New").*/ .halign(Align::Fill).hexpand(true).build();
-        new_btn.style_context().add_class("flat");
-        new_btn.set_width_request(64);
-        let open_btn = Button::builder().icon_name("document-open-symbolic") /*.label("Open").*/ .halign(Align::Fill).hexpand(true).build();
-        open_btn.style_context().add_class("flat");
-        open_btn.set_width_request(64);*/
         let new_btn = btn_bx.left_btn.clone();
         let open_btn = btn_bx.right_btn.clone();
-
-        // open_btn.style_context().add_class("image-button");
-        // new_btn.style_context().add_class("image-button");
-
-        /*let btn_bx = Box::new(Orientation::Horizontal, 0);
-        btn_bx.append(&new_btn);
-        btn_bx.append(&open_btn);
-        btn_bx.set_halign(Align::Fill);
-        btn_bx.set_hexpand(true);
-        btn_bx.set_hexpand_set(true);*/
-        // btn_bx.style_context().add_class("linked");
-
         let list = ListBox::new();
         super::set_margins(&list, 1, 1);
         list.style_context().add_class("boxed-list");
         let scroll = ScrolledWindow::new();
-        // let provider = CssProvider::new();
-        // provider.load_from_data("* { border : 1px solid #d9dada; } ".as_bytes());
-        // scroll.style_context().add_provider(&provider, 800);
         scroll.set_child(Some(&list));
         scroll.set_width_request(520);
         scroll.set_height_request(220);
-        // scroll.set_margin_bottom(36);
         scroll.set_has_frame(false);
         list.set_activate_on_single_click(true);
         list.set_show_separators(true);
@@ -298,14 +238,12 @@ impl ScriptList {
         btn_bx.bx.set_halign(Align::End);
         bx.append(&title_bx);
 
-        bx.append(&title_bx);
+        // bx.append(&title_bx);
         bx.append(&scroll);
 
-        // bx.append(&btn_bx);
         bx.set_halign(Align::Center);
         bx.set_valign(Align::Center);
 
-        // bind_list_to_buttons(&list, &new_btn, &open_btn);
         Self { open_btn, new_btn, list, bx }
     }
 
@@ -320,18 +258,6 @@ impl ScriptList {
     }
 
 }
-
-/*fn bind_list_to_buttons(list : &ListBox, new_btn : &Button, open_btn : &Button) {
-    list.connect_row_activated(move |row| {
-
-    });
-    new_btn.connect_clicked(move|| {
-
-    });
-    open_btn.connect_clicked(move|| {
-
-    });
-}*/
 
 #[derive(Debug, Clone)]
 pub struct SaveDialog(pub(crate) archiver::SaveDialog);
@@ -405,63 +331,6 @@ impl React<MainMenu> for OpenDialog {
 
 }
 
-/* use sourceview5::*;
-use std::pin::Pin;
-use gio::ListModel;
-use std::error::Error;
-use std::future::Future;*/
-
-/*use gtk4::subclass::prelude::*;
-use sourceview5::prelude::*;
-use sourceview5::*;
-
-glib::wrapper! {
-
-    pub struct QueriesCompletion(ObjectSubclass<completion::QueriesCompletion>)
-
-    @extends CompletionProvider,
-
-    @implements CompletionProviderExt;
-
-}
-
-mod completion {
-
-    #[derive(Default)]
-    pub struct QueriesCompletion { }
-
-    use gtk4::glib;
-    use gtk4::subclass::prelude::*;
-    use sourceview5::*;
-    use sourceview5::prelude::*;
-
-    #[glib::object_subclass]
-    impl ObjectSubclass for super::QueriesCompletion {
-
-        const NAME: &'static str = "QueriesCompletion";
-
-        type Type = super::QueriesCompletion;
-
-        type ParentType = sourceview5::CompletionProvider;
-
-    }
-
-    impl ObjectImpl for QueriesCompletion { }
-
-    /*impl CompletionProviderExt for QueriesCompletion {
-
-        /*fn display<P: IsA<CompletionProposal>>(
-            &self,
-            context: &CompletionContext,
-            proposal: &P,
-            cell: &CompletionCell
-        ) {
-
-        }*/
-    }*/
-
-}*/
-
 fn configure_view(view : &View, settings : &EditorSettings) {
     let buffer = view.buffer()
         .downcast::<sourceview5::Buffer>().unwrap();
@@ -482,7 +351,6 @@ fn configure_view(view : &View, settings : &EditorSettings) {
     let lang_manager = sourceview5::LanguageManager::default();
     let lang = lang_manager.language("sql").unwrap();
     buffer.set_language(Some(&lang));
-    connect_source_key_press(&view);
     view.set_tab_width(4);
     view.set_indent_width(4);
     view.set_auto_indent(true);
@@ -493,107 +361,6 @@ fn configure_view(view : &View, settings : &EditorSettings) {
     view.set_show_line_marks(true);
     view.set_enable_snippets(true);
 
-    // view.set_right_margin_position(80);
-    // view.set_show_right_margin(false);
-
-    // https://developer-old.gnome.org/gtksourceview/unstable/GtkSourceCompletion.html
-
-    // completioncell accepts an arbitrary widget via the builder::widget.
-    // let cell = sourceview5::CompletionCell::builder().text("select").paintable(&IconPaintable::builder().icon_name("queries-symbolic").build()).build();
-
-    // let activation = sourceview5::CompletionActivation::Interactive; //UserRequested
-    // let ctx = sourceview5::CompletionContext::builder().build();
-
-    // Completion is an object associated with each View. Each completion has zero, one or
-    // more completion providers. The providers encapsulate the actual logic of how completions
-    // are offered. Two examples of providers are CompletionWords and CompletionSnippets.
-
-    // completion.set_select_on_show(true);
-    // completion.set_remember_info_visibility(true);
-    // completion.set_show_icons(true);
-    // completion.unblock_interactive();
-    // completion.set_show_icons(true);
-
-    // Seems to be working, but only when you click on the the word
-    // and **then** press CTRL+Space (simply pressing CTRL+space does not work).
-    let completion = view.completion();
-    let words = sourceview5::CompletionWords::new(Some("main"));
-    words.register(&view.buffer());
-    completion.add_provider(&words);
-
-    /*words.populate_async(&ctx, None::<&gio::Cancellable>, |res_list| {
-        if let Ok(list) = res_list {
-            println!("{}", list.n_items());
-        } else {
-            // panic!()
-        }
-    });*/
-    /*let snippets = sourceview5::CompletionSnippets::new();
-    snippets.set_title(Some("snippets provider"));
-    snippets.populate_async(&ctx, None::<&gio::Cancellable>, |res_list| {
-        if let Ok(list) = res_list {
-            println!("{}", list.n_items());
-        } else {
-            // panic!()
-        }
-    });
-    completion.add_provider(&snippets);*/
-    // proposal
-    // words.display(&ctx, &proposal, &cell);
-    //let new_buffer = TextBuffer::new(None);
-    //new_buffer.set_text("select\ninsert\n");
-    //words.register(&new_buffer);
-    // ctx.set_activation(activation);
-    // let list = gio::ListStore::new(glib::Type::STRING);
-    // list.insert(0, &"select".to_value());
-    // list.insert(0);
-    // list.append(&gio::glib::GString::from("select"));
-    // list.append(&cell);
-    // list.insert(0, &"select".to_value());
-    // list.append(&glib::GString::from("select"));
-    // list.append(&gtk4::glib::GString::from("select"));
-    // let proposal = Completion
-    // list.append(&proposal.upcast());
-    // let words_list = gio::ListStore::new(glib::Type::OBJECT);
-    // ctx.set_proposals_for_provider(&words, Some(&words_list));
-    // let snippets_list = gio::ListStore::new(glib::Type::OBJECT);
-    // ctx.set_proposals_for_provider(&snippets, Some(&snippets_list));
-    // ctx.bounds() -> Gets a pair of TextIters that represent the current completion region.
-    // ctx.word() -> Gets the word that is being completed.
-    // .build();    /*
-    // let provider = CompletionProvider::new();
-    /*let compl = sourceview5::Completion::builder()
-        .show_icons(true)
-        .build();
-    compl.add_provider(&provider);
-    view.set_completion(compl);*/
-    /*view.connect_show_completion(move|view| {
-        println!("Completion requested");
-    });
-    view.connect_completion_notify(move|view| {
-        println!("Completion notified");
-    });*/
-
-    view.set_show_line_numbers(false);
-}
-
-fn connect_source_key_press(_view : &View) {
-
-    // EventControllerKey::new().connect_key_pressed(|ev, key, code, modifier| {
-    //    Inhibit(false)
-    // });
-
-    /*view.connect_key_press_event(move |_view, ev_key| {
-        if ev_key.get_state() == gdk::ModifierType::CONTROL_MASK && ev_key.get_keyval() == keys::constants::Return {
-            // if refresh_btn.is_sensitive() {
-            // exec_action.emit();
-            // refresh_btn.emit_clicked();
-            // }
-            glib::signal::Inhibit(true)
-        } else {
-            glib::signal::Inhibit(false)
-        }
-    });*/
 }
 
 #[derive(Debug, Clone)]
@@ -620,9 +387,6 @@ impl ExportDialog {
             }
         });
         super::configure_dialog(&dialog);
-        // let filter = FileFilter::new();
-        // filter.add_pattern("*.sql");
-        // dialog.set_filter(&filter);
         Self { dialog }
     }
 
@@ -652,8 +416,7 @@ pub struct FindDialog {
     pub matches_lbl : Label,
     pub find_action : gio::SimpleAction,
     pub replace_action : gio::SimpleAction,
-    pub replace_all_action : gio::SimpleAction,
-    // pub open_find_action : gio::SimpleAction
+    pub replace_all_action : gio::SimpleAction
 }
 
 impl FindDialog {
@@ -701,27 +464,22 @@ impl FindDialog {
 
         find_btn.connect_clicked({
             let find_action = find_action.clone();
-            move |btn| {
+            move |_btn| {
                 find_action.activate(None);
             }
         });
         replace_btn.connect_clicked({
             let replace_action = replace_action.clone();
-            move |btn| {
+            move |_btn| {
                 replace_action.activate(None);
             }
         });
         replace_all_btn.connect_clicked({
             let replace_all_action = replace_all_action.clone();
-            move |btn| {
+            move |_btn| {
                 replace_all_action.activate(None);
             }
         });
-        // find_btn.set_action_name(Some("app.find_action"));
-        // replace_btn.set_action_name(Some("app.replace_action"));
-        // replace_all_btn.set_action_name(Some("app.replace_all_action"));
-
-        // let open_find_action = gio::SimpleAction::new("find", None);
         Self {
             dialog,
             find_entry,
@@ -735,7 +493,6 @@ impl FindDialog {
             find_action,
             replace_action,
             replace_all_action
-            // open_find_action
         }
     }
 
@@ -819,11 +576,13 @@ impl React<QueriesEditor> for FindDialog {
             let ctx = ctx.clone();
             let replace_entry = self.replace_entry.clone();
             let matches_lbl = self.matches_lbl.clone();
-            self.replace_action.connect_activate(move |action, _| {
+            self.replace_action.connect_activate(move |_action, _| {
                 let new_txt = replace_entry.text().to_string();
                 let mut ctx = ctx.borrow_mut();
                 if let Some((ref ctx, Some(ref mut start), Some(ref mut end))) = &mut *ctx {
-                    ctx.replace(start, end, &new_txt[..]);
+                    if let Err(e) = ctx.replace(start, end, &new_txt[..]) {
+                        eprintln!("{}", e);
+                    }
                 }
                 *ctx = None;
                 matches_lbl.set_text(NO_MATCHES);
@@ -834,7 +593,7 @@ impl React<QueriesEditor> for FindDialog {
             let ctx = ctx.clone();
             let replace_all_entry = self.replace_entry.clone();
             let matches_lbl = self.matches_lbl.clone();
-            self.replace_all_action.connect_activate(move |action, _| {
+            self.replace_all_action.connect_activate(move |_action, _| {
                 let new_txt = replace_all_entry.text().to_string();
                 let mut ctx = ctx.borrow_mut();
                 if let Some((ref ctx, _, _)) = &*ctx {
@@ -864,8 +623,8 @@ impl React<QueriesEditor> for FindDialog {
         {
             let ctx = ctx.clone();
             let matches_lbl = self.matches_lbl.clone();
-            let find_entry = self.find_entry.clone();
-            let replace_entry = self.replace_entry.clone();
+            let _find_entry = self.find_entry.clone();
+            let _replace_entry = self.replace_entry.clone();
             let (find_btn, replace_btn, replace_all_btn) = (self.find_btn.clone(), self.replace_btn.clone(), self.replace_all_btn.clone());
             self.dialog.connect_close(move |_| {
                 *(ctx.borrow_mut()) = None;
@@ -873,14 +632,6 @@ impl React<QueriesEditor> for FindDialog {
                 find_btn.set_sensitive(false);
                 replace_btn.set_sensitive(false);
                 replace_all_btn.set_sensitive(false);
-
-                // It might be useful to keep a memory of the last editing values.
-                // We can put a button to invert the text in the the find/replace entries,
-                // which is useful if the user is editing a query for which he wants to
-                // test different placeholder values and wants to get back to the placeholders
-                // afterward.
-                // find_entry.set_text("");
-                // replace_entry.set_text("");
             });
         }
     }
@@ -915,14 +666,7 @@ fn start_search(view : &View, txt : &str) -> Option<SearchContext> {
     let settings = SearchSettings::new();
     settings.set_search_text(Some(&txt));
     settings.set_wrap_around(true);
-
-    // With gtk4=0.3.0 and sourceview5=0.3.0 I'm getting
-    // the trait `gtk4::prelude::IsA<Buffer>` is not implemented for `TextBuffer`
-    // which seems like a problem with the implementation. Must remove the transmute
-    // when this is solved.
-
     let downcasted_buffer : Buffer = buffer.clone().downcast().unwrap();
-    // unsafe { std::mem::transmute::<_, &Buffer>(&buffer) }
     let new_ctx = SearchContext::new(&downcasted_buffer, Some(&settings));
     Some(new_ctx)
 }
@@ -941,19 +685,17 @@ fn move_match(
                 (_, None, None) => {
                     buffer.start_iter()
                 },
-                (true, Some(start), Some(end)) => {
+                (true, Some(_start), Some(end)) => {
                     end.clone()
                 },
-                (false, Some(start), Some(end)) => {
+                (false, Some(start), Some(_end)) => {
                     start.clone()
                 },
                 _ => { eprintln!("No start buffer"); return None; }
             };
             let next_match = if is_forward {
-                // ctx.forward2(&start_search)
                 ctx.forward(&start_search)
             } else {
-                // ctx.backward2(&start_search)
                 ctx.backward(&start_search)
             };
             if let Some((t1, t2, _)) = next_match {
@@ -989,26 +731,24 @@ fn get_index(action : &gio::SimpleAction) -> Option<usize> {
         .and_then(|ix| if ix == -1 { None } else { Some(ix as usize) })
 }
 
-impl<'a> React<QueriesSettings> for (&'a QueriesEditor, &'a SharedUserState) {
+impl React<QueriesSettings> for QueriesEditor {
 
     fn react(&self, settings : &QueriesSettings) {
         settings.editor_bx.scheme_combo.connect_changed({
-            let state = self.1.clone();
-            let editor = self.0.clone();
+            let editor = self.clone();
             move|combo| {
                 if let Some(txt) = combo.active_text() {
-                    let mut state = state.borrow_mut();
+                    let mut state = editor.user_state.borrow_mut();
                     state.editor.scheme = txt.to_string();
                     editor.configure(&state.editor);
                 }
             }
         });
         settings.editor_bx.font_btn.connect_font_set({
-            let mut state = self.1.clone();
-            let editor = self.0.clone();
+            let editor = self.clone();
             move |btn| {
                 let s = btn.title();
-                let mut state = state.borrow_mut();
+                let mut state = editor.user_state.borrow_mut();
                 if let Some((font_family, font_size)) = crate::ui::parse_font(&s[..]) {
                     state.editor.font_family = font_family;
                     state.editor.font_size = font_size;
@@ -1017,20 +757,18 @@ impl<'a> React<QueriesSettings> for (&'a QueriesEditor, &'a SharedUserState) {
             }
         });
         settings.editor_bx.line_num_switch.connect_state_set({
-            let state = self.1.clone();
-            let editor = self.0.clone();
+            let editor = self.clone();
             move |switch, _| {
-                let mut state = state.borrow_mut();
+                let mut state = editor.user_state.borrow_mut();
                 state.editor.show_line_numbers = switch.is_active();
                 editor.configure(&state.editor);
                 Inhibit(false)
             }
         });
         settings.editor_bx.line_highlight_switch.connect_state_set({
-            let state = self.1.clone();
-            let editor = self.0.clone();
+            let editor = self.clone();
             move |switch, _| {
-                let mut state = state.borrow_mut();
+                let mut state = editor.user_state.borrow_mut();
                 state.editor.highlight_current_line = switch.is_active();
                 editor.configure(&state.editor);
                 Inhibit(false)

@@ -52,7 +52,7 @@ pub fn listen_at_channel(conn : &mut Client, ch : &mut (String, String, bool)) {
                                     }
                                     match_all
                                 },
-                                (serde_json::Value::Object(filt_map), _) => {
+                                (serde_json::Value::Object(_filt_map), _) => {
                                     eprintln!("Payload is not valid JSON");
                                     return;
                                 },

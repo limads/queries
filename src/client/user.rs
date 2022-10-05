@@ -3,30 +3,22 @@
 This work is licensed under the terms of the GPL v3.0 License.  
 For a copy, see http://www.gnu.org/licenses.*/
 
-use super::{ConnectionSet, ConnectionInfo, ActiveConnection, OpenedScripts};
+use super::{ConnectionSet, ConnectionInfo, OpenedScripts};
 use archiver::OpenedFile;
-use chrono::prelude::*;
 use serde::{Serialize, Deserialize};
-use std::fs::File;
-use std::io::{Read, Write};
 use crate::ui::QueriesWindow;
 use std::cell::RefCell;
 use stateful::React;
 use std::rc::Rc;
 use std::ops::Deref;
-use std::thread;
 use gtk4::*;
 use gtk4::prelude::*;
 use crate::client::QueriesClient;
-use std::convert::TryInto;
-use std::hash::Hash;
-use std::path::Path;
-use base64;
 use crate::ui::Certificate;
 use archiver::MultiArchiverImpl;
 use stateful::PersistentState;
 use std::thread::JoinHandle;
-use serde::de::DeserializeOwned;
+
 use crate::sql::SafetyLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,9 +35,9 @@ impl Default for EditorSettings {
     fn default() -> Self {
         Self {
             scheme : String::from("Adwaita"),
-            font_family : String::from("Ubuntu Mono"),
+            font_family : String::from("Source Code Pro"),
             font_size : 16,
-            show_line_numbers : false,
+            show_line_numbers : true,
             highlight_current_line : false
         }
     }
@@ -68,7 +60,8 @@ impl Default for SecuritySettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionSettings {
     pub row_limit : i32,
-    pub column_limit : i32,
+    
+    // pub column_limit : i32,
 
     // Interval between scheduled executions, in seconds
     pub execution_interval : i32,
@@ -88,7 +81,6 @@ impl Default for ExecutionSettings {
     fn default() -> Self {
         Self {
             row_limit : 500,
-            column_limit : 25,
             execution_interval : 1,
             statement_timeout : 5,
             accept_ddl : false,
@@ -110,10 +102,6 @@ pub struct UserState {
     // #[serde(serialize_with = "ser_conns")]
     // #[serde(deserialize_with = "deser_conns")]
     pub conns : Vec<ConnectionInfo>,
-
-    pub templates : Vec<String>,
-
-    pub selected_template : usize,
 
     // #[serde(skip)]
     pub certs : Vec<Certificate>,
@@ -137,109 +125,7 @@ impl UserState {
     
 }
 
-use serde::Deserializer;
-use serde::Serializer;
-
-/*const KEY : [u8; 32] = [
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8)
-];
-
-const NONCE : [u8; 24] = [
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8),
-    const_random::const_random!(u8)
-];
-
-fn ser_conns<S>(conns : &Vec<ConnectionInfo>, ser : S) -> Result<S::Ok, S::Error>
-    where S: Serializer
-{
-    use chacha20poly1305::aead::NewAead;
-    use chacha20poly1305::aead::Aead;
-    let plain = serde_json::to_string(conns).unwrap();
-    let cipher = chacha20poly1305::XChaCha20Poly1305::new((&KEY).into());
-    let enc : Vec<u8> = cipher
-        .encrypt((&NONCE).into(), plain.as_ref())
-        .unwrap();
-    let enc_base64 : String = base64::encode(enc);
-    enc_base64.serialize(ser)
-}
-
-fn deser_conns<'de, D>(deser : D) -> Result<Vec<ConnectionInfo>, D::Error>
-    where D: Deserializer<'de>
-{
-    use chacha20poly1305::aead::NewAead;
-    use chacha20poly1305::aead::Aead;
-    let enc_base64 : String = <String as Deserialize>::deserialize(deser)?;
-    let enc_bytes : Vec<u8> = base64::decode(enc_base64).unwrap();
-    let cipher = chacha20poly1305::XChaCha20Poly1305::new((&KEY).into());
-    match cipher.decrypt((&NONCE).into(), enc_bytes.as_ref()) {
-        Ok(dec) => {
-            let plain = String::from_utf8(dec).unwrap();
-            let out : Vec<ConnectionInfo> = serde_json::from_str(&plain).unwrap();
-            Ok(out)
-        },
-        Err(_) => {
-            // The decoding should fail whenever queries is re-built, since a
-            // new random key will be generated. Just clean the user connection
-            // state in this case.
-            Ok(Vec::new())
-        }
-    }
-}*/
-
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SharedUserState(Rc<RefCell<UserState>>);
 
 impl Deref for SharedUserState {
@@ -258,31 +144,12 @@ impl Default for SharedUserState {
         SharedUserState(Rc::new(RefCell::new(UserState {
             paned : archiver::PanedState { primary : 280, secondary : 320 },
             window : archiver::WindowState { width : 1024, height : 768 },
-            selected_template : 0,
+            //selected_template : 0,
             ..Default::default()
         })))
     }
 
 }
-
-// impl SharedUserState {
-// }
-
-// pub fn persist_user_preferences(user_state : &SharedUserState, path : &str) -> thread::JoinHandle<bool> {
-// }
-
-/*impl React<super::ActiveConnection> for SharedUserState {
-
-    fn react(&self, conn : &ActiveConnection) {
-        conn.connect_db_connected(move |opt_db_info| {
-            // Connection already present? If not, add it and save.
-            if let Some(info) = opt_db_info {
-
-            }
-        });
-    }
-
-}*/
 
 impl React<super::ConnectionSet> for SharedUserState {
 
@@ -311,9 +178,7 @@ impl React<super::ConnectionSet> for SharedUserState {
                 // A connection might be added to the set when the user either activates the
                 // connection switch or connection is added from the disk at startup. We ignore
                 // the second case here, since the connection will already be loaded at the state.
-                // if state.conns.iter().find(|c| c.is_like(&conn) ).is_none() {
                 state.conns.push(conn);
-                // }
 
             }
         });
@@ -371,7 +236,7 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
         });
 
         // Report
-        win.settings.report_bx.entry.connect_changed({
+        /*win.settings.report_bx.entry.connect_changed({
             let state = self.clone();
             move|entry| {
                 let path = entry.text().as_str().to_string();
@@ -381,7 +246,7 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
                     state.templates.push(path);
                 }
             }
-        });
+        });*/
 
         // Execution
         win.settings.exec_bx.row_limit_spin.adjustment().connect_value_changed({
@@ -389,13 +254,13 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
             move |adj| {
                 state.borrow_mut().execution.row_limit = adj.value() as i32;
             }
-        });
-        win.settings.exec_bx.col_limit_spin.adjustment().connect_value_changed({
+        }); 
+        /*win.settings.exec_bx.col_limit_spin.adjustment().connect_value_changed({
             let state = self.clone();
             move |adj| {
                 state.borrow_mut().execution.column_limit = adj.value() as i32;
             }
-        });
+        });*/
         win.settings.exec_bx.schedule_scale.adjustment().connect_value_changed({
             let state = self.clone();
             move |adj| {
@@ -526,7 +391,7 @@ impl PersistentState<QueriesWindow> for SharedUserState {
     }
 
     fn persist(&self, path : &str) -> JoinHandle<bool> {
-        self.try_borrow_mut().and_then(|mut s| {
+        let _ = self.try_borrow_mut().and_then(|mut s| {
 
             if s.security.save_conns {
                 s.conns.sort_by(|a, b| {
@@ -543,7 +408,7 @@ impl PersistentState<QueriesWindow> for SharedUserState {
                 s.certs.clear();
             }
             
-            s.scripts.iter_mut().for_each(|mut script| { script.content.as_mut().map(|c| c.clear() ); } );
+            s.scripts.iter_mut().for_each(|script| { script.content.as_mut().map(|c| c.clear() ); } );
             Ok(())
         });
         archiver::save_shared_serializable(&self.0, path)
@@ -577,7 +442,7 @@ impl PersistentState<QueriesWindow> for SharedUserState {
         // TODO missing statement timeout (perhaps just disconnect when timeout is reached).
         // let state = state.borrow();
         queries_win.settings.exec_bx.row_limit_spin.adjustment().set_value(state.execution.row_limit as f64);
-        queries_win.settings.exec_bx.col_limit_spin.adjustment().set_value(state.execution.column_limit as f64);
+        // queries_win.settings.exec_bx.col_limit_spin.adjustment().set_value(state.execution.column_limit as f64);
         queries_win.settings.exec_bx.schedule_scale.adjustment().set_value(state.execution.execution_interval as f64);
         queries_win.settings.exec_bx.timeout_scale.adjustment().set_value(state.execution.statement_timeout as f64);
         queries_win.settings.exec_bx.dml_switch.set_active(state.execution.accept_dml);

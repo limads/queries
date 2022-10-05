@@ -4,9 +4,9 @@ This work is licensed under the terms of the GPL v3.0 License.
 For a copy, see http://www.gnu.org/licenses.*/
 
 use std::cmp::{Eq, PartialEq};
-use sqlparser::tokenizer::{Tokenizer, Token, Word, Whitespace};
-use sqlparser::ast::{Statement, Function, Select, Value, Expr, SetExpr, SelectItem, Ident, TableFactor, Join, JoinOperator};
-use sqlparser::parser::{Parser, ParserError};
+use sqlparser::tokenizer::{Token};
+
+
 use sqlparser::dialect::keywords::Keyword;
 use std::str::FromStr;
 use regex::Regex;
@@ -99,11 +99,11 @@ impl FromStr for Copy {
     type Err = String;
 
     fn from_str(s : &str) -> Result<Copy, String> {
-        let mut query = s.to_string();
+        let query = s.to_string();
         let copy_regx = Regex::new(COPY_REGEX).unwrap();
         let c_match = copy_regx.find(&query).ok_or(format!("Copy statement regex parsing error"))?;
         let whitespace_err = format!("Missing whitespace at copy statement");
-        let is_whitespace = |tk : &Token| -> Result<(), String> {
+        let _is_whitespace = |tk : &Token| -> Result<(), String> {
             match tk {
                 Token::Whitespace(_) => Ok(()),
                 _ => Err(whitespace_err.clone())

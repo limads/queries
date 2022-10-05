@@ -28,17 +28,11 @@ impl FileList {
         super::set_border_to_title(&title.bx);
         let bx = Box::new(Orientation::Vertical, 0);
         bx.append(&title.bx);
-
-        // bx.set_vexpand(true);
-        // bx.set_valign(Align::Fill);
         let close_action = gio::SimpleAction::new("close_file", Some(&i32::static_variant_type()));
 
         let scroll = ScrolledWindow::new();
         scroll.set_child(Some(&list));
         bx.append(&scroll);
-
-        // let list = ListBox::builder().valign(Align::Fill).vexpand(true).vexpand_set(true).build();
-        // list.set_valign(Align::Fill);
 
         Self { list, bx, close_action }
     }
@@ -47,19 +41,11 @@ impl FileList {
 
 pub fn add_file(list : &ListBox, path : &str) {
     let lbl = PackedImageLabel::build("text-x-generic-symbolic", path);
-    /*let img_close = Image::from_icon_name(
-        Some("application-exit-symbolic"),
-        IconSize::SmallToolbar
-    );
-    let ev_box = EventBox::new();*/
 
     let ev_btn = Button::builder().icon_name("application-exit-symbolic").build();
     let btn_ctx = ev_btn.style_context();
     btn_ctx.add_class("flat");
-    // btn_ctx.add_class("circular");
 
-    // ev_box.add(&img_close);
-    // let close_action = close_action.clone();
     let row = ListBoxRow::new();
     row.set_hexpand(true);
     row.set_halign(Align::Fill);
@@ -68,7 +54,9 @@ pub fn add_file(list : &ListBox, path : &str) {
     ev_btn.connect_clicked({
         let row = row.clone();
         move |btn| {
-            btn.activate_action("win.close_file", Some(&row.index().to_variant()));
+            if let Err(e) = btn.activate_action("win.close_file", Some(&row.index().to_variant())) {
+                println!("{}", e);
+            }
         }
     });
     ev_btn.set_halign(Align::End);

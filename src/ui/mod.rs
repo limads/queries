@@ -11,12 +11,12 @@ use stateful::React;
 use crate::client::Environment;
 use crate::sql::StatementOutput;
 use crate::client::OpenedScripts;
-use crate::sql::object::{DBObject, DBType};
+use crate::sql::object::{DBType};
 mod overview;
-use crate::client::EditorSettings;
 use core::cell::RefCell;
 use std::rc::Rc;
 use archiver::MultiArchiverImpl;
+use crate::client::SharedUserState;
 
 // TODO set find/replace insensitive when workspace is selected.
 
@@ -95,17 +95,6 @@ impl QueriesResults {
         stack.add_named(&overview.bx, Some("overview"));
         stack.add_named(&workspace.bx, Some("tables"));
         stack.set_visible_child_name("overview");
-        // stack.set_visible_child_name("tables");
-
-        /*use crate::ui::table::TableWidget;
-        use crate::tables::{table::Table, column::Column};
-        let tbl = Table::new(None, vec![String::from("Column 1"), String::from("Column 2")], vec![Column::from(vec![10; 10]), Column::from(vec![10; 10])]).unwrap();
-        let tbl_wid = TableWidget::new_from_table(&tbl);
-        let tbl_wid2 = TableWidget::new_from_table(&tbl);
-        println!("Table widget created");
-        let tab_page = workspace.tab_view.append(&tbl_wid.scroll_window).unwrap();
-        let tab_page = workspace.tab_view.append(&tbl_wid2.scroll_window).unwrap();*/
-
         Self { stack, workspace, overview }
     }
 
@@ -116,7 +105,7 @@ impl React<Environment> for QueriesContent {
     fn react(&self, env : &Environment) {
         let content_stack = self.stack.clone();
         let results_stack = self.results.stack.clone();
-        env.connect_table_update(move |tables| {
+        env.connect_table_update(move |_tables| {
             content_stack.set_visible_child_name("results");
             results_stack.set_visible_child_name("tables");
         });
@@ -152,20 +141,12 @@ impl React<Environment> for QueriesContent {
 
 }
 
-/*impl React<ExecButton> for QueriesResults {
-
-    fn react(&self, exec_btn : &ExecButton) {
-
-    }
-
-}*/
-
 impl React<QueriesWorkspace> for QueriesContent {
 
     fn react(&self, ws : &QueriesWorkspace) {
         let stack = self.results.stack.clone();
         let results_page = self.results_page.clone();
-        ws.tab_view.connect_close_page(move |tab_view, page| {
+        ws.tab_view.connect_close_page(move |tab_view, _page| {
             if tab_view.n_pages() == 1 {
                 stack.set_visible_child_name("overview");
                 results_page.set_icon_name(Some("db-symbolic"));
@@ -173,7 +154,7 @@ impl React<QueriesWorkspace> for QueriesContent {
             false
         });
         let results_page = self.results_page.clone();
-        ws.tab_view.connect_page_attached(move |tab_view, page, pos| {
+        ws.tab_view.connect_page_attached(move |_tab_view, _page, _pos| {
             results_page.set_icon_name(Some("table-symbolic"));
         });
     }
@@ -223,9 +204,9 @@ impl React<OpenedScripts> for QueriesContent {
 
 impl QueriesContent {
 
-    fn build() -> Self {
+    fn build(state : &SharedUserState) -> Self {
         let stack = libadwaita::ViewStack::new();
-        let editor = QueriesEditor::build();
+        let editor = QueriesEditor::build(state);
         let results = QueriesResults::build();
         let editor_page = stack.add_named(&editor.stack, Some("editor"));
         let results_page = stack.add_named(&results.stack, Some("results"));
@@ -239,25 +220,9 @@ impl QueriesContent {
         overlay.set_visible(true);
         overlay.set_child(Some(&stack));
 
-        // stack.set_visible_child_name("overview");
         let curr_toast = Rc::new(RefCell::new(None));
         Self { stack, results, editor, switcher, overlay, results_page, editor_page, curr_toast }
     }
-
-    /*fn react(&self, titlebar : &QueriesTitlebar) {
-        titlebar.editor_toggle.connect_toggled({
-            let stack = self.stack.clone();
-            move |_| {
-                stack.set_visible_child_name("editor");
-            }
-        });
-        titlebar.tbl_toggle.connect_toggled({
-            let stack = self.stack.clone();
-            move |_| {
-                stack.set_visible_child_name("overview");
-            }
-        });
-    }*/
 
 }
 
@@ -291,7 +256,7 @@ impl React<ActiveConnection> for QueriesContent {
             let results_page = self.results_page.clone();
             let stack = self.results.stack.clone();
             let curr_toast = self.curr_toast.clone();
-            move |(info, err)| {
+            move |(_info, err)| {
                 let mut last_toast = curr_toast.borrow_mut();
                 if let Some(t) = last_toast.take() {
                     t.dismiss();
@@ -369,7 +334,7 @@ impl React<ExecButton> for QueriesContent {
     fn react(&self, exec_btn : &ExecButton) {
         let stack = self.results.stack.clone();
         let results_page = self.results_page.clone();
-        exec_btn.clear_action.connect_activate(move |_action, param| {
+        exec_btn.clear_action.connect_activate(move |_action, _param| {
             stack.set_visible_child_name("overview");
             results_page.set_icon_name(Some("db-symbolic"));
         });
@@ -390,11 +355,11 @@ pub struct QueriesWindow {
 
 impl QueriesWindow {
 
-    pub fn from(window : ApplicationWindow) -> Self {
+    pub fn build(window : ApplicationWindow, state : &SharedUserState) -> Self {
 
         let sidebar = QueriesSidebar::build();
         let titlebar = QueriesTitlebar::build();
-        let content = QueriesContent::build();
+        let content = QueriesContent::build(state);
         let find_dialog = FindDialog::build();
 
         content.editor.save_dialog.0.dialog.set_transient_for(Some(&window));
@@ -403,18 +368,16 @@ impl QueriesWindow {
         sidebar.schema_tree.form.dialog.set_transient_for(Some(&window));
         sidebar.schema_tree.report_dialog.dialog.set_transient_for(Some(&window));
         sidebar.schema_tree.report_export_dialog.dialog.set_transient_for(Some(&window));
+        sidebar.schema_tree.import_dialog.dialog.set_transient_for(Some(&window));
         sidebar.schema_tree.react(&content.results.overview.conn_bx);
         find_dialog.dialog.set_transient_for(Some(&window));
 
         titlebar.header.set_title_widget(Some(&content.switcher));
 
-        // content.react(&titlebar);
-
         let paned = Paned::new(Orientation::Horizontal);
         paned.set_position(200);
         paned.set_start_child(Some(&sidebar.paned));
 
-        // paned.set_end_child(&content.stack);
         paned.set_end_child(Some(&content.overlay));
 
         window.set_child(Some(&paned));
@@ -433,6 +396,7 @@ impl QueriesWindow {
         window.add_action(&titlebar.sidebar_hide_action);
 
         // Add actions to execution menu
+        window.add_action(&titlebar.exec_btn.queue_exec_action);
         window.add_action(&titlebar.exec_btn.exec_action);
         window.add_action(&titlebar.exec_btn.clear_action);
         window.add_action(&titlebar.exec_btn.schedule_action);
@@ -453,22 +417,16 @@ impl QueriesWindow {
 
         content.react(&sidebar.file_list);
         titlebar.exec_btn.react(&sidebar.file_list);
-        // titlebar.exec_btn.react(&content.editor);
         content.editor.react(&titlebar.exec_btn);
         content.react(&titlebar.exec_btn);
         content.react(&content.results.workspace);
-        //titlebar.exec_btn.react(&content);
         titlebar.main_menu.react(&content);
 
         let settings = QueriesSettings::build();
         settings.settings.dialog().set_transient_for(Some(&window));
 
         settings.react(&titlebar.main_menu);
-        //window.add_action(&settings.secutity_bx.cert_added);
         window.add_action(&settings.security_bx.cert_removed);
-
-        // sidebar.schema_tree.schema_popover.set_default_widget(Some(&window));
-        // sidebar.schema_tree.schema_popover.set_child(Some(&window));
 
         Self { paned, sidebar, titlebar, content, window, settings, find_dialog }
     }
@@ -479,21 +437,6 @@ impl React<QueriesTitlebar> for QueriesWindow {
     fn react(&self, titlebar : &QueriesTitlebar) {
         let hide_action = titlebar.sidebar_hide_action.clone();
         let paned = self.paned.clone();
-        /*self.paned.connect_position_set_notify(move |paned| {
-            // println!("{}", paned.position());
-            println!("Position set");
-        });
-        self.paned.connect_toggle_handle_focus(move |paned| {
-            println!("Toggle handle focus");
-            true
-        });
-        self.paned.connect_accept_position(move |paned| {
-            println!("Accept position");
-            true
-        });
-        self.paned.connect_resize_start_child_notify(move |paned| {
-            println!("Resized");
-        });*/
         titlebar.sidebar_toggle.connect_toggled(move |btn| {
             if btn.is_active() {
                 let sz = hide_action.state().unwrap().get::<i32>().unwrap();
@@ -561,7 +504,7 @@ impl PackedImageLabel {
 #[derive(Debug, Clone)]
 pub struct PackedImageEntry  {
     pub bx : Box,
-    img : Image,
+    _img : Image,
     pub entry : Entry
 }
 
@@ -576,7 +519,7 @@ impl PackedImageEntry {
         set_margins(&entry, 6, 6);
         bx.append(&img);
         bx.append(&entry);
-        Self { bx, img, entry }
+        Self { bx, _img : img, entry }
     }
 
 }
@@ -584,7 +527,7 @@ impl PackedImageEntry {
 #[derive(Debug, Clone)]
 pub struct PackedImagePasswordEntry  {
     pub bx : Box,
-    img : Image,
+    _img : Image,
     pub entry : PasswordEntry
 }
 
@@ -599,7 +542,7 @@ impl PackedImagePasswordEntry {
         set_margins(&entry, 6, 6);
         bx.append(&img);
         bx.append(&entry);
-        Self { bx, img, entry }
+        Self { bx, _img : img, entry }
     }
 
 }
@@ -611,19 +554,7 @@ pub fn set_margins<W : WidgetExt>(w : &W, horizontal : i32, vertical : i32) {
     w.set_margin_bottom(vertical);
 }
 
-/*pub fn stack_switch_on_toggle(this : &ToggleButton, this_name : &'static str, other : &ToggleButton, stack : &Stack) {
-    let stack = stack.clone();
-    let other = other.clone();
-    this.connect_toggled(move |btn| {
-        if btn.is_active() {
-            stack.set_visible_child_name(this_name);
-            other.set_active(false);
-        }
-    });
-}*/
-
 pub fn show_popover_on_toggle(popover : &Popover, toggle : &ToggleButton, alt : Vec<ToggleButton>) {
-    // popover.set_relative_to(&toggle);
     toggle.connect_toggled({
         let popover = popover.clone();
         move |btn| {

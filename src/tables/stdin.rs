@@ -20,7 +20,7 @@ use std::rc::Rc;
 pub struct StdinListener {
     content : Arc<Mutex<Vec<String>>>,
     pub closed_sender : Sender<bool>,
-    t_handle : Rc<JoinHandle<()>>
+    _t_handle : Rc<JoinHandle<()>>
 }
 
 impl StdinListener {
@@ -81,7 +81,7 @@ impl StdinListener {
         Self{
             content : stdin_data,
             closed_sender : closed_send,
-            t_handle : Rc::new(pipe_thread)
+            _t_handle : Rc::new(pipe_thread)
         }
     }
 

@@ -5,46 +5,16 @@ For a copy, see http://www.gnu.org/licenses.*/
 
 use gtk4::prelude::*;
 use gtk4::*;
-use sourceview5::prelude::*;
-use glib::MainContext;
-use std::rc::Rc;
-use std::cell::RefCell;
-use std::boxed;
 use libadwaita;
-use glib::{LogLevel, g_log};
 use std::env;
 use stateful::React;
 use archiver::MultiArchiverImpl;
 use stateful::PersistentState;
-
 use queries::*;
-
 use queries::client::*;
-
-use queries::server::*;
-
 use queries::ui::*;
 
 // TODO views with a homonimous table are not being shown at the schema tree.
-
-/*impl React<ConnectionBox> for Connections {
-
-    type Change = ConnectionChange;
-
-    fn react(mut self, ch : glib::Receiver<Self::Change>) {
-        change.attach(None, move |change| {
-            match change {
-                ConnectionChange::Add(info) => {
-                    self.conns.add(info);
-                },
-                ConnectionChange::Remove(ix) => {
-                    self.conns.remove(ix);
-                }
-            }
-        });
-    }
-
-}*/
 
 fn register_resource() {
     let bytes = glib::Bytes::from_static(include_bytes!(concat!(env!("OUT_DIR"), "/", "compiled.gresource")));
@@ -52,14 +22,7 @@ fn register_resource() {
     gio::resources_register(&resource);
 }
 
-// gtk-encode-symbolic-svg -o . queries-symbolic.svg 16x16
-
-// GTK_THEME=Adwaita:dark cargo run
-// GTK_THEME=Adwaita:light cargo run
-// On inkscape: Path -> Stroke to path to make strokes into fills.
-// sudo cp queries-symbolic.svg /usr/share/icons/hicolor/scalable/actions
-// sudo cp queries-symbolic.svg /usr/share/icons/Yaru/scalable/actions
-fn main() {
+fn _glib_logger() {
 
     /*static glib_logger: glib::GlibLogger = glib::GlibLogger::new(
         glib::GlibLoggerFormat::Plain,
@@ -73,9 +36,15 @@ fn main() {
     // glib::log_set_handler(None, glib::LogLevels::all(), false, true, |_, level, msg| {
     // });
 
+}
+
+fn _systemd_logger() {
     // Alternatively, use simple_logger
-    systemd_journal_logger::init();
-    log::set_max_level(log::LevelFilter::Info);
+    // systemd_journal_logger::init();
+    // log::set_max_level(log::LevelFilter::Info);
+}
+
+fn main() {
 
     register_resource();
     
@@ -84,17 +53,6 @@ fn main() {
         return;
     }
 
-    /*let res_bytes = include_bytes!("../assets/icons.bin");
-    let data = glib::Bytes::from(&res_bytes[..]);
-    let resource = gio::Resource::from_data(&data).unwrap();
-    gio::resources_register(&resource);*/
-    // let res = gio::Resource::load("assets/resources.gresource").expect("Could not load resources");
-    // gio::resources_register(&res);
-
-    // let theme = IconTheme::for_display(&Some(&gdk::Display::default())).unwrap();
-    // theme.add_search_path("/home/diego/.local/share/org.limads.queries/icons");
-    // theme.add_resource_path("/assets");
-
     let application = Application::builder()
         .application_id(queries::APP_ID)
         .build();
@@ -102,13 +60,6 @@ fn main() {
     let style_manager = libadwaita::StyleManager::default();
     style_manager.set_color_scheme(libadwaita::ColorScheme::Default);
 
-    /*let user_state = if let Some(s) = SharedUserState::recover(queries::SETTINGS_PATH) {
-        queries::log_debug_if_required("User state loaded");
-        s
-    } else {
-        queries::log_debug_if_required("No user state found. Starting from Default.");
-        Default::default()
-    };*/
     let user_state = if let Some(mut path) = archiver::get_datadir(queries::APP_ID) {
         path.push(queries::SETTINGS_FILE);
         SharedUserState::recover(&path.to_str().unwrap()).unwrap_or_default()
@@ -126,6 +77,16 @@ fn main() {
     let script_final_state = client.scripts.final_state();
     let conn_final_state = client.conn_set.final_state();
 
+    application.set_accels_for_action("win.save_file", &["<Ctrl>S"]);
+    application.set_accels_for_action("win.open_file", &["<Ctrl>O"]);
+    application.set_accels_for_action("win.new_file", &["<Ctrl>N"]);
+    application.set_accels_for_action("win.save_as_file", &["<Ctrl><Shift>S"]);
+    application.set_accels_for_action("win.find_replace", &["<Ctrl>F"]);
+    
+    application.set_accels_for_action("win.queue_execution", &["F7"]);
+    application.set_accels_for_action("win.clear", &["F8"]);
+    application.set_accels_for_action("win.restore", &["F5"]);
+    
     application.connect_activate({
         let user_state = user_state.clone();
         move |app| {
@@ -146,7 +107,7 @@ fn main() {
                 .default_width(1024)
                 .default_height(768)
                 .build();
-            let queries_win = QueriesWindow::from(window);
+            let queries_win = QueriesWindow::build(window, &user_state);
 
             // It is critical that updating the window here is done before setting the react signal
             // below while the widgets are inert and thus do not change the state recursively.
@@ -166,16 +127,15 @@ fn main() {
             client.env.react(&client.active_conn);
             client.env.react(&queries_win.content.results.workspace);
             client.env.react(&queries_win.content.editor.export_dialog);
-            client.env.react(&queries_win.settings);
+            // client.env.react(&queries_win.settings);
             client.env.react(&queries_win.titlebar.exec_btn);
 
             queries_win.content.react(&client.active_conn);
-            queries_win.content.results.overview.detail_bx.react(&client.conn_set);
             queries_win.content.results.overview.conn_bx.react(&client.conn_set);
             queries_win.content.results.overview.conn_list.react(&client.conn_set);
             queries_win.content.results.overview.conn_list.react(&client.active_conn);
             queries_win.content.results.overview.conn_bx.react(&client.active_conn);
-            queries_win.content.results.workspace.react(&(&client.env, &user_state));
+            queries_win.content.results.workspace.react(&client.env);
 
             queries_win.sidebar.schema_tree.react(&client.active_conn);
             queries_win.sidebar.file_list.react(&client.scripts);
@@ -211,8 +171,7 @@ fn main() {
             queries_win.window.add_action(&queries_win.find_dialog.replace_action);
             queries_win.window.add_action(&queries_win.find_dialog.replace_all_action);
 
-            (&queries_win.content.editor, &user_state).react(&queries_win.settings);
-            (&client.env, &user_state).react(&queries_win.settings);
+            queries_win.content.editor.react(&queries_win.settings);
             user_state.react(&client.conn_set);
             user_state.react(&client.scripts);
 
@@ -246,25 +205,4 @@ fn main() {
 
 }
 
-// println!("File search path = {:?}", theme.search_path());
-// println!("Resource search path = {:?}", theme.resource_path());
-// println!("Theme name = {:?}", theme.theme_name());
-
-// theme.add_search_path("/home/diego/Software/gnome/queries/assets/icons/hicolor/scalable/actions");
-// println!("{}", theme.has_icon("queries-symbolic.svg"));
-// println!("{}", theme.has_icon("queries-symbolic"));
-// let icon = theme.lookup_icon("queries-symbolic", &[], 16, 1, TextDirection::Ltr, IconLookupFlags::FORCE_SYMBOLIC).unwrap();
-// println!("{:?}", icon);
-// println!("Icon name = {:?}", icon.icon_name());
-// println!("Is symbolic = {:?}", icon.is_symbolic());
-// println!("File = {:?}", icon.file().unwrap().path());
-
-// tbl_toggle.set_icon_name("queries-symbolic");
-// img.set_icon_size(IconSize::Menu);
-// img.set_icon_name(Some("queries-symbolic"));
-// let img = Image::from_icon_name(Some("queries-symbolic"));
-// let img = Image::from_paintable(Some(&IconPaintable::for_file(&gio::File::for_path("/home/diego/.local/share/org.limads.queries/icons/queries-symbolic.svg"), 16, 1)));
-// let img = Image::from_file("/home/diego/.local/share/org.limads.queries/icons/queries-symbolic.png");
-// let img = Image::from_paintable(Some(&icon));
-// tbl_toggle.set_child(Some(&img));
 

@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use super::listener::SqlListener;
 use crate::server::*;
 use std::thread;
-use crate::sql::object::{DBInfo, DBDetails};
+use crate::sql::object::{DBInfo};
 use crate::sql::StatementOutput;
 use crate::ui::ExecButton;
 use chrono::prelude::*;
@@ -160,14 +160,14 @@ impl ConnectionSet {
 
     pub fn add_certificates(&self, certs : &[Certificate]) {
         for cert in certs {
-            self.send.send(ConnectionAction::AddCertificate(cert.clone()));
+            self.send.send(ConnectionAction::AddCertificate(cert.clone())).unwrap();
         }
     }
     
     pub fn add_connections(&self, conns : &[ConnectionInfo]) {
         for conn in conns.iter() {
             if !conn.host.is_empty() && !conn.database.is_empty() && !conn.user.is_empty() {
-                self.send.send(ConnectionAction::Add(Some(conn.clone())));
+                self.send.send(ConnectionAction::Add(Some(conn.clone()))).unwrap();
             }
         }
     }
@@ -336,9 +336,9 @@ impl React<ConnectionBox> for ConnectionSet {
             move |entry| {
                 let txt = entry.text().to_string();
                 if &txt[..] != "" {
-                    send.send(ConnectionAction::UpdateHost(txt));
+                    send.send(ConnectionAction::UpdateHost(txt)).unwrap();
                 } else {
-                    send.send(ConnectionAction::UpdateHost("Host:Port".to_string()));
+                    send.send(ConnectionAction::UpdateHost("Host:Port".to_string())).unwrap();
                 }
                 
             }
@@ -348,9 +348,9 @@ impl React<ConnectionBox> for ConnectionSet {
             move |entry| {
                 let txt = entry.text().to_string();
                 if &txt[..] != "" {
-                    send.send(ConnectionAction::UpdateUser(txt));
+                    send.send(ConnectionAction::UpdateUser(txt)).unwrap();
                 } else {
-                    send.send(ConnectionAction::UpdateUser("User".to_string()));
+                    send.send(ConnectionAction::UpdateUser("User".to_string())).unwrap();
                 }
                 
             }
@@ -360,9 +360,9 @@ impl React<ConnectionBox> for ConnectionSet {
             move |entry| {
                 let txt = entry.text().to_string();
                 if &txt[..] != "" {
-                    send.send(ConnectionAction::UpdateDB(txt));
+                    send.send(ConnectionAction::UpdateDB(txt)).unwrap();
                 } else {
-                    send.send(ConnectionAction::UpdateDB("Database".to_string()));
+                    send.send(ConnectionAction::UpdateDB("Database".to_string())).unwrap();
                 }
                
             }
@@ -404,11 +404,11 @@ impl React<ActiveConnection> for ConnectionSet {
     fn react(&self, conn : &ActiveConnection) {
         let send = self.send.clone();
         conn.connect_db_connected(move |(conn_info, _)| {
-            send.send(ConnectionAction::Update(conn_info));
+            send.send(ConnectionAction::Update(conn_info)).unwrap();
         });
         let send = self.send.clone();
         conn.connect_db_conn_failure(move |(conn_info, _)| {
-            send.send(ConnectionAction::Update(conn_info));
+            send.send(ConnectionAction::Update(conn_info)).unwrap();
         });
     }
 
@@ -419,7 +419,7 @@ impl React<QueriesWindow> for ConnectionSet {
     fn react(&self, win : &QueriesWindow) {
         let send = self.send.clone();
         win.window.connect_close_request(move |_win| {
-            send.send(ConnectionAction::CloseWindow);
+            send.send(ConnectionAction::CloseWindow).unwrap();
             Inhibit(false)
         });
         win.settings.security_bx.cert_removed.connect_activate({
@@ -427,7 +427,7 @@ impl React<QueriesWindow> for ConnectionSet {
             move |_, param| {
                 if let Some(s) = param {
                     let cert : Certificate = serde_json::from_str(&s.get::<String>().unwrap()).unwrap();
-                    send.send(ConnectionAction::EraseCertificate(cert.host.to_string()));
+                    send.send(ConnectionAction::EraseCertificate(cert.host.to_string())).unwrap();
                 }
            }
        });
@@ -436,7 +436,7 @@ impl React<QueriesWindow> for ConnectionSet {
             move |_, param| {
                 if let Some(s) = param {
                     let cert : Certificate = serde_json::from_str(&s.get::<String>().unwrap()).unwrap();
-                    send.send(ConnectionAction::AddCertificate(cert));
+                    send.send(ConnectionAction::AddCertificate(cert)).unwrap();
                 }
            }
        });
@@ -444,31 +444,28 @@ impl React<QueriesWindow> for ConnectionSet {
 
 }
 
-// View connection URI spec at
-// https://www.postgresql.org/docs/current/libpq-connect.html
-fn validate_conn_info() {
-    // Connection URI postgresql://[userspec@][hostspec][/dbname][?paramspec]
-}
+/*mod tests {
 
-// #[test]
-fn conn_str_test() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
-
-    // Reference: https://www.postgresql.org/docs/current/libpq-connect.html
-    // Eventually the settings GUI might include those URI parameters as well.
-    // "postgresql://other@localhost/otherdb?connect_timeout=10&application_name=myapp",
-    // "postgresql://host1:123,host2:456/somedb?target_session_attrs=any&application_name=myapp"
+    use super::{ConnectionInfo, ConnURI};
     
-    // let info_noport = ConnectionInfo { host : format!("localhost"), user : format!("user"), database : format!("mydb"), ..Default::default() };
-    // let uri = ConnURI::new(info_noport, "secret").unwrap();
-    // assert!(&uri.uri[..] == "postgresql://user:secret@localhost:5432/mydb");
-    
-    let info_port = ConnectionInfo { host : format!("localhost:1234"), user : format!("user2"), database : format!("mydb2"), ..Default::default() };
-    let uri_port = ConnURI::new(info_port, "secret2").unwrap();
-    assert!(&uri_port.uri[..] == "postgresql://user2:secret2@localhost:1234/mydb2");
+    #[test]
+    fn conn_str_test() {
 
-    Ok(())
+        // Reference: https://www.postgresql.org/docs/current/libpq-connect.html
+        // Eventually the settings GUI might include those URI parameters as well.
+        // "postgresql://other@localhost/otherdb?connect_timeout=10&application_name=myapp",
+        // "postgresql://host1:123,host2:456/somedb?target_session_attrs=any&application_name=myapp"
+        
+        // let info_noport = ConnectionInfo { host : format!("localhost"), user : format!("user"), database : format!("mydb"), ..Default::default() };
+        // let uri = ConnURI::new(info_noport, "secret").unwrap();
+        // assert!(&uri.uri[..] == "postgresql://user:secret@localhost:5432/mydb");
+        
+        let info_port = ConnectionInfo { host : format!("localhost:1234"), user : format!("user2"), database : format!("mydb2"), ..Default::default() };
+        let uri_port = ConnURI::new(info_port, "secret2").unwrap();
+        assert!(&uri_port.uri[..] == "postgresql://user2:secret2@localhost:1234/mydb2");
 
-}
+    }
+}*/
 
 pub fn is_local(info : &ConnectionInfo) -> Option<bool> {
     if let Some(fst_part) = info.host.split(":").next() {
@@ -556,7 +553,7 @@ impl ConnURI {
 /* Extract connection info from GTK widgets (except password, which is held separately 
 at the uri field of ConnURI. */
 fn extract_conn_info(host_entry : &Entry, db_entry : &Entry, user_entry : &Entry) -> Result<ConnectionInfo, String> {
-    let mut host_s = host_entry.text().as_str().to_owned();
+    let host_s = host_entry.text().as_str().to_owned();
     if host_s.is_empty() {
         return Err(format!("Missing host"));
     }
@@ -624,7 +621,6 @@ pub enum ActiveConnectionAction {
 
     ObjectSelected(Option<Vec<usize>>),
 
-    /// Carries path to CSV file.
     TableImport(String),
 
     Error(String)
@@ -635,6 +631,8 @@ pub type ActiveConnCallbacks = (Callbacks<(ConnectionInfo, Option<DBInfo>)>, Cal
 
 pub struct ActiveConnection {
 
+    user_state : SharedUserState,
+    
     on_connected : Callbacks<(ConnectionInfo, Option<DBInfo>)>,
 
     on_conn_failure : Callbacks<(ConnectionInfo, String)>,
@@ -657,21 +655,14 @@ pub struct ActiveConnection {
 
 }
 
-// pub struct ActiveConnState {
-// }
-
 impl ActiveConnection {
-
-    //pub fn final_state(&self) -> ActiveConnState {
-    //    ActiveConnState { }
-    //}
 
     pub fn sender(&self) -> &glib::Sender<ActiveConnectionAction> {
         &self.send
     }
 
     pub fn send(&self, msg : ActiveConnectionAction) {
-        self.send.send(msg);
+        self.send.send(msg).unwrap();
     }
 
     pub fn new(user_state : &SharedUserState) -> Self {
@@ -755,7 +746,7 @@ impl ActiveConnection {
                                     
                                         let db_info = match conn.db_info() {
                                             Ok(info) => Some(info),
-                                            Err(e) => {
+                                            Err(_e) => {
                                                 None
                                             }
                                         };
@@ -822,7 +813,7 @@ impl ActiveConnection {
                         }
 
                         let us = user_state.borrow();
-                        match listener.send_commands(stmts, HashMap::new(), us.safety(), false, us.execution.statement_timeout as usize) {
+                        match listener.send_commands(stmts, HashMap::new(), us.safety(), false) {
                             Ok(_) => { },
                             Err(e) => {
                                 on_error.call(e.clone());
@@ -853,9 +844,8 @@ impl ActiveConnection {
                         match &selected_obj {
                             Some(DBObject::View { schema, name, .. }) | Some(DBObject::Table { schema, name, .. }) => {
                                 let cmd = format!("select * from {schema}.{name};");
-                                let timeout = user_state.borrow().execution.statement_timeout as usize;
                                 let us = user_state.borrow();
-                                match listener.send_single_command(cmd, timeout, us.safety()) {
+                                match listener.send_single_command(cmd, us.safety()) {
                                     Ok(_) => { },
                                     Err(e) => {
                                         on_error.call(e.clone());
@@ -893,8 +883,7 @@ impl ActiveConnection {
                                     stmts.clone(),
                                     HashMap::new(),
                                     us.safety(),
-                                    true,
-                                    us.execution.statement_timeout as usize
+                                    true
                                 );
                                 match send_ans {
                                     Ok(_) => { },
@@ -936,10 +925,10 @@ impl ActiveConnection {
                                         match ans {
                                             Ok(n) => {
                                                 let msg = format!("{} row(s) imported", n);
-                                                send.send(ActiveConnectionAction::ExecutionCompleted(vec![StatementOutput::Statement(msg)]));
+                                                send.send(ActiveConnectionAction::ExecutionCompleted(vec![StatementOutput::Statement(msg)])).unwrap();
                                             },
                                             Err(e) => {
-                                                send.send(ActiveConnectionAction::Error(e));
+                                                send.send(ActiveConnectionAction::Error(e)).unwrap();
                                             }
                                         }
                                     });
@@ -984,7 +973,7 @@ impl ActiveConnection {
                             on_schema_invalidated.call(());
                             let send = send.clone();
                             listener.spawn_db_info(move |info| {
-                                send.send(ActiveConnectionAction::SchemaUpdate(info));
+                                send.send(ActiveConnectionAction::SchemaUpdate(info)).unwrap();
                             });
                         }
                         
@@ -1034,6 +1023,7 @@ impl ActiveConnection {
         });
 
         Self {
+            user_state : user_state.clone(),
             on_connected,
             on_disconnected,
             on_error,
@@ -1048,7 +1038,7 @@ impl ActiveConnection {
     }
 
     pub fn emit_error(&self, msg : String) {
-        self.send.send(ActiveConnectionAction::Error(msg));
+        self.send.send(ActiveConnectionAction::Error(msg)).unwrap();
     }
 
     pub fn connect_db_connected<F>(&self, f : F)
@@ -1114,19 +1104,7 @@ impl ActiveConnection {
         self.on_object_selected.bind(f);
     }
 
-    /*pub fn connect_exec_message<F>(&self, f : F)
-    where
-        F : Fn(String) + 'static
-    {
-        self.on_exec_messaeg.borrow_mut().push(boxed::Box::new(f));
-    }*/
 }
-
-/*fn call_when_info_arrived(info : Callbacks<Option<DBInfo>>) {
-    glib::timeout_add_local(Duration::from_millis(16), move || {
-
-    });
-}*/
 
 impl React<ConnectionBox> for ActiveConnection {
 
@@ -1139,47 +1117,18 @@ impl React<ConnectionBox> for ActiveConnection {
             conn_bx.password.entry.clone()
         );
         let send = self.send.clone();
-        // let state = r.1.clone();
         conn_bx.switch.connect_state_set(move |switch, _state| {
 
             if switch.is_active() {
                 
-                // if host_entry.text().starts_with("file") {
-                //    unimplemented!()
-                // }
-
                 match generate_conn_uri_from_entries(&host_entry, &db_entry, &user_entry, &password_entry) {
-                    Ok(mut uri) => {
-
-                        // let mut state = state.borrow_mut();
-                        /*// If there is already a bound certificate
-                        for conn in state.conns.iter() {
-                            if conn.host == uri.info.host {
-                                if let Some(cert) = conn.cert.as_ref() {
-                                    uri.info.cert = Some(cert.to_string());
-                                    uri.info.is_tls = conn.is_tls;
-                                }
-                            }
-                        }
-                        // Match certificate to this new host, if there is a pending certificate.
-                        if uri.info.cert.is_none() {
-                            for c in state.certs.clone().iter() {
-                                if c.host == uri.info.host {
-                                    uri.info.cert = Some(c.cert.to_string());
-                                    while let Some(ix) = state.conns.iter().cloned().position(|conn| conn.host == c.host ) {
-                                        state.conns[ix].cert = Some(c.cert.to_string());
-                                        state.conns[ix].is_tls = Some(c.is_tls);
-                                    }
-                                }
-                            }
-                        }*/
+                    Ok(uri) => {
 
                         send.send(ActiveConnectionAction::ConnectRequest(uri)).unwrap();
                     },
                     Err(e) => {
                         let info = extract_conn_info(&host_entry, &db_entry, &user_entry).unwrap_or_default();
                         send.send(ActiveConnectionAction::ConnectFailure(info, e)).unwrap();
-                        // crate::ui::disconnect_with_delay(switch.clone());
                     }
                 }
             } else {
@@ -1188,189 +1137,15 @@ impl React<ConnectionBox> for ActiveConnection {
 
             Inhibit(false)
         });
-
-           /*if let Ok(mut t_env) = table_env.try_borrow_mut() {
-                if state {
-                    let conn_res  : Result<(), String> = if let Ok(db_path) = conn_popover.db_path.try_borrow() {
-                        match (db_path.len(), conn_popover.check_entries_clear()) {
-                            (0, true) => Self::try_local_connection(&conn_popover, None, &mut t_env),
-                            (0, false) => Self::try_remote_connection(&conn_popover, &mut t_env),
-                            (1, true) => {
-                                println!("{:?}", db_path);
-                                if let Some(ext) = db_path[0].extension().map(|ext| ext.to_str()) {
-                                    match ext {
-                                        Some("csv") | Some("txt") => {
-                                            let ans = Self::try_local_connection(&conn_popover, None, &mut t_env);
-                                            if ans.is_ok() {
-                                                // Self::upload_csv(db_path[0].clone(), &mut t_env, status.clone(), switch.clone());
-                                                Self::create_csv_vtab(db_path[0].clone(), &mut t_env, status.clone(), switch.clone());
-                                            }
-                                            ans
-                                        },
-                                        _ => Self::try_local_connection(&conn_popover, Some(db_path[0].clone()), &mut t_env)
-                                    }
-                                } else {
-                                    Self::try_local_connection(&conn_popover, None, &mut t_env)
-                                }
-                            },
-                            (_, true) => {
-                                let ans = Self::try_local_connection(&conn_popover, None, &mut t_env);
-                                if ans.is_ok() {
-                                    for p in db_path.iter() {
-                                        // Self::upload_csv(p.clone(), &mut t_env, status.clone(), switch.clone());
-                                        Self::create_csv_vtab(p.clone(), &mut t_env, status.clone(), switch.clone());
-                                    }
-                                }
-                                ans
-                            },
-                            _ => {
-                                println!("Invalid connection mode");
-                                Err(format!("Invalid connection mode"))
-                            }
-                        }
-                    } else {
-                        println!("Could not acquire lock over DB path");
-                        Err(format!("Could not acquire lock over DB path"))
-                    };
-
-                    match conn_res {
-                        Ok(_) => {
-                            connected.set(true);
-                            status.update(Status::Connected);
-                            if let Some(f) = on_connected.borrow().as_ref() {
-                                f();
-                            }
-                        },
-                        Err(e) => {
-                            status.update(Status::ConnectionErr(e));
-                            connected.set(false);
-                            Self::disconnect_with_delay(switch.clone());
-                            if let Some(f) = on_disconnected.borrow().as_ref() {
-                                f();
-                            }
-                        }
-                    }
-
-                } else {
-                    // Disable remote connection
-                    if t_env.is_engine_active() {
-                        t_env.disable_engine();
-                    }
-                    conn_popover.set_non_db_mode();
-                    conn_popover.clear_entries();
-                    status.update(Status::Disconnected);
-                    connected.set(false);
-                    Self::clear_session(
-                        sql_editor.clone(),
-                        workspace.clone(),
-                        table_notebook.clone(),
-                        &mut t_env
-                    );
-                }
-            } else {
-                println!("Could not acquire lock over table environment");
-            }
-            if let Some(status) = status.get_status() {
-                match status {
-                    Status::Connected => {
-                        sql_editor.set_active(true);
-                        workspace.set_active(true);
-                        fn_reg.set_sensitive(false);
-                        schema_tree.repopulate(table_env.clone());
-                    },
-                    _ => {
-                        fn_reg.set_sensitive(true);
-                        schema_tree.clear();
-                        if let Ok(mut t_env) = table_env.try_borrow_mut() {
-                            Self::clear_session(
-                                sql_editor.clone(),
-                                workspace.clone(),
-                                table_notebook.clone(),
-                                &mut t_env
-                            );
-                        } else {
-                            println!("Failed to acquire lock over table environment");
-                        }
-                    }
-                }
-            }*/
-        //Inhibit(false)
-        // });
     }
 }
-
-/*fn try_remote_connection(
-    conn_popover : &ConnPopover,
-    t_env : &mut TableEnvironment
-) -> Result<(), String> {
-    match crate::client::generate_conn_str(conn_popover.entries()) {
-        Ok(conn_str) => {
-            let res = t_env.update_source(
-                EnvironmentSource::PostgreSQL((conn_str, "".into())),
-                true
-            );
-            match res {
-                Ok(_) => {
-                    conn_popover.set_db_loaded_mode();
-                    Ok(())
-                },
-                Err(e) => {
-                    Err(format!("{}", e))
-                }
-            }
-        },
-        Err(err_str) => {
-            Err(err_str)
-        }
-    }
-}*/
-
-/*fn try_local_connection(
-    conn_popover : &ConnPopover,
-    opt_path : Option<PathBuf>,
-    t_env : &mut TableEnvironment
-) -> Result<(), String> {
-    if t_env.is_engine_active() {
-        return Err(format!("Invalid connection state"));
-    }
-
-    #[cfg(feature="arrowext")]
-    {
-        let source = EnvironmentSource::Arrow(String::new());
-        if let Err(e) = t_env.update_source(source, true) {
-            println!("{}", e);
-            return Err(e);
-        }
-        conn_popover.entries[3].set_text("(In-memory database)");
-        conn_popover.set_db_loaded_mode();
-        return Ok(());
-    }
-    let source = EnvironmentSource::SQLite3((opt_path.clone(), String::new()));
-    if let Err(e) = t_env.update_source(source, true) {
-        println!("{}", e);
-        return Err(e);
-    }
-    let conn_name = match &opt_path {
-        Some(path) => {
-            if let Some(str_path) = path.to_str() {
-                str_path
-            } else {
-                "(Invalid UTF-8 path)"
-            }
-        }
-        None => "(In-memory database)"
-    };
-    conn_popover.entries[3].set_text(conn_name);
-    conn_popover.set_db_loaded_mode();
-    Ok(())
-}*/
 
 impl React<ExecButton> for ActiveConnection {
 
     fn react(&self, btn : &ExecButton) {
         let send = self.send.clone();
         let schedule_action = btn.schedule_action.clone();
-        let mut is_scheduled = Rc::new(RefCell::new(false));
+        let is_scheduled = Rc::new(RefCell::new(false));
         let exec_btn = btn.btn.clone();
         btn.exec_action.connect_activate(move |_action, param| {
 
@@ -1383,7 +1158,7 @@ impl React<ExecButton> for ActiveConnection {
             if *is_scheduled {
                 exec_btn.set_icon_name("download-db-symbolic");
                 *is_scheduled = false;
-                send.send(ActiveConnectionAction::EndSchedule);
+                send.send(ActiveConnectionAction::EndSchedule).unwrap();
             } else {
 
                 let stmts = param.unwrap().get::<String>().unwrap();
@@ -1397,18 +1172,8 @@ impl React<ExecButton> for ActiveConnection {
                 }
             }
 
-            // println!("Should execute: {}", );
         });
 
-        /*btn.schedule_action.connect_state_notify({
-            let send = self.send.clone();
-            move |action| {
-                if !action.state().unwrap().get::<bool>().unwrap() {
-                    println!("Unscheduled");
-                    send.send(ActiveConnectionAction::EndSchedule);
-                }
-            }
-        });*/
     }
 
 }
@@ -1427,26 +1192,28 @@ impl React<SchemaTree> for ActiveConnection {
                         .map(|ix| if *ix >= 0 { Ok(*ix as usize) } else { Err(()) })
                         .collect();
                     if let Ok(ixs) = res_ixs {
-                        send.send(ActiveConnectionAction::ObjectSelected(Some(ixs)));
+                        send.send(ActiveConnectionAction::ObjectSelected(Some(ixs))).unwrap();
                     }
                 });
 
                 if n_selected == 0 {
-                    send.send(ActiveConnectionAction::ObjectSelected(None));
+                    send.send(ActiveConnectionAction::ObjectSelected(None)).unwrap();
                 }
             }
         });
 
         tree.query_action.connect_activate({
             let send = self.send.clone();
+            let user_state = self.user_state.clone();
             move |action, _| {
                 if let Some(state) = action.state() {
                     let s = state.get::<String>().unwrap();
+                    let row_limit = user_state.try_borrow().map(|us| us.execution.row_limit ).unwrap_or(500);
                     if !s.is_empty() {
                         let obj : DBObject = serde_json::from_str(&s).unwrap();
                         match obj {
                             DBObject::Table { schema, name, .. } | DBObject::View { schema, name, .. } => {
-                                send.send(ActiveConnectionAction::ExecutionRequest(format!("select * from {}.{} limit 500;", schema, name)));
+                                send.send(ActiveConnectionAction::ExecutionRequest(format!("select * from {}.{} limit {};", schema, name, row_limit))).unwrap();
                             },
                             _ => { }
                         }
@@ -1459,7 +1226,7 @@ impl React<SchemaTree> for ActiveConnection {
             let dialog = tree.report_dialog.dialog.clone();
             move |_| {
                 dialog.hide();
-                send.send(ActiveConnectionAction::SingleQueryRequest);
+                send.send(ActiveConnectionAction::SingleQueryRequest).unwrap();
             }
         });
 
@@ -1489,7 +1256,7 @@ impl React<SchemaTree> for ActiveConnection {
                 } else {
                     return;
                 };
-                let values = entries.iter().map(|e| e.text().to_string() ).collect::<Vec<_>>();
+                let _values = entries.iter().map(|e| e.text().to_string() ).collect::<Vec<_>>();
                 let obj : DBObject = serde_json::from_str(&state_str[..]).unwrap();
                 //match form_action {
                 //    FormAction::Table(obj) => {
@@ -1502,10 +1269,10 @@ impl React<SchemaTree> for ActiveConnection {
                             Ok(tuple) => {
                                 let insert_stmt = format!("insert into {}.{} values {};", schema, name, tuple);
 
-                                send.send(ActiveConnectionAction::ExecutionRequest(insert_stmt));
+                                send.send(ActiveConnectionAction::ExecutionRequest(insert_stmt)).unwrap();
                             },
                             Err(e) => {
-                                send.send(ActiveConnectionAction::Error(e));
+                                send.send(ActiveConnectionAction::Error(e)).unwrap();
                             }
                         }
                     },
@@ -1516,7 +1283,7 @@ impl React<SchemaTree> for ActiveConnection {
                             } else {
                                 format!("call {}.{}();", schema, name)
                             };
-                            send.send(ActiveConnectionAction::ExecutionRequest(call_stmt));
+                            send.send(ActiveConnectionAction::ExecutionRequest(call_stmt)).unwrap();
                         } else {
                             match sql_literal_tuple(&entries, &args) {
                                 Ok(tuple) => {
@@ -1525,10 +1292,10 @@ impl React<SchemaTree> for ActiveConnection {
                                     } else {
                                         format!("call {}.{}{};", schema, name, tuple)
                                     };
-                                    send.send(ActiveConnectionAction::ExecutionRequest(call_stmt));
+                                    send.send(ActiveConnectionAction::ExecutionRequest(call_stmt)).unwrap();
                                 },
                                 Err(e) => {
-                                    send.send(ActiveConnectionAction::Error(e));
+                                    send.send(ActiveConnectionAction::Error(e)).unwrap();
                                 }
                             }
                         }
@@ -1540,11 +1307,6 @@ impl React<SchemaTree> for ActiveConnection {
 
                 entries.iter().for_each(|e| e.set_text("") );
 
-               //     },
-               //     FormAction::FnCall(obj) => {
-                        // send.send(ActiveConnectionAction::ExecutionRequest(format!("select * from {} limit 500;", name)));
-               //     },
-               // }
             }
         });
 
@@ -1569,10 +1331,6 @@ fn sql_literal_tuple(entries : &[Entry], tys : &[DBType]) -> Result<String, Stri
     let mut tuple = String::from("(");
     for (entry, col) in entries.iter().zip(tys) {
 
-        // if EntryExt::is_visible(entry) {
-        //    return Err(String::from("Entry should be visible"));
-        // }
-
         match text_to_sql_literal(&entry, &col) {
             Ok(txt) => {
                 tuple += &txt;
@@ -1592,7 +1350,7 @@ fn sql_literal_tuple(entries : &[Entry], tys : &[DBType]) -> Result<String, Stri
 }
 
 fn text_to_sql_literal(entry : &Entry, ty : &DBType) -> Result<String, String> {
-    use sqlparser::tokenizer::{Tokenizer, Token};
+    use sqlparser::tokenizer::{Token};
     let entry_s = entry.text();
     let entry_s = entry_s.as_str();
     if entry_s.is_empty() {
@@ -1627,7 +1385,7 @@ fn text_to_sql_literal(entry : &Entry, ty : &DBType) -> Result<String, String> {
                     Err(format!("Invalid literal"))
                 }
             },
-            Err(e) => {
+            Err(_e) => {
                 Err(format!("Invalid literal"))
             }
         }

@@ -5,7 +5,7 @@ For a copy, see http://www.gnu.org/licenses.*/
 
 use std::collections::HashMap;
 use crate::sql::*;
-use crate::sql::object::{DBObject, DBInfo};
+use crate::sql::object::{DBInfo};
 use crate::sql::parsing::{AnyStatement, SQLError};
 use sqlparser::ast::*;
 use crate::tables::table::Table;
@@ -79,8 +79,7 @@ where
     fn import(
         &mut self,
         tbl : &mut Table,
-        dst : &str,
-        cols : &[String],
+        dst : &str
     ) -> Result<usize, String>;
 
     /// It is important that every time this method is called,
@@ -122,7 +121,7 @@ where
                 for any_stmt in stmts {
                     match any_stmt {
                         AnyStatement::Parsed(stmt, s) => match stmt {
-                            Statement::Query(q) => {
+                            Statement::Query(_q) => {
                                 results.push(self.query(&s, &subs));
                             },
                             stmt => {
@@ -136,7 +135,7 @@ where
                             }
                             results.push(self.exec_transaction(&AnyStatement::ParsedTransaction(stmts.clone(), format!("{}", s))));
                         },
-                        AnyStatement::Local(local) => {
+                        AnyStatement::Local(_local) => {
                             // Self::run_local_statement(&local, conn, exec, &mut results)?;
                             return Err(String::from("Unsupported statement"));
                         },

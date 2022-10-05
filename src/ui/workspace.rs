@@ -12,8 +12,7 @@ use super::table::*;
 use crate::tables::table::Table;
 use crate::ui::PlotView;
 use papyri::render::Panel;
-use crate::client::SharedUserState;
-use std::rc::Rc;
+
 use crate::client::UserState;
 
 #[derive(Debug, Clone)]
@@ -61,6 +60,8 @@ pub fn close_all_pages(tab_view : &libadwaita::TabView) {
     }
 }
 
+const COLUMN_LIMIT : usize = 50;
+
 pub fn populate_with_tables(tab_view : &libadwaita::TabView, tables : &[Table], state : &UserState) -> Vec<libadwaita::TabPage> {
     close_all_pages(&tab_view);
     let mut new_pages = Vec::new();
@@ -77,7 +78,7 @@ pub fn populate_with_tables(tab_view : &libadwaita::TabView, tables : &[Table], 
                 _ => { }
             }
         }
-        let tbl_wid = TableWidget::new_from_table(&tbl, state.execution.row_limit as usize, state.execution.column_limit as usize);
+        let tbl_wid = TableWidget::new_from_table(&tbl, state.execution.row_limit as usize, COLUMN_LIMIT);
         let tab_page = tab_view.append(&tbl_wid.scroll_window);
         new_pages.push(tab_page.clone());
         configure_table_page(&tab_page, &tbl);
@@ -85,17 +86,16 @@ pub fn populate_with_tables(tab_view : &libadwaita::TabView, tables : &[Table], 
     new_pages
 }
 
-// TODO remove shareduserstate here (unused)
-impl<'a> React<(&'a Environment, &'a SharedUserState)> for QueriesWorkspace {
+impl<'a> React<Environment> for QueriesWorkspace {
 
-    fn react(&self, (env, state) : &(&'a Environment, &'a SharedUserState)) {
+    fn react(&self, env : &Environment) {
         let tab_view = self.tab_view.clone();
-        let state = (*state).clone();
+        let user_state = env.user_state.clone();
         env.connect_table_update(move |tables| {
-            let state = state.borrow();
+            let user_state = user_state.borrow();
             let past_sel_page = tab_view.selected_page().map(|page| tab_view.page_position(&page) as usize );
             let past_n_pages = tab_view.n_pages() as usize;
-            let new_pages = populate_with_tables(&tab_view, &tables[..], &*state);
+            let new_pages = populate_with_tables(&tab_view, &tables[..], &*user_state);
             if let Some(page_ix) = past_sel_page {
                 if new_pages.len() == past_n_pages {
                     tab_view.set_selected_page(&new_pages[page_ix]);
@@ -106,7 +106,7 @@ impl<'a> React<(&'a Environment, &'a SharedUserState)> for QueriesWorkspace {
 
 }
 
-fn configure_plot_page(tab_page : &libadwaita::TabPage, panel : &Panel) {
+fn configure_plot_page(tab_page : &libadwaita::TabPage, _panel : &Panel) {
     tab_page.set_icon(Some(&gio::ThemedIcon::new("roll-symbolic")));
     tab_page.set_title("Plot");
 }
@@ -123,72 +123,4 @@ fn configure_table_page(tab_page : &libadwaita::TabPage, table : &Table) {
     tab_page.set_title(&title);
     tab_page.set_icon(Some(&gio::ThemedIcon::new(&icon)));
 }
-
-/*
-for table in all_tbls.iter() {
-    let info = table.table_info();
-    if let Some(val) = table.single_json_field() {
-        let plot_created = tables_nb.create_json_plot_rep(
-            val,
-            table_bar.clone(),
-            workspace.layout_window.clone()
-        );
-        if !plot_created {
-            tables_nb.create_data_table(
-                TableSource::Database(info.0, info.1),
-                table.text_rows(),
-                workspace.clone(),
-                table_bar.clone()
-            );
-        }
-    } else {
-        tables_nb.create_data_table(
-            TableSource::Database(info.0, info.1),
-            table.text_rows(),
-            workspace.clone(),
-            table_bar.clone()
-        );
-    }
-}*/
-
-/*pub fn create_json_plot_rep(&self, val : Value, bar : TableBar, layout_window : LayoutWindow) -> bool {
-    match PlotView::new_from_json(&val.to_string()) {
-        Ok(view) => {
-            let vp = Viewport::new(None::<&Adjustment>, None::<&Adjustment>);
-            vp.override_background_color(StateFlags::NORMAL, Some(&RGBA::from_str("#fafafa").unwrap()));
-            vp.set_shadow_type(ShadowType::None);
-            vp.add(&view.parent);
-            // let bx = Box::new(Orientation::Horizontal, 0);
-            // bx.pack_start(&view.parent, true, true, 0);
-            // bx.show_all();
-
-            // self.nb.add(&bx);
-            self.nb.add(&vp);
-            self.nb.next_page();
-            view.redraw();
-            println!("Plot added");
-            // } else {
-            //    println!("Unable to borrow view");
-            //    return;
-            // }
-
-            self.nb.show_all();
-            self.sources.borrow_mut().push(TableSource::Plot);
-            crate::plots::plot_view::connect_draw_to_set(&view, Rc::downgrade(&self.plots));
-            //if let Some(mut plots) = self.plots.upgrade() {
-            self.plots.borrow_mut().push(view.clone());
-            // } else {
-            //    println!("Unable to get mutable reference to table vector");
-            // }
-            let img = Image::from_icon_name(Some("folder-templates-symbolic"), IconSize::SmallToolbar);
-            let ev_bx = create_sheet_tab(&img, &Label::new(Some("Plot")), &TableSource::Plot, &bar, None, Some(layout_window.clone()));
-            self.nb.set_tab_label(&vp, Some(&ev_bx));
-            true
-        },
-        Err(e) => {
-            println!("{}", e );
-            false
-        }
-    }
-}*/
 

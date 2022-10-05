@@ -4,7 +4,7 @@ This work is licensed under the terms of the GPL v3.0 License.
 For a copy, see http://www.gnu.org/licenses.*/
 
 use stateful::{React, Inherit};
-use stateful::{Callbacks, ValuedCallbacks};
+
 use gtk4::prelude::*;
 use gtk4::*;
 use crate::ui::{QueriesEditor, ScriptList, SaveDialog, OpenDialog};
@@ -12,19 +12,7 @@ use crate::ui::QueriesWindow;
 use crate::ui::PackedImageLabel;
 use crate::ui::MainMenu;
 use crate::ui::FileList;
-use std::boxed;
-use std::thread;
-use std::fs::File;
-use std::io::{Read, Write};
-use std::path::Path;
-use notify::{self, Watcher};
-use std::sync::mpsc;
-use std::time::Duration;
-use std::thread::JoinHandle;
-use serde::{Serialize, Deserialize};
-use chrono::prelude::*;
-use std::rc::Rc;
-use std::cell::RefCell;
+
 use archiver::{MultiArchiver, MultiArchiverImpl, MultiArchiverAction};
 
 // TODO At startup, remove script from scriptlist if its path does not exist anymore.
@@ -100,7 +88,7 @@ impl React<MainMenu> for OpenedScripts {
         menu.action_save.connect_activate({
             let send = self.sender().clone();
             move |_,_| {
-                send.send(MultiArchiverAction::SaveRequest(None));
+                send.send(MultiArchiverAction::SaveRequest(None)).unwrap();
             }
         });
     }
@@ -185,7 +173,7 @@ impl React<QueriesEditor> for OpenedScripts {
         });
         editor.script_list.list.connect_row_activated({
             let send = self.sender().clone();
-            move |list, row| {
+            move |_list, row| {
                 let child = row.child().unwrap().downcast::<Box>().unwrap();
                 let lbl = PackedImageLabel::extract(&child).unwrap();
                 let path = lbl.lbl.text().as_str().to_string();
@@ -211,17 +199,5 @@ impl React<QueriesWindow> for OpenedScripts {
     }
 }
 
-/*pub struct ScriptHistory {
-
-}
-
-impl ScriptHistory {
-
-    pub fn new() -> Self {
-
-        Self { }
-    }
-
-}*/
 
 

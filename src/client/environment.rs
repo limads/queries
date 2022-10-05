@@ -7,23 +7,12 @@ use gtk4::*;
 use gtk4::prelude::*;
 use std::fs::File;
 use std::io::Read;
-use std::path::PathBuf;
 use crate::sql::*;
 use std::path::Path;
-use crate::tables::*;
-use std::sync::{Arc, Mutex};
-use std::str::FromStr;
-use std::cmp::{Eq, PartialEq};
-use std::hash::Hash;
-use std::fmt;
-use itertools::Itertools;
-use std::collections::HashMap;
-use crate::sql::object::*;
-use stateful::{Callbacks, ValuedCallbacks};
+use stateful::{Callbacks};
 use crate::tables::table::Table;
 use stateful::React;
 use crate::client::ActiveConnection;
-use std::boxed;
 use crate::tables::table::TableSettings;
 use crate::tables::table::Columns;
 use papyri::render::Panel;
@@ -31,15 +20,9 @@ use crate::ui::QueriesWorkspace;
 use std::io::Write;
 use std::thread;
 use crate::ui::ExportDialog;
-use crate::ui::QueriesSettings;
 use crate::client::ExecutionSettings;
 use crate::client::SharedUserState;
 use crate::ui::ExecButton;
-
-// #[cfg(feature="arrowext")]
-// use datafusion::execution::context::ExecutionContext;
-// #[cfg(feature="arrowext")]
-// use datafusion::execution::physical_plan::csv::CsvReadOptions;
 
 #[derive(Debug, Clone)]
 pub enum ExportItem {
@@ -75,6 +58,8 @@ pub enum EnvironmentAction {
 
 pub struct Environment {
 
+    pub user_state : SharedUserState,
+    
     send : glib::Sender<EnvironmentAction>,
 
     on_tbl_update : Callbacks<Vec<Table>>,
@@ -87,7 +72,7 @@ pub struct Environment {
 
 impl Environment {
 
-    pub fn new() -> Self {
+    pub fn new(user_state : &SharedUserState) -> Self {
         let (send, recv) = glib::MainContext::channel::<EnvironmentAction>(glib::PRIORITY_DEFAULT);
         let mut tables = Tables::new();
         let mut plots = Plots::new();
@@ -151,7 +136,7 @@ impl Environment {
                                 let template_path = template_path.clone();
                                 move || {
                                     if let Err(e) = export_to_path(item, Path::new(&path[..]), template_path) {
-                                        send.send(EnvironmentAction::ExportError(e));
+                                        send.send(EnvironmentAction::ExportError(e)).unwrap();
                                     }
                                 }
                             });
@@ -160,7 +145,7 @@ impl Environment {
                     EnvironmentAction::ExportError(msg) => {
                         on_export_error.call(msg.clone());
                     },
-                    EnvironmentAction::ChangeSetting(setting) => {
+                    EnvironmentAction::ChangeSetting(_setting) => {
 
                     },
                     EnvironmentAction::ChangeTemplate(path) => {
@@ -175,7 +160,7 @@ impl Environment {
                 Continue(true)
             }
         });
-        Self { send, on_tbl_update, on_export_error, on_tbl_error }
+        Self { send, on_tbl_update, on_export_error, on_tbl_error, user_state : user_state.clone() }
     }
 
     pub fn connect_table_update<F>(&self, f : F)
@@ -206,7 +191,7 @@ impl React<ActiveConnection> for Environment {
     fn react(&self, conn : &ActiveConnection) {
         let send = self.send.clone();
         conn.connect_exec_result(move |res : Vec<StatementOutput>| {
-            send.send(EnvironmentAction::Update(res));
+            send.send(EnvironmentAction::Update(res)).unwrap();
         });
     }
 
@@ -217,8 +202,8 @@ impl React<ExecButton> for Environment {
     fn react(&self, btn : &ExecButton) {
         btn.restore_action.connect_activate({
             let send = self.send.clone();
-            move |_action, param| {
-                send.send(EnvironmentAction::Restore);
+            move |_action, _param| {
+                send.send(EnvironmentAction::Restore).unwrap();
             }
         });
     }
@@ -232,9 +217,9 @@ impl React<QueriesWorkspace> for Environment {
         ws.tab_view.connect_selected_page_notify(move|view| {
             if view.selected_page().is_some() {
                 let pages = view.pages();
-                send.send(EnvironmentAction::Select(Some(pages.selection().nth(0) as usize)));
+                send.send(EnvironmentAction::Select(Some(pages.selection().nth(0) as usize))).unwrap();
             } else {
-                send.send(EnvironmentAction::Select(None));
+                send.send(EnvironmentAction::Select(None)).unwrap();
             }
         });
     }
@@ -265,21 +250,21 @@ impl React<ExportDialog> for Environment {
 
 }
 
-impl React<QueriesSettings> for Environment {
+/*impl React<QueriesSettings> for Environment {
 
     fn react(&self, settings : &QueriesSettings) {
         settings.report_bx.entry.connect_changed({
             let send = self.send.clone();
             move |entry| {
                 let txt = entry.text().as_str().to_string();
-                send.send(EnvironmentAction::ChangeTemplate(txt));
+                send.send(EnvironmentAction::ChangeTemplate(txt)).unwrap();
             }
         });
     }
 
-}
+}*/
 
-fn export_to_path(item : ExportItem, path : &Path, template_path : Option<String>) -> Result<(), String> {
+fn export_to_path(item : ExportItem, path : &Path, _template_path : Option<String>) -> Result<(), String> {
     let mut f = File::create(path).map_err(|e| format!("{}", e) )?;
     let ext = path.extension().map(|ext| ext.to_str().unwrap_or("") );
 
@@ -288,17 +273,17 @@ fn export_to_path(item : ExportItem, path : &Path, template_path : Option<String
     // Verify if format agrees with export item modality.
 
     match item {
-        ExportItem::Table(mut tbl) => {
+        ExportItem::Table(tbl) => {
             // let opt_fmt : Option<TableSettings> = None;
             // tbl.update_format(fmt);
 
             match ext {
                 Some("csv") => {
-                    let mut s = tbl.to_string();
+                    let s = tbl.to_string();
                     f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )
                 },
                 Some("md") => {
-                    let mut s = tbl.to_markdown();
+                    let s = tbl.to_markdown();
                     f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )
                 },
                 Some("tex") => {
@@ -326,7 +311,7 @@ fn export_to_path(item : ExportItem, path : &Path, template_path : Option<String
     }
 }
 
-fn read_template(template_path : Option<String>) -> Result<String, String> {
+fn _read_template(template_path : Option<String>) -> Result<String, String> {
     if let Some(template) = template_path {
         let mut s = String::new();
         let mut f = File::open(&template).map_err(|e| format!("{}", e))?;
@@ -636,279 +621,12 @@ impl Tables {
         }
     }
 
-    /*fn on_notify(client : &mut Client, notif : &str) -> Result<(), String> {
-        client.execute(&format!("listen {};", notif)[..], &[]).map_err(|e| format!("{}", e) )?;
-        loop {
-            let notif_received = match client.notifications().blocking_iter().next() {
-                Ok(Some(notif)) => {
-                    println!("Notification received from channel: {:?}", notif.channel());
-                    println!("Notification message: {:?}", notif.payload());
-                    true
-                },
-                Ok(None) => {
-                    println!("Empty notification received");
-                    false
-                },
-                Err(e) => {
-                    println!("Connection lost: {}", e);
-                    return Ok(());
-                }
-            };
-            if notif_received {
-
-            }
-            thread::sleep(time::Duration::from_millis(200));
-        }
-    }
-
-    fn on_interval(client : &mut Client, interval : usize) -> Result<(), String> {
-
-        Ok(())
-    }*/
-
-    /*pub fn get_engine_name(&self) -> String {
-        if let Ok(engine) = self.listener.engine.lock() {
-            match *engine {
-                SqlEngine::Inactive => String::from("Inactive"),
-                SqlEngine::PostgreSql{..} => String::from("PostgreSQL"),
-                SqlEngine::Sqlite3{..} => String::from("SQLite3"),
-                SqlEngine::Local{..} => String::from("Local"),
-
-                #[cfg(feature="arrowext")]
-                SqlEngine::Arrow{..} => String::from("Arrow"),
-            }
-        } else {
-            String::from("Unavailable")
-        }
-    }*/
-
-    /*/// Executes the statement without changing the current state.
-    pub fn execute_plain(&mut self, sql : &str) -> Result<(), String> {
-        if let Ok(mut engine) = self.listener.engine.lock() {
-            match *engine {
-                SqlEngine::Inactive => {
-                    Err(format!("No engine to execute statement"))
-                },
-                SqlEngine::PostgreSql{ ref mut conn, ..} => {
-                    conn.execute(sql, &[]).map_err(|e| format!("{}", e))?;
-                    Ok(())
-                },
-                SqlEngine::Sqlite3{ ref mut conn, ..} => {
-                    unimplemented!()
-                },
-                SqlEngine::Local{ .. } => {
-                    unimplemented!()
-                },
-
-                #[cfg(feature="arrowext")]
-                SqlEngine::Arrow{..} => unimplemented!()
-            }
-        } else {
-            Err(String::from("SQL engine unavailable"))
-        }
-    }
-
-    /// Get engine active state. Consider it active in the event
-    /// the lock could not be acquired.
-    pub fn is_engine_active(&self) -> bool {
-        if let Ok(engine) = self.listener.engine.lock() {
-            match *engine {
-                SqlEngine::Inactive => false,
-                _ => true
-            }
-        } else {
-            println!("Warning : Could not acquire lock over engine");
-            true
-        }
-    }*/
-
     pub fn get_last_update_date(&self) -> String {
         match &self.last_update {
             Some(date) => date.clone(),
             None => String::from("Unknown")
         }
     }
-
-    /*/// Execute a single function, appending the table to the end and returning a reference to it in case of
-    /// success. Returns an error message from the user function otherwise.
-    pub fn execute_func<'a>(&'a mut self, reg : Rc<FuncRegistry>, call : FunctionCall) -> Result<&'a Table, String> {
-        if reg.has_func_name(&call.name[..]) {
-            if let Some(f) = reg.retrieve_func(&call.name[..]) {
-                let columns = self.get_columns(&call.source[..]);
-                let ref_args : Vec<&str> = call.args.iter().map(|a| &a[..] ).collect();
-                let ans = unsafe { f(columns, &ref_args[..]) };
-                match ans {
-                    Ok(res_tbl) => {
-                        println!("{:?}", res_tbl);
-                        let names = res_tbl.names();
-                        self.tables.push(res_tbl);
-                        self.history.push(EnvironmentUpdate::Function(call, names));
-                        Ok(self.tables.last().unwrap())
-                        /*let name = format!("({} x {})", nrows - 1, ncols);
-                        tables_nb.add_page(
-                            "network-server-symbolic",
-                            Some(&name[..]),
-                            None,
-                            Some(t_rows),
-                            fn_search.clone(),
-                            pl_sidebar.clone(),
-                            fn_popover.clone()
-                        );*/
-                        /*utils::set_tables(
-                            &t_env,
-                            &mut tbl_nb.clone(),
-                            fn_search.clone(),
-                            pl_sidebar.clone(),
-                            fn_popover.clone()
-                        );*/
-                        //self.tables.last().to
-                    },
-                    Err(e) => {
-                        println!("{}", e);
-                        Err(e.to_string())
-                    }
-                }
-            } else {
-                Err("Error retrieving function".to_string())
-            }
-        } else {
-            Err(format!("Function {} not in registry", call.name))
-        }
-        //Ok(())
-    }*/
-
-    /*/// Re-execute all function calls since the last NewTables history
-    /// update, appending the resulting tables to the current environment.
-    /// Returns a slice with the new generated tables.
-    pub fn execute_saved_funcs<'a>(&'a mut self, reg : Rc<FuncRegistry>) -> Result<&'a [Table], String> {
-        let recent_hist = self.history.iter().rev();
-        let recent_hist : Vec<&EnvironmentUpdate> = recent_hist.take_while(|u| {
-            match u {
-                EnvironmentUpdate::NewTables(_) => false,
-                _ => true
-            }
-        }).collect();
-        let fns : Vec<FunctionCall> = recent_hist.iter().rev().filter_map(|update| {
-            match update {
-                EnvironmentUpdate::Function(call, _) => Some(call.clone()),
-                _ => None
-            }
-        }).collect();
-        println!("Last functions: {:?}", fns);
-        let n_funcs = fns.len();
-        for _ in 0..n_funcs {
-            self.tables.remove(self.tables.len() - 1);
-        }
-        println!("Updated internal tables lenght before new call: {:?}", self.tables.len());
-        for f in fns {
-            self.execute_func(reg.clone(), f.clone())?;
-        }
-        println!("Internal tables length after new call: {:?}", self.tables.len());
-        Ok(&self.tables[(self.tables.len() - n_funcs)..self.tables.len()])
-    }*/
-
-    /*pub fn send_current_query(&mut self, parse : bool) -> Result<(), String> {
-        // println!("Sending current query: {:?}", self.source);
-        let query = match self.source {
-            EnvironmentSource::PostgreSQL(ref db_pair) =>{
-                Some(db_pair.1.clone())
-            },
-            EnvironmentSource::SQLite3(ref db_pair) => {
-                Some(db_pair.1.clone())
-            },
-
-            #[cfg(feature="arrowext")]
-            EnvironmentSource::Arrow(ref q) => {
-                Some(q.clone())
-            },
-
-            _ => None
-        };
-        if let Some(q) = query {
-            if q.chars().all(|c| c.is_whitespace() ) {
-                return Err(String::from("Empty query sequence"));
-            }
-            self.listener.send_command(q, self.subs.clone(), parse)
-        } else {
-            Err(format!("No query available to send."))
-        }
-    }*/
-
-    /*pub fn create_csv_table(&mut self, path : PathBuf, name : &str) -> Result<(), String> {
-
-        // Case DataFusion
-        match self.listener.engine.lock() {
-            Ok(engine) => {
-                match *engine {
-                    #[cfg(feature="arrowext")]
-                    SqlEngine::Arrow{ ref mut ctx } => {
-                        ctx.register_csv(
-                            name,
-                            path.to_str().unwrap(),
-                            CsvReadOptions::new(),
-                        ).map_err(|e| format!("{}", e) )?;
-                        return Ok(());
-                    },
-                    _ => { }
-                }
-            },
-            Err(e) => { return Err(format!("{}", e)); },
-        }
-
-        // Case Sqlite3
-        let err = String::from("Could not parse table types");
-        let mut content = String::new();
-        let schema = if let Ok(mut f) = File::open(&path) {
-            if let Ok(_) = f.read_to_string(&mut content) {
-                if let Ok(tbl) = Table::new_from_text(content) {
-                    tbl.sql_table_creation(name, &[]).ok_or(err)?
-                } else {
-                    return Err(err);
-                }
-            } else {
-                return Err(err);
-            }
-        } else {
-            return Err(err);
-        };
-        // println!("Schema: {}", schema); //schema='{}'
-        let sql = format!("create virtual table temp.{} using \
-            csv(filename='{}', header='YES', schema='{}');", name, path.to_str().unwrap(), schema
-        );
-        self.prepare_and_send_query(sql, HashMap::new(), false)?;
-        Ok(())
-    }*/
-
-    /*pub fn clear_queries(&mut self) {
-        let no_query = String::new();
-        self.prepare_query(no_query, HashMap::new());
-    }*/
-
-    /*pub fn prepare_query(&mut self, sql : String, subs : HashMap<String, String>) {
-        match self.source {
-            EnvironmentSource::PostgreSQL((_, ref mut q)) => {
-                *q = sql;
-            },
-            EnvironmentSource::SQLite3((_, ref mut q)) => {
-                *q = sql;
-            },
-
-            #[cfg(feature="arrowext")]
-            EnvironmentSource::Arrow(ref mut q) => {
-                *q = sql;
-            },
-
-            _ => { }
-        }
-        self.subs = subs;
-    }
-
-    /// Original SQL; SQL with parameter substitutions
-    pub fn prepare_and_send_query(&mut self, sql : String, subs : HashMap<String, String>, parse : bool) -> Result<(), String> {
-        //self.listener.send_command(sql.clone());
-        self.prepare_query(sql, subs);
-        self.send_current_query(parse)
-    }*/
 
     fn last_queries(&self) -> Option<Vec<String>> {
         for update in self.history.iter().rev() {
@@ -950,99 +668,6 @@ impl Tables {
         None
     }
 
-    // pub fn clear_results(&mut self) {
-    //    self.listener.clear_results();
-    // }
-
-    /*/// Try to update the table from a source such as a SQL connection string
-    /// or a file path.
-    pub fn update_source(
-        &mut self,
-        src : EnvironmentSource,
-        clear : bool
-    ) -> Result<(),String> {
-        if clear {
-            self.tables.clear();
-            self.history.push(EnvironmentUpdate::Clear);
-        }
-        //println!("{:?}", src );
-        match src.clone() {
-            // Updates from a single CSV file. This implies only a single
-            // table is available.
-            EnvironmentSource::File(path, content) => {
-                //println!("Received source at update_from_source: {}", content);
-                self.tables.clear();
-                let p = Path::new(&path);
-                let _p = p.file_stem().ok_or("Could not extract table name from path".to_string())?;
-                //let _tbl_name = Some(p.to_str().ok_or("Could not convert table path to str".to_string())?.to_string());
-                match Table::new_from_text(content.to_string()) {
-                    Ok(tbl) => { self.tables.push(tbl)  },
-                    Err(e) => { return Err(format!("Error: {}", e)); }
-                }
-            },
-            EnvironmentSource::PostgreSQL((conn, q)) => {
-                self.set_new_postgre_engine(conn)
-                    .map_err(|e| { format!("{}", e) })?;
-                if !q.is_empty() {
-                    if let Err(e) = self.prepare_and_send_query(q, HashMap::new(), true) {
-                        println!("{}", e);
-                    }
-                }
-            },
-            EnvironmentSource::SQLite3((conn, q)) => {
-                self.set_new_sqlite3_engine(conn)
-                    .map_err(|e|{ format!("{}", e) })?;
-                if !q.is_empty() {
-                    if let Err(e) = self.prepare_and_send_query(q, HashMap::new(), true) {
-                        println!("{}", e);
-                    }
-                }
-            },
-
-            #[cfg(feature="arrowext")]
-            EnvironmentSource::Arrow(_) => {
-                let ctx = ExecutionContext::new();
-                self.update_engine(SqlEngine::Arrow{ ctx })?;
-            }
-
-            _ => { println!("Invalid_source"); }
-        }
-        self.source = src;
-        Ok(())
-    }
-
-    pub fn convert_source_to_in_memory_sqlite(&mut self) {
-        match &self.source {
-            EnvironmentSource::SQLite3(_) => {
-                println!("Source is already SQLite3");
-            },
-            EnvironmentSource::PostgreSQL(_) => {
-                println!("Invalid source update: PostgreSQL->SQLite3");
-            },
-            _ => {
-                if self.tables.len() == 0 {
-                    println!("No tables on environment for conversion to in-memory SQLite3");
-                    return;
-                }
-                let new_src = EnvironmentSource::SQLite3((None,"".into()));
-                let tables = self.tables.clone();
-                self.clear_tables();
-                match self.update_source(new_src, true) {
-                    Ok(_) => {
-                        if let Ok(mut engine) = self.listener.engine.lock() {
-                            for t in tables {
-                                engine.insert_external_table(&t);
-                            }
-                        } else {
-                            println!("Unable to acquire lock over SQL listener to insert tables");
-                        }
-                    },
-                    Err(e) => println!("{}", e)
-                }
-            }
-        }
-    }*/
-
     pub fn last_inserted_table(&self) -> Option<Table> {
         self.tables.last().map(|t| t.clone())
     }
@@ -1053,11 +678,6 @@ impl Tables {
             None => Err("No table at informed index")
         }
     }
-
-    /*fn get_column_at_index<'a>(&'a self, tbl_ix : usize, col_ix : usize) -> Result<&'a Column, &'static str> {
-        let tbl = self.get_table_by_index(tbl_ix)?;
-        tbl.get_column(col_ix).ok_or("Invalid column index")
-    }*/
 
     /// Gets the textual representation of the table at the given index,
     /// optionally updating the table formatting before doing so.
@@ -1267,23 +887,6 @@ impl Tables {
         &self.tables[..]
     }
 
-    /*pub fn all_tables_as_rows(&self) -> Vec<Vec<Vec<&str>>> {
-        let mut tables = Vec::new();
-        for t in self.tables.iter() {
-            tables.push(t.clone().text_rows());
-        }
-        tables
-        /*if let Some(t) = self.tables.iter().next() {
-            t.as_rows()
-        } else {
-            Vec::new()
-        }*/
-    }*/
-
-    //pub fn all_tables<'a>(&'a self) -> Vec<&'a Table> {
-    //    self.tables.iter().map(|t| t).collect()
-    //}
-
     pub fn all_tables_as_csv(&self) -> Vec<String> {
         let mut tbls_csv = Vec::new();
         for t in &self.tables {
@@ -1313,125 +916,11 @@ impl Tables {
         Ok(())
     }
 
-    /*pub fn update_from_current_source(&mut self) {
-        self.tables.clear();
-        match self.source {
-            EnvironmentSource::Stream(ref s) => {
-                if let Some(c) = s.get_last_content() {
-                    self.append_table_from_text(Some("A".into()), c.clone())
-                        .unwrap_or_else(|e| println!("{:?}", e));
-                }
-            },
-            EnvironmentSource::File(ref path, ref mut content) => {
-                if let Ok(mut f) = File::open(path) {
-                    let mut new_content = String::new();
-                    let _ = f.read_to_string(&mut new_content)
-                        .unwrap_or_else(|e|{ println!("{:?}", e); 0} );
-                    *content = new_content;
-                } else {
-                    println!("Could not re-open file");
-                }
-            },
-            EnvironmentSource::SQLite3(_) | EnvironmentSource::PostgreSQL(_) => {
-                self.send_current_query(true).map_err(|e| println!("{}", e) ).ok();
-            },
-
-            #[cfg(feature="arrowext")]
-            EnvironmentSource::Arrow(_) => {
-                self.send_current_query(true).map_err(|e| println!("{}", e) ).ok();
-            },
-            _ => { }
-        }
-    }
-
-    /// Copies a table in the current environment to the database. Useful
-    /// to call copy from/to from the TablePopover GUI.
-    pub fn copy_to_database(
-        &mut self,
-        mut tbl : Table,
-        dst : &str,
-        cols : &[String],
-        should_create : bool,
-        should_convert : bool
-    ) -> Result<(), String> {
-        let info = self.db_info()
-            .ok_or(String::from("Unable to query database schema"))?;
-        if let Ok(mut engine) = self.listener.engine.lock() {
-            match *engine {
-                SqlEngine::PostgreSql{ ref mut conn, .. } => {
-                    //if let Some(tbl) = self.tables.get_mut(tbl_ix) {
-                    postgresql::copy_table_to_postgres(conn, &mut tbl, dst, cols, &info[..])
-                    // } else {
-                    //    Err(format!("Invalid table index: {}", tbl_ix))
-                    // }
-                },
-                SqlEngine::Sqlite3 { ref mut conn, .. } | SqlEngine::Local { ref mut conn }=> {
-                    // if let Some(tbl) = self.tables.get_mut(tbl_ix) {
-                    sqlite::copy_table_to_sqlite(conn, &mut tbl, dst, cols, &info[..])
-                    // } else {
-                    //    Err(format!("Invalid table index: {}", tbl_ix))
-                    // }
-                },
-                _ => unimplemented!()
-            }
-        } else {
-            Err(String::from("Engine unavailable for copy"))
-        }
-    }*/
-
     pub fn clear_tables(&mut self) {
         self.tables.clear();
-        /*self.queries.clear();
-        self.exec_results.clear();
-        self.history.clear();
-        self.last_update = None;
-        self.listen_channels.clear();*/
     }
 
-    // Pass this to environment source
-    /*pub fn table_names_as_hash(&self) -> Option<HashMap<String, Vec<(String, String)>>> {
-        let mut names = HashMap::new();
-        match &self.source {
-            EnvironmentSource::SQLite3(_) => {
-                if let Ok(mut engine) = self.listener.engine.lock() {
-                    if let Some(objs) = engine.get_table_names() {
-                        for obj in objs {
-                            names.insert(obj.name().into(), obj.fields().unwrap());
-                        }
-                    } else {
-                        println!("Could not get table names from engine");
-                        return None;
-                    }
-                } else {
-                    println!("Unable to get mutable reference to engine");
-                    return None;
-                }
-                Some(names)
-            },
-            _ => {
-                println!("Table environment is not Sqlite3 and data could not be fetch");
-                None
-            }
-        }
-    }*/
-
-    /*pub fn try_backup(&self, path : PathBuf) {
-        if let Ok(engine) = self.listener.engine.lock() {
-            engine.backup_if_sqlite(path);
-        } else {
-            println!("Unable to retrieve lock over SQL listener");
-        }
-    }*/
 
 }
-
-impl<'a> React<QueriesSettings> for (&'a Environment, &'a SharedUserState) {
-
-    fn react(&self, settings : &QueriesSettings) {
-
-    }
-
-}
-
 
 

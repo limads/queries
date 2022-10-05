@@ -20,7 +20,7 @@ impl QueriesClient {
         let client = Self {
             conn_set : ConnectionSet::new(),
             active_conn : ActiveConnection::new(user_state),
-            env : Environment::new(),
+            env : Environment::new(user_state),
             scripts : OpenedScripts::new(),
         };
         
@@ -32,10 +32,10 @@ impl QueriesClient {
         // started yet, but those actions are queued for when it does and the
         // state is re-updated accordingly.
         for conn in mem::take(&mut state.conns) {
-            client.conn_set.send.send(ConnectionAction::Add(Some(conn.clone())));
+            client.conn_set.send.send(ConnectionAction::Add(Some(conn.clone()))).unwrap();
         }
         for script in mem::take(&mut state.scripts) {
-            client.scripts.sender().send(MultiArchiverAction::Add(script.clone()));
+            client.scripts.sender().send(MultiArchiverAction::Add(script.clone())).unwrap();
         }
         
         client

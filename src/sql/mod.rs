@@ -7,38 +7,18 @@ use std::fmt::Display;
 use std::fmt;
 use std::error::Error;
 use crate::tables::table::*;
-use std::path::PathBuf;
-use crate::sql::object::{DBObject, DBType};
-use std::convert::TryInto;
+use crate::sql::object::{DBType};
 use std::collections::HashMap;
-use regex::Regex;
 use std::string::ToString;
-use std::fs::File;
-use std::io::{Read, Write};
-use std::path::Path;
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::mem;
 use std::cmp::{PartialEq, Eq};
-use std::ffi::OsStr;
-use crate::tables::column::Column;
-use itertools::Itertools;
 use std::str::FromStr;
 use either::Either;
 use std::iter::Peekable;
-use crate::sql::object::Relation;
-use std::convert::TryFrom;
-use crate::tables::field::Field;
-use postgres::fallible_iterator::FallibleIterator;
-use std::time::Duration;
-use sqlparser::dialect::{PostgreSqlDialect, GenericDialect};
-use sqlparser::ast::{Statement, Function, Select, Value, Expr, SetExpr, SelectItem, Ident, TableFactor, Join, JoinOperator, ObjectType};
+use sqlparser::dialect::{PostgreSqlDialect};
+use sqlparser::ast::{Statement, SetExpr, TableFactor, JoinOperator, ObjectType};
 use sqlparser::parser::{Parser, ParserError};
 use sqlparser::dialect::keywords::Keyword;
-use sqlparser::dialect;
-use sqlparser::tokenizer::{Tokenizer, Token, Word, Whitespace};
-use std::sync::{Arc, Mutex};
-use crate::command::Executor;
+use sqlparser::tokenizer::{Token};
 
 pub fn is_like_query(s : &Statement) -> bool {
     match s {
@@ -71,13 +51,13 @@ pub mod notify;
 // Wraps thread that listen to SQL commands.
 // pub mod listener;
 
-use object::*;
+
 
 use parsing::*;
 
 use copy::*;
 
-use self::notify::*;
+
 
 // use listener::*;
 
@@ -163,7 +143,7 @@ where
                             // fails.
                             let mut exec_tokens = Vec::new();
 
-                            while let Some(tk) = token_iter.next() {
+                            while let Some(_tk) = token_iter.next() {
 
                                 // Peek here because parse_remaining_run_tokens expect SingleQuotedString
                                 // to be the first token.
@@ -329,20 +309,6 @@ pub fn make_query(query : &str) -> String {
     sql2table(crate::sql::parse_sql(query, &HashMap::new()))
 }
 
-/*pub enum SqlEngine {
-    Inactive,
-
-    Local{conn : rusqlite::Connection },
-
-    // Channel carries channel name, filter, and whether it is active.
-    PostgreSql{conn_str : String, conn : postgres::Client, exec : Arc<Mutex<(Executor, String)>>, channel : Option<(String, String, bool)> },
-
-    Sqlite3{path : Option<PathBuf>, conn : rusqlite::Connection},
-
-    #[cfg(feature="arrowext")]
-    Arrow{ ctx : ExecutionContext }
-}*/
-
 pub fn build_statement_result(any_stmt : &AnyStatement, n : usize) -> StatementOutput {
     match any_stmt {
         AnyStatement::Parsed(stmt, _) => match stmt {
@@ -351,8 +317,9 @@ pub fn build_statement_result(any_stmt : &AnyStatement, n : usize) -> StatementO
                 StatementOutput::Modification(format!("Create table"))
             },
 
-            // Not implemented yet
-            // Statement::CreateFunction{ .. } => StatementOutput::Modification(format!("Create function")),
+            Statement::CreateFunction{ .. } => {
+                StatementOutput::Modification(format!("Create function"))
+            },
 
             Statement::CreateIndex{..} => StatementOutput::Modification(format!("Create index")),
             Statement::CreateSchema{..} => StatementOutput::Modification(format!("Create schema")),
@@ -523,160 +490,6 @@ pub fn pack_column_types(
         .collect();
     Ok(cols)
 }
-
-pub fn wait_command_execution(call : &str, exec : &Arc<Mutex<(Executor, String)>>) -> Result<String, String> {
-    let mut executor = exec.lock().map_err(|e| format!("{}", e))?;
-    let input = mem::take(&mut executor.1);
-    if input.len() == 0 {
-        executor.0.queue_command(call.to_string(), None);
-    } else {
-        executor.0.queue_command(call.to_string(), Some(input));
-    }
-    let mut content = String::new();
-    executor.0.on_command_result(|out| {
-        if out.status {
-            if out.txt.len() > 0 {
-                content = out.txt;
-                Ok(())
-            } else {
-                Err(format!("Program standard output is empty"))
-            }
-        } else {
-            Err(format!("Command execution failed: {}", out.txt))
-        }
-    })?;
-    Ok(content)
-}
-
-/*pub fn try_run_all(&mut self) {
-    if let Ok(mut maybe_conn) = self.rc_conn.clone().try_borrow_mut() {
-        //let maybe_conn = *maybe_conn;
-        if let Some(mut c) = maybe_conn.as_mut() {
-            for q in self.queries.iter_mut() {
-                q.run(&c);
-                if let Some(msg) = &q.err_msg {
-                    println!("{}", msg);
-                }
-            }
-        }
-    }
-}
-
-pub fn try_run_some(&mut self) {
-    if let Ok(mut maybe_conn) = self.rc_conn.clone().try_borrow_mut() {
-        if let Some(mut c) = maybe_conn.as_mut() {
-            println!("valid queries : {:?}", self.valid_queries);
-            for i in self.valid_queries.iter() {
-                if let Some(mut q) = self.queries.get_mut(*i) {
-                    q.run(&c);
-                    if let Some(msg) = &q.err_msg {
-                        println!("{}", msg);
-                    }
-                }
-            }
-        } else {
-            println!("No connections available");
-        }
-    }
-}*/
-
-/*pub fn mark_all_valid(&mut self) {
-    self.valid_queries = (0..self.queries.len()).collect();
-}*/
-/*pub fn get_valid_queries(&self) -> Vec<&PostgreQuery> {
-    let mut queries : Vec<&PostgreQuery> = Vec::new();
-    //for q in self.queries.iter() {
-    //if q.err_msg.is_none() {
-    //    valid_queries.push(&q);
-    //}
-    //}
-    for i in self.valid_queries.iter() {
-        if let Some(q) = self.queries.get(*i) {
-            queries.push(q);
-        }
-    }
-    queries
-}*/
-
-/*pub fn get_valid_queries_code(&self) -> Vec<String> {
-    let queries = self.get_valid_queries();
-    queries.iter().map(|q|{ q.query.clone() }).collect()
-}
-
-pub fn get_all_queries_code(&self) -> Vec<&str> {
-    self.queries.iter().map(|q| { q.query.as_str() }).collect()
-}
-
-pub fn get_subset_valid_queries(
-    &self,
-    idx : Vec<usize>)
--> Vec<&PostgreQuery> {
-    let queries = self.get_valid_queries().clone();
-    let mut keep_queries = Vec::new();
-    for i in idx {
-        keep_queries.push(queries[i]);
-    }
-    keep_queries
-}*/
-
-
-/*fn run_expression(
-    mut table : String,
-    name : Option<String>,
-    mut expr : String,
-) -> Result<String, String> {
-
-    /*if let Some(n) = name {
-        let prefix = n + " = X; ";
-        expr = prefix + &expr[..];
-    }
-    let mut arg_expr = String::from("-e '");
-    arg_expr = arg_expr + &expr[..] + "'";
-    let spawned_cmd = Command::new("r")
-        .stdin(Stdio::piped());
-
-    spawned_cmd.stdin.unwrap()
-        .arg("-d")  // Evaluate stdin as CSV input
-        .arg("-p")  // Output last evaluated expression
-        .arg(&arg_expr[..])
-        .spawn();
-    println!("Command : {:?}", spawned_cmd);
-
-    // output.status
-    // output.stdout
-    // output.stderr
-
-    match spawned_cmd {
-        Ok(cmd) => {
-            let mut cmd_stdin = cmd.stdin.unwrap();
-            println!("STDIN : {:?}", table);
-            let mut writer = BufWriter::new(&mut cmd_stdin);
-            if let Err(e) = writer.write_all(&mut table.as_bytes()) {
-                println!("Error : {}", e);
-                return Err(format!("{}", e));
-            }
-            match cmd.stdout {
-                Some(mut out) => {
-                    let mut content = Vec::new();
-                    if let Ok(_) = out.read(&mut content) {
-                        if let Ok(utf8) = String::from_utf8(content) {
-                            Ok(utf8)
-                        } else {
-                            Err("Could not parse result as UTF-8".into())
-                        }
-                    } else {
-                        Err("Could not read result into string".into())
-                    }
-                },
-                None => Err("Could not recover stdout hande".into())
-            }
-        },
-        Err(e) => { return Err(e.to_string()); }
-    }*/
-    // Err("Unimplemented".into())
-
-    Ok(make_query(&expr[..]))
-}*/
 
 // TODO maybe return Cow here?
 pub fn substitute_if_required(q : &str, subs : &HashMap<String, String>) -> String {

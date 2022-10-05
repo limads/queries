@@ -12,7 +12,6 @@ use std::string::ToString;
 use num_traits::cast::ToPrimitive;
 use std::str::FromStr;
 use std::default::Default;
-use std::collections::HashMap;
 use serde_json::Value;
 use std::error::Error;
 use itertools::Itertools;
@@ -20,8 +19,7 @@ use std::borrow::Cow;
 use std::iter::ExactSizeIterator;
 use std::cmp::{Eq, PartialEq};
 use quick_xml::Reader;
-use quick_xml::Writer;
-use quick_xml::events::{Event, BytesEnd, BytesStart, BytesText, attributes::Attribute };
+use quick_xml::events::{Event };
 use crate::tables::nullable_column::NullableColumn;
 use postgres::types::{Type, FromSql};
 
@@ -33,9 +31,6 @@ pub struct TableSource {
     pub relation : Option<String>
 
 }
-
-// use std::either::Either;
-// use std::cell::RefCell;
 
 /// Data-owning structure that encapsulate named columns.
 /// Implementation guarantees all columns are of the same size.
@@ -126,11 +121,6 @@ where
 
 }
 
-/*pub struct RowIterator {
-    iter : Either<iter::Map<
-    len : usize
-}*/
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QuoteType {
     Single,
@@ -156,6 +146,38 @@ pub enum HTMLTag {
 
 impl Table {
 
+    pub fn nrows(&self) -> usize {
+        self.cols.get(0).map(|c| c.len() ).unwrap_or(0)
+    }
+    
+    // Transpose this table, setting all columns to type text.
+    pub fn transpose(&self) -> Table {
+        let mut cols = Vec::new();
+        for _ in 0..(self.cols.len()+1) {
+            cols.push(Vec::new());
+        }
+        let txt_rows = self.text_rows(None, None);
+        
+        for n in &self.names {
+            cols[0].push(n.to_string());
+        }
+        
+        for r in txt_rows {
+            for (i, txt) in r.enumerate() {
+                cols[i+1].push(txt.to_string());
+            }
+        }
+        
+        Self {
+            name : None,
+            relation : None,
+            names : (0..(self.cols.len()+1)).map(|_| String::new() ).collect(),
+            cols : cols.drain(..).map(|c| Column::from(c) ).collect(),
+            nrows : self.nrows,
+            format : self.format.clone()
+        }
+    }
+    
     pub fn display_content_at<'a>(&'a self, row_ix : usize, col_ix : usize, precision : usize) -> Option<Cow<'a, str>> {
         Some(self.cols.get(col_ix)?.display_content_at_index(row_ix, precision))
     }
@@ -194,7 +216,7 @@ impl Table {
             .map(|r| r.columns().iter().map(|c| c.name().to_string()).collect() )
             .ok_or("No rows available")?;
         let mut n_unnamed = 1;
-        for (ix, name) in names.iter_mut().enumerate() {
+        for (_ix, name) in names.iter_mut().enumerate() {
             if &name[..] == "?column?" {
                 *name = format!("(Unnamed {})", n_unnamed);
                 n_unnamed += 1;
@@ -233,7 +255,7 @@ impl Table {
             let is_smallint_arr = col_types[i] == &Type::INT2_ARRAY;
             let is_int_arr = col_types[i] == &Type::INT4_ARRAY;
             let is_bigint_arr = col_types[i] == &Type::INT8_ARRAY;
-            let is_xml = col_types[i] == &Type::XML;
+            let _is_xml = col_types[i] == &Type::XML;
             let is_json_arr = col_types[i] == &Type::JSON_ARRAY;
             let array_ty = match (is_text_arr, is_real_arr, is_dp_arr, is_smallint_arr, is_int_arr, is_bigint_arr, is_json_arr) {
                 (true, _, _, _, _, _, _) => Some(ArrayType::Text),
@@ -387,7 +409,7 @@ impl Table {
                         }
                     }
 		        },
-		        Event::End(ref e) => {
+		        Event::End(ref _e) => {
 		        	if tags.len() > 0 {
 		        	    tags.pop();
 		        	} else {
@@ -492,7 +514,7 @@ impl Table {
                 }
                 Ok(Table::new(None, names, parsed_cols)?)
             },
-            Err(e) => {
+            Err(_e) => {
                 Err("Could not parse CSV content")
             }
         }
@@ -548,7 +570,7 @@ impl Table {
     /// be invalid if there are reserved keywords as column names.
     pub fn sql_string(&self, name : &str) -> Result<String, String> {
         if let Some(mut creation) = self.sql_table_creation(name, &[]) {
-            creation += &self.sql_table_insertion(name, &[]);
+            creation += &self.sql_table_insertion(name, &[])?;
             /*match crate::sql::parsing::parse_sql(&creation[..], &HashMap::new()) {
                 Ok(_) => Ok(creation),
                 Err(e) => Err(format!("{}", e))
@@ -563,7 +585,7 @@ impl Table {
         self.cols.iter().map(|c| c.sqlite3_type().to_string()).collect()
     }
 
-    pub fn sql_table_creation(&self, name : &str, cols : &[String]) -> Option<String> {
+    pub fn sql_table_creation(&self, name : &str, _cols : &[String]) -> Option<String> {
         let mut query = format!("CREATE TABLE {}(", name);
         for (i, (name, col)) in self.names.iter().zip(self.cols.iter()).enumerate() {
             let name = match name.chars().find(|c| *c == ' ') {
@@ -581,32 +603,64 @@ impl Table {
     }
 
     /// Always successful, but query might be empty if there is no data on the columns.
-    pub fn sql_table_insertion(&self, name : &str, cols : &[String]) -> String {
-        let mut q = String::new();
-        let mut content = self.text_rows(None, None);
-        let nrows = content.len();
-        if self.cols.len() <= 1 {
-            return q;
+    pub fn sql_table_insertion(&self, name : &str, cols : &[String]) -> Result<String, String> {
+        let mut stmt = String::new();
+        let nrows = self.nrows();
+        
+        for i in 0..(cols.len()-1) {
+            for j in (i+1)..cols.len() {
+                if &cols[i][..] == &cols[j][..] {
+                    return Err(String::from("Duplicated columns"));
+                }
+            }
         }
+        
+        if cols.len() == 0 {
+            stmt += &format!("insert into {} values ", name)[..];
+        } else {
+            let mut tuple = String::new();
+            tuple += "(";
+            for name in cols.iter().take(cols.len().saturating_sub(1)) {
+                tuple += &name[..];
+                tuple += ",";
+            }
+            if let Some(lst) = cols.last() {
+                tuple += &lst[..];
+                tuple += ")";
+            }
+            stmt += &format!("insert into {} {} values ", name, tuple)[..];
+        }
+        
         let types = self.sql_types();
-        q += &format!("insert into {} values ", name)[..];
-        for (line_n, mut line) in content.iter_mut().skip(1).enumerate() {
-            q += "(";
-            let ncol = line.len();
-            for (i, (f, t)) in line.zip(types.iter()).enumerate() {
-                append_field(&mut q, &f, &t, QuoteType::Single);
+        let order : Vec<usize> = if cols.len() == 0 {
+            (0..self.names.len()).collect()
+        } else {
+            cols.iter().filter_map(|c| self.names.iter().position(|n| &n[..] == &c[..] ) ).collect()
+        };
+
+        let mut curr_row = Vec::new();
+        let mut content = self.text_rows(None, None);
+        let ncol = order.len();
+        for (line_n, line) in content.iter_mut().skip(1).enumerate() {
+            stmt += "(";
+            curr_row.clear();
+            curr_row.extend(line);
+            for i in 0..order.len() {
+                let f = &curr_row[order[i]];
+                let t = &types[order[i]];
+                append_field(&mut stmt, f, t, QuoteType::Single);
                 if i < ncol - 1 {
-                    q += ","
+                    stmt += ","
                 } else {
-                    if line_n < nrows - 2 {
-                        q += "),";
+                    if line_n < nrows - 1 {
+                        stmt += "),";
                     } else {
-                        q += ");\n";
+                        stmt += ");\n";
                     }
                 }
             }
         }
-        q
+        Ok(stmt)
     }
 
     /// Decide if column at ix should be displayed, according to the current display rules.
@@ -625,7 +679,7 @@ impl Table {
         let mut text_rows = self.text_rows(None, None);
         let n = text_rows.len();
         let types = self.sql_types();
-        for (row_ix, mut row) in text_rows.iter_mut().enumerate() {
+        for (row_ix, row) in text_rows.iter_mut().enumerate() {
             for (i, field) in row.enumerate() {
                 // Skip columns that should not be shown
                 if self.show_column(i) {
@@ -654,7 +708,7 @@ impl Table {
         let mut tex = String::new();
         tex += r"\begin{tabular}";
         let ncol = self.cols.len();
-        for (i, mut row) in rows.iter_mut().enumerate() {
+        for (i, row) in rows.iter_mut().enumerate() {
             if i == 0 {
                 tex += "{ ";
                 for c in 0..ncol {
@@ -685,7 +739,7 @@ impl Table {
     pub fn to_markdown(&self) -> String {
         let mut rows = self.text_rows(None, None);
         let mut md = String::new();
-        for (i, mut row) in rows.iter_mut().enumerate() {
+        for (i, row) in rows.iter_mut().enumerate() {
             for (j, field) in row.enumerate() {
                 if self.show_column(j) {
                     md += &format!("|{}", field);
@@ -844,7 +898,7 @@ fn append_field(buffer : &mut String, field : &str, ty : &str, quote : QuoteType
 impl Display for Table {
 
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut content = match self.format.format {
+        let content = match self.format.format {
             Format::Csv => self.to_csv(),
             Format::Markdown => self.to_markdown(),
             Format::Html => unimplemented!()
@@ -1110,16 +1164,6 @@ pub fn full_csv_display(tbl : &mut Table, cols : Vec<String>) -> String {
 mod csv {
 
     use ::csv;
-    // use std::fs::File;
-    // use std::collections::HashMap;
-    // use nalgebra::{DMatrix /*DVector*/ };
-    // use std::io::{Read, Write};
-    // use nalgebra::Scalar;
-    // use std::fmt::Display;
-    // use std::str::FromStr;
-    // use std::convert::TryFrom;
-    // use nalgebra::base::RowDVector;
-    // use std::boxed::Box;
 
     fn parse_header(
         csv_reader : &mut csv::Reader<&[u8]>
@@ -1144,7 +1188,7 @@ mod csv {
     /// valid names, return None. The csv crate considers
     /// the first row as a header by default, so we should check that
     /// we don't have a "pure" data file.
-    fn try_convert_header_to_data(header : &[String]) -> Option<(Vec<String>, Vec<String>)> {
+    fn _try_convert_header_to_data(header : &[String]) -> Option<(Vec<String>, Vec<String>)> {
         let mut new_header = Vec::new();
         let mut first_line = Vec::new();
         for (i, e) in header.iter().enumerate() {
@@ -1176,21 +1220,13 @@ mod csv {
             .from_reader(content.as_bytes());
         let header : Vec<String> = parse_header(&mut csv_reader)
             .ok_or("No CSV header at informed file".to_string())?;
-        /*let maybe_header_data = try_convert_header_to_data(&header[..]);
-        let data_keys = match &maybe_header_data {
-            Some((header, _)) => header.clone(),
-            None => header.clone()
-        };*/
+        
         let data_keys = header.clone();
         let mut data_vec : Vec<(String, Vec<String>)> = Vec::new();
         for d in data_keys.iter() {
             data_vec.push( (d.clone(), Vec::new()) );
         }
-        /*if let Some((_,first_data_row)) = &maybe_header_data {
-            for (i, (_, v)) in data_vec.iter_mut().enumerate() {
-                v.push(first_data_row[i].clone());
-            }
-        }*/
+        
         let mut n_records = 0;
         for (ix_rec, row_record) in csv_reader.records().enumerate() {
             match row_record {
@@ -1316,7 +1352,7 @@ pub fn col_as_vec<'a, T>(
     let mut data = Vec::new();
     for r in rows.iter() {
         let datum = r.try_get::<usize, T>(ix)
-            .map_err(|e| { "Unable to parse column" })?;
+            .map_err(|_e| { "Unable to parse column" })?;
         data.push(datum);
     }
     Ok(data)
@@ -1333,7 +1369,7 @@ pub fn col_as_opt_vec<'a, T>(
     let mut opt_data = Vec::new();
     for r in rows.iter() {
         let opt_datum = r.try_get::<usize, Option<T>>(ix)
-            .map_err(|e| { "Unable to parse column" })?;
+            .map_err(|_e| { "Unable to parse column" })?;
         opt_data.push(opt_datum);
     }
     Ok(opt_data)

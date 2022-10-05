@@ -17,8 +17,6 @@ use archiver::MultiArchiverImpl;
 #[derive(Debug, Clone)]
 pub struct QueriesTitlebar {
     pub header : HeaderBar,
-    // pub editor_toggle : ToggleButton,
-    // pub tbl_toggle : ToggleButton,
     pub menu_button : MenuButton,
     pub exec_btn : ExecButton,
     pub sidebar_toggle : ToggleButton,
@@ -30,17 +28,6 @@ impl QueriesTitlebar {
 
     pub fn build() -> Self {
         let header = HeaderBar::new();
-        // let header_bx = Box::new(Orientation::Horizontal, 0);
-        // header_bx.style_context().add_class("linked");
-        // let tbl_toggle = ToggleButton::new();
-        // tbl_toggle.set_width_request(100);
-        // tbl_toggle.set_icon_name("queries-symbolic");
-        // let editor_toggle = ToggleButton::new();
-        // editor_toggle.set_width_request(100);
-        // editor_toggle.set_icon_name("accessories-text-editor-symbolic");
-        // header_bx.append(&tbl_toggle);
-        // header_bx.append(&editor_toggle);
-        // header.set_title_widget(Some(&header_bx));
 
         let left_bx = Box::new(Orientation::Horizontal, 0);
 
@@ -53,28 +40,40 @@ impl QueriesTitlebar {
         left_bx.append(&exec_btn.btn);
         header.pack_start(&left_bx);
 
-        // let menu_toggle = ToggleButton::builder().icon_name("open-menu-symbolic").active(true).build();
         let menu_button = MenuButton::builder().icon_name("open-menu-symbolic").build();
         header.pack_end(&menu_button);
-
-        // let main_menu = Menu::build_with(["New", "Open", "Save", "Settings"]);
-        // super::show_popover_on_toggle(&main_menu.popover, &menu_toggle, Vec::new());
 
         let main_menu = MainMenu::build();
         menu_button.set_popover(Some(&main_menu.popover));
         let sidebar_hide_action = gio::SimpleAction::new_stateful("sidebar_hide", None, &(0).to_variant());
 
-        /*clear_action.connect_activate({
-            let
-            move || {
-
-            }
-        });*/
-
-        Self { header, /*tbl_toggle, editor_toggle,*/ menu_button, exec_btn, sidebar_toggle, main_menu, sidebar_hide_action }
+        Self { header, menu_button, exec_btn, sidebar_toggle, main_menu, sidebar_hide_action }
     }
 
 }
+
+/* UI dedicated to SQL execution, that also carries two actions related to executing SQL.
+
+queue_exec_action: Represents the user intent to execute the currently-selected SQL script.
+exec_action: Represents execution of a defined script. The script to be executed is an integer index held
+as the action state; the actual script is set as the action parameter.
+clear_action/restore_action: Represents the user intent to clear or restore the last query result set.
+
+The signal chain for query execution goes as follows:
+
+(1) Every time the selected file changes when the user creates, opens or switches a file in the script list, 
+impl React<OpenedScripts> for ExecButton loads the script integer index as the state of exec_action. Nothing
+happens yet at this stage.
+
+(2) Iff there is a connected database and a currently-selected SQL file, the queue_exec_action and btn (on the top-left 
+part of the screen) become enabled. The user activates the action via the button or accelerator. 
+
+(2) The impl React<ExecButton> for QueriesEditor listens to this activated action. The editor uses the integer
+script index held as the action state (set at step 1) to load the currently-opened SQL script. The 
+exec_action stateful action is finally activated, with the currently-opened SQL file as the action parameter.
+
+(3) The impl React<ExecButton> for ActiveConnection listens to this action in turn, loads the SQL contained
+in the action parameter, and sends it to execution on the listener thread. */
 
 #[derive(Debug, Clone)]
 pub struct ExecButton {
@@ -83,6 +82,9 @@ pub struct ExecButton {
     // ExecAction carries the index of the opened SQL file as its integer parameter.
     // It carries the content of the SQL file as its state.
     pub exec_action : gio::SimpleAction,
+    
+    // Carries user intent to execute current SQL script.
+    pub queue_exec_action : gio::SimpleAction,
 
     // This closes all queried tables. The table tabs can be restored with the restore action.
     pub clear_action : gio::SimpleAction,
@@ -102,7 +104,7 @@ pub struct ExecButton {
 
 impl ExecButton {
 
-    fn set_active(&self, active : bool) {
+    fn _set_active(&self, active : bool) {
         self.btn.set_sensitive(active);
         self.exec_action.set_enabled(active);
         self.clear_action.set_enabled(active);
@@ -126,6 +128,7 @@ impl ExecButton {
 
         let btn = SplitButton::builder().icon_name("download-db-symbolic").menu_model(&exec_menu).sensitive(false).build();
         let exec_action = gio::SimpleAction::new_stateful("execute", Some(&String::static_variant_type()), &(-1i32).to_variant());
+        let queue_exec_action = gio::SimpleAction::new("queue_execution", None);
         let clear_action = gio::SimpleAction::new("clear", None);
         let restore_action = gio::SimpleAction::new("restore", None);
         exec_action.set_enabled(false);
@@ -133,6 +136,14 @@ impl ExecButton {
         restore_action.set_enabled(false);
 
         btn.set_sensitive(false);
+        btn.connect_clicked({
+            let queue_exec_action = queue_exec_action.clone();
+            move |_| {
+                queue_exec_action.activate(None);
+            }
+        });
+        queue_exec_action.set_enabled(false);
+        
         let schedule_action = gio::SimpleAction::new_stateful("schedule", None, &(false).to_variant());
         let single_action = gio::SimpleAction::new_stateful("single", None, &(true).to_variant());
 
@@ -155,7 +166,7 @@ impl ExecButton {
         // single_action.set_enabled(true);
         // schedule_action.
         // btn.activate_action(&exec_action, None);
-        Self { btn, exec_action, clear_action, restore_action, schedule_action, single_action }
+        Self { btn, queue_exec_action, exec_action, clear_action, restore_action, schedule_action, single_action }
     }
 
 }
@@ -165,13 +176,15 @@ impl React<FileList> for ExecButton {
     fn react(&self, file_list : &FileList) {
         let btn = self.btn.clone();
         let exec_action = self.exec_action.clone();
-
+        let queue_exec_action = self.queue_exec_action.clone();
         // What happens if the user selects a file (depending on exec_action state)
         file_list.list.connect_row_selected(move |_, opt_row| {
             if opt_row.is_some() && exec_action.is_enabled() {
                 btn.set_sensitive(true);
+                queue_exec_action.set_enabled(true);
             } else {
                 btn.set_sensitive(false);
+                queue_exec_action.set_enabled(false);
             }
         });
 
@@ -179,15 +192,19 @@ impl React<FileList> for ExecButton {
         self.exec_action.connect_enabled_notify({
             let btn = self.btn.clone();
             let list = file_list.list.clone();
+            let queue_exec_action = self.queue_exec_action.clone();
             move|action| {
                 if action.is_enabled() {
                     if list.selected_row().is_some() {
                         btn.set_sensitive(true);
+                        queue_exec_action.set_enabled(true);
                     } else {
                         btn.set_sensitive(false);
+                        queue_exec_action.set_enabled(false);
                     }
                 } else {
                     btn.set_sensitive(false);
+                    queue_exec_action.set_enabled(false);
                 }
             }
         });
@@ -199,13 +216,15 @@ impl React<OpenedScripts> for ExecButton {
 
     fn react(&self, scripts : &OpenedScripts) {
         let action = self.exec_action.clone();
-
+        let queue_exec_action = self.queue_exec_action.clone();
         // Sets the index of the SQL file to be executed.
         scripts.connect_selected(move |opt_file| {
             if let Some(ix) = opt_file.map(|f| f.index ) {
                 action.set_state(&(ix as i32).to_variant());
+                queue_exec_action.set_enabled(true);
             } else {
                 action.set_state(&(-1i32).to_variant());
+                queue_exec_action.set_enabled(false);
             }
         });
     }
@@ -219,10 +238,12 @@ impl React<ActiveConnection> for ExecButton {
             let exec_action = self.exec_action.clone();
             let clear_action = self.clear_action.clone();
             let restore_action = self.restore_action.clone();
+            let queue_exec_action = self.queue_exec_action.clone();
             move |_| {
                 exec_action.set_enabled(true);
                 clear_action.set_enabled(true);
                 restore_action.set_enabled(true);
+                queue_exec_action.set_enabled(true);
             }
         });
         conn.connect_db_disconnected({
@@ -230,11 +251,13 @@ impl React<ActiveConnection> for ExecButton {
             let exec_btn = self.btn.clone();
             let clear_action = self.clear_action.clone();
             let restore_action = self.restore_action.clone();
+            let queue_exec_action = self.queue_exec_action.clone();
             move |_| {
                 exec_action.set_enabled(false);
                 exec_btn.set_sensitive(false);
                 clear_action.set_enabled(false);
                 restore_action.set_enabled(false);
+                queue_exec_action.set_enabled(false);
             }
         });
        
@@ -271,6 +294,7 @@ impl React<QueriesContent> for ExecButton {
     fn react(&self, content : &QueriesContent) {
         let exec_btn = self.btn.clone();
         let exec_action = self.exec_action.clone();
+        let queue_exec_action = self.queue_exec_action.clone();
         content.stack.connect_visible_child_notify(move |stack| {
             if let Some(name) = stack.visible_child_name() {
                 match name.as_str() {
@@ -279,8 +303,10 @@ impl React<QueriesContent> for ExecButton {
                         let any_file_selected = exec_action.state().unwrap().get::<i32>().unwrap() >= 0;
                         if exec_action.is_enabled() && any_file_selected {
                             exec_btn.set_sensitive(true);
+                            queue_exec_action.set_enabled(true);
                         } else {
                             exec_btn.set_sensitive(false);
+                            queue_exec_action.set_enabled(false);
                         }
                     },
                     "results" => {
@@ -295,33 +321,4 @@ impl React<QueriesContent> for ExecButton {
     }
 
 }
-
-/*impl React<QueriesContent> for ExecButton {
-    fn react(&self, content : &QueriesContent) {
-        let actions = [self.exec_action.clone(), self.schedule_action.clone()];
-        content.stack.connect_visible_child_notify(move |stack| {
-            if let Some(name) = stack.visible_child_name() {
-                match name.as_str() {
-                    "editor" => {
-                        actions.iter().for_each(|action| action.set_enabled(true) );
-                    },
-                    "results" => {
-                        actions.iter().for_each(|action| action.set_enabled(false) );
-                    },
-                    _ => { }
-                }
-            }
-        });
-    }
-}*/
-
-/*impl React<QueriesEditor> for ExecButton {
-
-    fn react(&self, editor : &QueriesEditor) {
-
-    }
-
-}*/
-
-
 

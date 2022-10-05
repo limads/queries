@@ -6,11 +6,7 @@ For a copy, see http://www.gnu.org/licenses.*/
 use gtk4::prelude::*;
 use gtk4::*;
 use libadwaita;
-use crate::client::ActiveConnection;
 use stateful::React;
-use crate::client::Environment;
-use crate::sql::StatementOutput;
-use crate::client::OpenedScripts;
 use super::MainMenu;
 use sourceview5;
 use std::thread;
@@ -20,14 +16,13 @@ use libadwaita::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 use serde::{Serialize, Deserialize};
-use crate::client::SharedUserState;
 
 #[derive(Debug, Clone)]
 pub struct SettingsWindow {
     dialog : Dialog,
-    list : ListBox,
+    _list : ListBox,
     stack : Stack,
-    paned : Paned
+    _paned : Paned
 }
 
 impl SettingsWindow {
@@ -57,7 +52,7 @@ impl SettingsWindow {
         stack.set_hexpand(true);
         list.connect_row_selected({
             let stack = stack.clone();
-            move |list, opt_row| {
+            move |_list, opt_row| {
                 if let Some(row) = opt_row {
                     let row_ix = row.index();
                     if row_ix >= 0 {
@@ -67,14 +62,6 @@ impl SettingsWindow {
                     } else {
                         eprintln!("Negative row index");
                     }
-                    /*let name = match row.index() {
-                        0 => "Editor",
-                        1 => "Execution",
-                        2 => "Security",
-                        3 => "Reporting",
-                        _ => unreachable!()
-                    };
-                    stack.set_visible_child_name(name);*/
                 }
             }
         });
@@ -85,7 +72,7 @@ impl SettingsWindow {
         paned.set_start_child(Some(&list));
         paned.set_end_child(Some(&stack));
         dialog.set_child(Some(&paned));
-        Self { dialog, list, stack, paned }
+        Self { dialog, _list : list, stack, _paned : paned }
     }
 
 }
@@ -100,9 +87,7 @@ impl<W: IsA<Widget>> NamedBox<W> {
 
     pub fn new(name : &str, subtitle : Option<&str>, w : W) -> Self {
         let label_bx = Box::new(Orientation::Vertical, 0);
-        //let label = Label::new(Some(&format!("<span font_weight='bold'>{}</span>", name)));
         let label = Label::new(Some(&format!("<span>{}</span>", name)));
-        // super::set_margins(&label, 6, 6);
         label.set_justify(Justification::Left);
         label.set_halign(Align::Start);
         label.set_use_markup(true);
@@ -114,7 +99,6 @@ impl<W: IsA<Widget>> NamedBox<W> {
             label.set_justify(Justification::Left);
             label.set_halign(Align::Start);
             label_bx.append(&label);
-            // super::set_margins(&label, 6, 6);
         }
 
         label_bx.set_halign(Align::Start);
@@ -153,14 +137,11 @@ pub fn configure_list(list : &ListBox) {
     list.set_vexpand(true);
     list.style_context().add_class("boxed-list");
     list.set_width_request(600);
-    // list.set_selectable(false);
-    // list.set_activatable(false);
 }
 
 impl EditorBox {
 
     pub fn build() -> Self {
-        //let list = Box::new(Orientation::Vertical, 0);
         let list = ListBox::new();
         configure_list(&list);
 
@@ -179,11 +160,6 @@ impl EditorBox {
             scheme_combo.append(Some(&id), &id);
         }
         list.append(&NamedBox::new("Color scheme", None, scheme_combo.clone()).bx);
-        /*combo.connect_changed(move |combo| {
-            if let Some(txt) = combo.active_text() {
-                let s = txt.as_str();
-            }
-        });*/
         list.append(&NamedBox::new("Font", None, font_btn.clone()).bx);
 
         let line_num_switch = Switch::new();
@@ -192,6 +168,8 @@ impl EditorBox {
         list.append(&NamedBox::new("Show line numbers", None, line_num_switch.clone()).bx);
         list.append(&NamedBox::new("Highlight current line", None, line_highlight_switch.clone()).bx);
 
+        set_all_not_selectable(&list);
+        
         Self { list, scheme_combo, font_btn, line_num_switch, line_highlight_switch }
     }
 
@@ -201,7 +179,6 @@ impl EditorBox {
 pub struct ExecutionBox {
     pub list : ListBox,
     pub row_limit_spin : SpinButton,
-    pub col_limit_spin : SpinButton,
     pub schedule_scale : Scale,
     pub timeout_scale : Scale,
     pub dml_switch : Switch,
@@ -217,9 +194,9 @@ impl ExecutionBox {
         row_limit_spin.set_digits(0);
         row_limit_spin.set_value(500.);
 
-        let col_limit_spin = SpinButton::with_range(0.0, 100.0, 1.0);
-        col_limit_spin.set_digits(0);
-        col_limit_spin.set_value(25.);
+        // let col_limit_spin = SpinButton::with_range(0.0, 100.0, 1.0);
+        // col_limit_spin.set_digits(0);
+        // col_limit_spin.set_value(25.);
 
         let schedule_scale = Scale::with_range(Orientation::Horizontal, 1.0, 30.0, 1.0);
         schedule_scale.set_width_request(240);
@@ -237,7 +214,7 @@ impl ExecutionBox {
         // overflow_combo.append_text("Random sample (ordered)");
 
         list.append(&NamedBox::new("Row limit", None, row_limit_spin.clone()).bx);
-        list.append(&NamedBox::new("Column limit", None, col_limit_spin.clone()).bx);
+        // list.append(&NamedBox::new("Column limit", None, col_limit_spin.clone()).bx);
         // list.append(&NamedBox::new("Row overflow", Some("Which rows to display when results\n extrapolate the row limit"), schedule_scale.clone()).bx);
         list.append(&NamedBox::new("Schedule interval", Some("Interval (in seconds)\nbetween scheduled executions"), schedule_scale.clone()).bx);
         list.append(&NamedBox::new("Statement timeout", Some("Maximum time (in seconds)\nto wait for database response"), timeout_scale.clone()).bx);
@@ -248,7 +225,9 @@ impl ExecutionBox {
         list.append(&NamedBox::new("Enable update and delete", Some("Allow execution of potentially destructive \ndata modification statements\n"), dml_switch.clone()).bx);
         list.append(&NamedBox::new("Enable alter, drop and truncate", Some("Allow execution of potentially destructive \ndata definition statements\n"), ddl_switch.clone()).bx);
             
-        Self { list, row_limit_spin, col_limit_spin, schedule_scale, timeout_scale, dml_switch, ddl_switch }
+        set_all_not_selectable(&list);
+        
+        Self { list, row_limit_spin, /*col_limit_spin*/ schedule_scale, timeout_scale, dml_switch, ddl_switch }
     }
 
 }
@@ -272,9 +251,9 @@ impl EditableCombo {
             loop {
                 if let Ok(path) = path_recv.recv() {
                     if Path::new(&path).exists() {
-                        exists_send.send(true);
+                        exists_send.send(true).unwrap();
                     } else {
-                        exists_send.send(false);
+                        exists_send.send(false).unwrap();
                     }
                 }
             }
@@ -330,7 +309,7 @@ impl EditableCombo {
         combo.connect_changed({
             move |combo| {
                 if let Some(txt) = combo.active_text() {
-                    path_send.send(txt.as_str().to_string());
+                    path_send.send(txt.as_str().to_string()).unwrap();
                 }
             }
         });
@@ -385,8 +364,6 @@ pub struct SecurityBox {
 
 fn validate((host, cert) : &(String, String), rows : &[ListBoxRow]) -> bool {
 
-    // let list = exp_row.observe_children().item(1 as u32).unwrap().clone().downcast::<ListBox>().unwrap();
-
     for row in rows.iter() {
         let bx = row.child().unwrap().clone().downcast::<Box>().unwrap();
         let bx_entries = super::get_child_by_index::<Box>(&bx, 0);
@@ -396,8 +373,6 @@ fn validate((host, cert) : &(String, String), rows : &[ListBoxRow]) -> bool {
             return false;
         }
     }
-
-    // let lbl_left = super::get_child_by_index::<Label>(&bx_left, 1);
 
     !host.is_empty() && cert.chars().count() > 4 /*&& cert.ends_with(".crt") || cert.ends_with(".pem") */
 }
@@ -510,6 +485,14 @@ pub fn append_certificate_row(
     cert_added.activate(Some(&serde_json::to_string(&Certificate { host : host.to_string(), is_tls, cert : cert.to_string() }).unwrap().to_variant()));
 }
 
+fn set_all_not_selectable(list : &ListBox) {
+    let mut ix = 0;
+    while let Some(r) = list.row_at_index(ix) {
+        r.set_selectable(false);
+        ix += 1;
+    }
+}
+
 impl SecurityBox {
 
     pub fn build() -> Self {
@@ -518,36 +501,13 @@ impl SecurityBox {
         scrolled.set_child(Some(&list));
         configure_list(&list);
 
-        //btn_bx.left_btn.connect_clicked(move |_| {
-        //});
-        //btn_bx.right_btn.connect-clicked(move |_| {
-        //});
-        let combo_bx = EditableCombo::build();
+        let _combo_bx = EditableCombo::build();
 
         let save_switch = Switch::new();
         let save_row = ListBoxRow::new();
         save_row.set_selectable(false);
         let save_bx = NamedBox::new("Remember credentials", Some("Store credentials (except passwords)\nand load them at future sessions"), save_switch.clone());
         save_row.set_child(Some(&save_bx.bx));
-
-        // TODO populate entry completion with all known hosts.
-        // TODO populate file completion with relative path.
-        
-        // let entry = Entry::new();
-        // let model = ListStore::new(&[glib::types::Type::STRING]);
-        // let pos = model.append();
-        // model.set(&model.append(), &[(0, &String::from("mycompletion") as &dyn ToValue)]);
-        // model.set(&model.append(), &[(0, &String::from("myothercompletion") as &dyn ToValue)]);
-        // model.set(&model.append(), &[(0, &String::from("othercompletion") as &dyn ToValue)]);
-
-        // let renderer = CellRendererText::builder().foreground("#000000").foreground_set(true).build();
-        // let completion = EntryCompletion::builder().model(&model).minimum_key_length(0) /*.cell_area(&area).*/ /*.popup_completion(true)*/ .text_column(0).build();
-        // completion.pack_start(&renderer, true);
-        // entry.set_icon_from_icon_name(EntryIconPosition::Primary, Some("document-open-symbolic"));
-        // entry.set_completion(Some(&completion));
-        //completion.add_attribute(&renderer, "text", 0);
-
-        // list.append(&NamedBox::new("Certificate", Some("Inform the TLS certificate path if the \nconnection require it"), entry).bx);
 
         let exp_row = libadwaita::ExpanderRow::new();
         exp_row.set_title("Certificates");
@@ -602,12 +562,12 @@ impl SecurityBox {
         add_bx.append(&add_btn);
 
         // TODO just get lisboxrows from list, or else certificates added at startup won't count.
-        let mut rows : Rc<RefCell<Vec<ListBoxRow>>> = Rc::new(RefCell::new(Vec::new()));
+        let rows : Rc<RefCell<Vec<ListBoxRow>>> = Rc::new(RefCell::new(Vec::new()));
         let cert = Rc::new(RefCell::new((String::new(), String::new())));
         host_entry.connect_changed({
             let cert = cert.clone();
             let add_btn = add_btn.clone();
-            let exp_row = exp_row.clone();
+            let _exp_row = exp_row.clone();
             let rows = rows.clone();
             move |entry| {
                 let txt = entry.buffer().text().to_string();
@@ -627,7 +587,7 @@ impl SecurityBox {
         cert_entry.connect_changed({
             let cert = cert.clone();
             let add_btn = add_btn.clone();
-            let exp_row = exp_row.clone();
+            let _exp_row = exp_row.clone();
             let rows = rows.clone();
             move |entry| {
                 let txt = entry.buffer().text().to_string();
@@ -662,36 +622,12 @@ impl SecurityBox {
                 cert_entry.set_text("");
                 let is_tls = tls_toggle.is_active();
                 append_certificate_row(exp_row.clone(), &cert.0, &cert.1, is_tls, &rows, &cert_added, &cert_removed);
-                let c = Certificate { host : cert.0.clone(), cert : cert.1.clone(), is_tls };
+                let _c = Certificate { host : cert.0.clone(), cert : cert.1.clone(), is_tls };
                 btn.set_sensitive(false);
                 cert.0 = String::new();
                 cert.1 = String::new();
             }
         });
-
-        /*let rem_btn = Button::new();
-        rem_btn.style_context().add_class("flat");
-        rem_btn.set_icon_name("list-remove-symbolic");
-
-        rem_btn.connect_clicked({
-            let cert_removed = cert_removed.clone();
-            let exp_row = exp_row.clone();
-            let rows = rows.clone();
-            move |btn| {
-                let entries_bx = super::get_sibling_by_index::<_, Box>(btn, 0);
-                let bx_top = super::get_child_by_index::<Box>(&entries_bx, 0);
-                let bx_bottom = super::get_child_by_index::<Box>(&entries_bx, 1);
-                let lbl_top = super::get_child_by_index::<Label>(&bx_top, 1);
-                let lbl_bottom = super::get_child_by_index::<Label>(&bx_bottom, 1);
-                let parent_bx = btn.parent().clone().unwrap().downcast::<Box>().unwrap();
-                let row = parent_bx.parent().clone().unwrap().downcast::<ListBoxRow>().unwrap();
-                exp_row.remove(&row);
-
-                
-            }
-        });*/
-
-        // add_bx.append(&rem_btn);
 
         exp_row.add_row(&add_row);
         exp_row.set_selectable(false);
@@ -699,17 +635,14 @@ impl SecurityBox {
         list.append(&save_row);
         list.append(&exp_row);
 
-        // combo.connect_changed(move |combo| {
-        //    if let Some(txt) = combo.active_text() {
-        //        let s = txt.as_str();
-        //    }
-        //});
-
+        set_all_not_selectable(&list);
+        
         Self { list, cert_added, cert_removed, exp_row, rows, save_switch, tls_toggle, ssl_toggle, scrolled }
     }
 }
 
-#[derive(Debug, Clone)]
+// TODO add report settings.
+/*#[derive(Debug, Clone)]
 pub struct ReportingBox {
     pub list : ListBox,
     pub entry : Entry
@@ -724,36 +657,29 @@ impl ReportingBox {
         list.append(&NamedBox::new("Template", Some("Path to html/fodt template from which\nreport will be rendered"), entry.clone()).bx);
         Self { list, entry }
     }
-}
+}*/
 
 #[derive(Debug, Clone)]
 pub struct QueriesSettings {
     pub settings : SettingsWindow,
     pub exec_bx : ExecutionBox,
     pub editor_bx : EditorBox,
-    pub security_bx : SecurityBox,
-    pub report_bx : ReportingBox
+    pub security_bx : SecurityBox
 }
 
-const SETTINGS : [&'static str; 4] = ["Editor", "Execution", "Security", "Reporting"];
+const SETTINGS : [&'static str; 3] = ["Editor", "Execution", "Security"];
 
 impl QueriesSettings {
 
     pub fn build() -> Self {
         let settings = SettingsWindow::build(&SETTINGS[..]);
-        /*list.append(&build_settings_row("Editor"));
-        list.append(&build_settings_row("Execution"));
-        list.append(&build_settings_row("Security"));
-        list.append(&build_settings_row("Reporting"));*/
         let editor_bx = EditorBox::build();
         let exec_bx = ExecutionBox::build();
         let security_bx = SecurityBox::build();
-        let report_bx = ReportingBox::build();
         settings.stack.add_named(&editor_bx.list, Some(SETTINGS[0]));
         settings.stack.add_named(&exec_bx.list, Some(SETTINGS[1]));
         settings.stack.add_named(&security_bx.scrolled, Some(SETTINGS[2]));
-        settings.stack.add_named(&report_bx.list, Some(SETTINGS[3]));
-        Self { settings, editor_bx, exec_bx, security_bx, report_bx }
+        Self { settings, editor_bx, exec_bx, security_bx, /*report_bx*/ }
     }
 
 }
@@ -777,12 +703,6 @@ fn build_settings_row(name : &str) -> ListBoxRow {
         .justify(Justification::Left)
         .build();
     ListBoxRow::builder().child(&lbl).height_request(42).build()
-}
-
-pub fn load_settings(settings : &QueriesSettings, state : &SharedUserState) {
-
-
-
 }
 
 

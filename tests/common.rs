@@ -1,4 +1,3 @@
-
 use queries::client::*;
 use std::sync::Arc;
 use std::process::{Command, Stdio};
@@ -67,7 +66,7 @@ impl TempDB {
         let mut info = ConnectionInfo::default();
         info.user = self.user.to_string();
         info.database = self.db.to_string();
-        info.host = "localhost".to_string();
+        info.host = "localhost:5432".to_string();
         let pwd = info.user.to_string();
         let uri = ConnURI::new(info, &pwd).unwrap();
         println!("Using URI: {}", uri.uri);
@@ -77,7 +76,7 @@ impl TempDB {
 }
 
 // Creates a temporary database at localhost with the username and password
-// set to the current unix user. The database is removed after the function is
+// set to the current unix user. The database should be removed after the function is
 // runned. Assumes PostgreSQL server is installed at the current database, and
 // the executables createdb and dropdb are available. The closure receives the
 // name of the current unix user and created database (automatically created).
@@ -91,7 +90,7 @@ pub fn run_with_temp_db(f : impl FnOnce(TempDB) + std::panic::UnwindSafe) {
     let user = run("whoami").unwrap().trim().to_string();
     let dbname = format!("queries_test_{}_{}", dt, r);
 
-    // This panics when dbname already exists, avoiding the risk of dropping 
+    // This panics when dbname already exists, avoiding the risk of manipulating 
     // an existing database
     run(&format!("createdb {}", dbname));
     
@@ -99,13 +98,13 @@ pub fn run_with_temp_db(f : impl FnOnce(TempDB) + std::panic::UnwindSafe) {
     
     f(temp_db);
     
+    // dropdb could be called automatically, but perhaps it is best to let the user
+    // erase them manually afterwards.
     // Defer any panics to after the temporary db is erased.
     // let res = std::panic::catch_unwind(move || {
     //    f(temp_db);
     // });
-    
     // run(&format!("dropdb {}", dbname));
-    
     // Now that the db is erased, propagate the panic.
     // if let Err(e) = res {
     //    std::panic::resume_unwind(e);

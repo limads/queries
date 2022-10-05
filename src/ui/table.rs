@@ -5,8 +5,8 @@ For a copy, see http://www.gnu.org/licenses.*/
 
 use gtk4::*;
 use gtk4::prelude::*;
-use std::rc::Rc;
-use std::cell::RefCell;
+
+
 use crate::tables::table::Table;
 use std::iter::ExactSizeIterator;
 
@@ -17,7 +17,7 @@ pub struct TableWidget {
 
     pub scroll_window : ScrolledWindow,
 
-    parent_ctx : StyleContext,
+    _parent_ctx : StyleContext,
 
     provider : CssProvider,
 
@@ -91,7 +91,7 @@ impl TableWidget {
         // let selected = Rc::new(RefCell::new(Vec::new()));
         // let dims = Rc::new(RefCell::new((0, 0)));
         // let tbl = Table::new_empty(None);
-        TableWidget { grid, scroll_window, /*box_container,*/ parent_ctx, provider, /*selected, dims,*/ /*tbl*/ }
+        TableWidget { grid, scroll_window, /*box_container,*/ _parent_ctx : parent_ctx, provider, /*selected, dims,*/ /*tbl*/ }
     }
 
     pub fn parent(&self) -> ScrolledWindow {
@@ -296,7 +296,7 @@ impl TableWidget {
         }
         let nrows = data.len(); /*.min(200);*/
         let mut ncols = 0;
-        for (i, mut row) in data.iter_mut().enumerate().take(nrows) {
+        for (i, row) in data.iter_mut().enumerate().take(nrows) {
             if i == 0 {
                 ncols = row.len();
                 if ncols == 0 {
@@ -311,15 +311,15 @@ impl TableWidget {
         }
     }
 
-    fn clear_tail(&self, remaining_rows : usize) {
+    /*fn clear_tail(&self, remaining_rows : usize) {
         while self.grid.child_at(0, (remaining_rows-1) as i32).is_some() {
             self.grid.remove_row((remaining_rows-1) as i32);
         }
     }
 
-    fn grow_tail(&self, new_sz : usize) {
+    fn grow_tail(&self, _new_sz : usize) {
 
-    }
+    }*/
 
     fn clear_table(&self) {
         while self.grid.child_at(0, 0).is_some() {
@@ -356,7 +356,7 @@ impl TableWidget {
 
 }
 
-fn switch_to(
+/*fn switch_to(
     grid : Grid,
     col : &mut (String, usize, bool),
     ncols : usize,
@@ -366,7 +366,7 @@ fn switch_to(
     *col = (col.0.clone(), col.1, selected);
 }
 
-fn switch_selected(grid : Grid, cols : &mut [(String, usize, bool)], pos : usize) {
+fn _switch_selected(grid : Grid, cols : &mut [(String, usize, bool)], pos : usize) {
     let ncols = cols.len();
     if let Some(col) = cols.get_mut(pos) {
         if col.2 == true {
@@ -377,7 +377,7 @@ fn switch_selected(grid : Grid, cols : &mut [(String, usize, bool)], pos : usize
     }
 }
 
-fn set_selected_style(grid : Grid, ncols : usize, col : usize, selected : bool) {
+fn _set_selected_style(_grid : Grid, _ncols : usize, _col : usize, _selected : bool) {
     /*for wid in grid.get_children().iter().skip(ncols - col - 1).step_by(ncols) {
         let wid = wid.clone().downcast::<Label>(); /*if let Ok(ev) = wid.clone().downcast::<Label>() {
             ev.get_child().unwrap()
@@ -396,6 +396,6 @@ fn set_selected_style(grid : Grid, ncols : usize, col : usize, selected : bool) 
         }
     }*/
     unimplemented!()
-}
+}*/
 
 

@@ -1,4 +1,7 @@
 mod common;
+use queries::client::ActiveConnection;
+use queries::client::SharedUserState;
+use queries::client::ActiveConnectionAction;
 
 #[test]
 pub fn simple_connection() {
@@ -16,7 +19,7 @@ pub fn simple_connection() {
             panic!("{}", e);
         });
         conn.connect_db_conn_failure(move |e| {
-            panic!("{}", e);
+            panic!("{}", e.1);
         });
         conn.send(ActiveConnectionAction::ConnectRequest(temp.uri()));
         common::run_loop_for_ms(500);

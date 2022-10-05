@@ -5,7 +5,7 @@ For a copy, see http://www.gnu.org/licenses.*/
 
 use quick_xml::Reader;
 use quick_xml::Writer;
-use quick_xml::events::{Event, BytesEnd, BytesStart, BytesText, attributes::Attribute };
+use quick_xml::events::{Event, BytesEnd, BytesStart, BytesText};
 use std::error::Error;
 use std::io::Cursor;
 use crate::tables::{field::Field, table::Table};
@@ -57,7 +57,8 @@ fn substitute_field(
     colname : &str,
     is_html : bool,
     row_ix : usize,
-    missing : Option<&str>
+    missing : Option<&str>,
+    _png : bool
 ) -> Result<(), Box<dyn Error>> {
     // Search for this txt in the data table columns
     let col = table.get_column_by_name(colname).ok_or(SubstitutionError(colname.to_string()))?;
@@ -87,7 +88,7 @@ fn substitute_field(
 
                         // TODO create hidden dir beside the report file.
 
-                        let path = format!("/home/diego/Downloads/{}.svg", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+                        let path = format!("/tmp/{}.svg", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
                         pl.draw_to_file(&path[..]).unwrap();
 
                         format!(r#"<draw:frame draw:name="graphics2" svg:width="600px" svg:height="400px">
@@ -100,7 +101,7 @@ fn substitute_field(
 
                     }
                 },
-                Err(e) => {
+                Err(_e) => {
 
                     match Table::try_from(json.clone()) {
                         Ok(inner_tbl) => {
@@ -110,7 +111,7 @@ fn substitute_field(
                                 inner_tbl.to_ooxml(None, None)
                             }
                         },
-                        Err(e) => {
+                        Err(_e) => {
                             json.to_string()
                         }
                     }
@@ -119,16 +120,17 @@ fn substitute_field(
         },
         other => {
             let content = other.display_content();
-            /*if is_html {
-                format!("<p>{}</p>", content)
+            if is_html {
+                format!("<span>{}</span>", content)
             } else {
                 content
-            }*/
-            content
+            }
         }
     };
 
-    writer.write(content.as_bytes());
+    if let Err(e) = writer.write(content.as_bytes()) {
+        eprintln!("{}", e);
+    }
 
     Ok(())
 
@@ -139,7 +141,13 @@ pub mod html {
     use super::*;
 
     // TODO receive row index to produce many reports instead of indexing row 0.
-    pub fn substitute_html(table : &Table, txt : &str, missing : Option<&str>) -> Result<String, Box<dyn Error>> {
+    pub fn substitute_html(
+        table : &Table, 
+        txt : &str, 
+        missing : Option<&str>, 
+        transpose : bool, 
+        png : bool
+    ) -> Result<String, Box<dyn Error>> {
         // let mut reader = Reader::from_str(txt);
         // let mut writer = Writer::new(Cursor::new(Vec::new()));
 	    // reader.trim_text(true);
@@ -160,7 +168,7 @@ pub mod html {
             let mut inside_placeholder = false;
             let mut eof = false;
 
-            body_writer.write(b"\n<section>\n");
+            body_writer.write(b"\n<section>\n")?;
 
             loop {
                 let event = reader.read_event(&mut buf)?;
@@ -177,16 +185,25 @@ pub mod html {
 	                    }
 	                },
 	                Event::Text(ref ev) => {
+	                
+	                    let transposed;
+	                    let tbl_ref = if transpose {
+	                        transposed = table.transpose();
+	                        &transposed
+	                    } else {
+	                        &table
+	                    };
 	                    substitute_text(
                             &mut body_writer,
                             &mut copy_current,
                             inside_placeholder,
-                            &table,
+                            tbl_ref,
                             ev,
                             &reader,
                             true,
                             row_ix,
-                            missing
+                            missing,
+                            png
                         )?;
 	                },
 	                Event::End(ref e) => {
@@ -210,7 +227,7 @@ pub mod html {
 	            }
             }
 
-            body_writer.write(b"\n</section>\n");
+            body_writer.write(b"\n</section>\n")?;
         }
 
         Ok(render_document(&doc, body_writer))
@@ -361,13 +378,12 @@ pub fn extract_body(txt : &str, is_html : bool) -> Result<Document, Box<dyn Erro
                         body_writer.write_event(event)?;
                     },
                     Section::Postlude => {
-                        postlude_writer.write_event(event);
+                        postlude_writer.write_event(event)?;
                     }
                 }
 	        }
 	    }
     }
-    panic!()
 }
 
 pub mod ooxml {
@@ -380,7 +396,7 @@ pub mod ooxml {
         let mut writer = Writer::new(Cursor::new(Vec::new()));
 	    reader.trim_text(true);
 	    let mut buf = Vec::new();
-	    let mut curr_p_props : Option<Vec<Attribute>> = None;
+	    // let mut curr_p_props : Option<Vec<Attribute>> = None;
         let mut copy_current = false;
         let mut inside_placeholder = false;
         let mut eof = false;
@@ -396,7 +412,7 @@ pub mod ooxml {
 		                    inside_placeholder = true;
 		                },
 		                b"text:p" => {
-                            curr_p_props = Some(e.attributes().map(|attr| attr.unwrap() ).collect::<Vec<_>>());
+                            // curr_p_props = Some(e.attributes().map(|attr| attr.unwrap() ).collect::<Vec<_>>());
                             copy_current = true;
 		                },
 		                _ => {
@@ -414,7 +430,8 @@ pub mod ooxml {
                         &reader,
                         false,
                         row_ix,
-                        None
+                        None,
+                        false
                     )?;
 		        },
 		        Event::End(ref e) => {
@@ -464,11 +481,12 @@ fn substitute_text(
     reader : &Reader<& [u8]>,
     is_html : bool,
     row_ix : usize,
-    missing : Option<&str>
+    missing : Option<&str>,
+    png : bool
 ) -> Result<(), Box<dyn Error>> {
     if inside_placeholder {
         let colname = get_colname(event_name, reader);
-        substitute_field(writer, &table, &colname, is_html, row_ix, missing)?;
+        substitute_field(writer, &table, &colname, is_html, row_ix, missing, png)?;
         *copy_current = false;
     } else {
         *copy_current = true;
@@ -489,12 +507,14 @@ pub fn make_report(
     client : &mut Client,
     sql : &str,
     layout_path : String,
-    output_path : Option<String>
+    output_path : Option<String>,
+    transpose : bool,
+    png : bool
 ) -> Result<(), String> {
     match client.query(sql, &[]) {
         Ok(rows) => {
             let tbl = Table::from_rows(&rows[..]).map_err(|e| format!("{}", e) )?;
-            launch_report(&tbl, layout_path, output_path)
+            launch_report(&tbl, layout_path, output_path, transpose, png)
         },
         Err(e) => Err(format!("{}", e) )
     }
@@ -504,6 +524,8 @@ pub fn launch_report(
     tbl : &Table,
     layout_path : String,
     output_path : Option<String>,
+    transpose : bool,
+    png : bool
 ) -> Result<(), String> {
     let layout_ext = std::path::Path::new(&layout_path).extension().and_then(|ext| ext.to_str() );
     let mut content = String::new();
@@ -511,7 +533,7 @@ pub fn launch_report(
     f.read_to_string(&mut content).map_err(|e| format!("{}", e) )?;
     let out_data = match layout_ext {
         Some("html") => {
-            html::substitute_html(tbl, &content[..], None)
+            html::substitute_html(tbl, &content[..], None, transpose, png)
                 .map_err(|e| format!("{}", e) )?
         },
         Some("fodt") => {

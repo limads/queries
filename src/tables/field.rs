@@ -5,7 +5,7 @@ For a copy, see http://www.gnu.org/licenses.*/
 
 use rust_decimal::Decimal;
 use serde_json::Value;
-use std::fmt;
+
 
 #[derive(Debug, Clone)]
 pub enum Field {
@@ -38,7 +38,7 @@ impl Field {
             Field::Numeric(f) => f.to_string(),
             Field::Str(f) => f.clone(),
             Field::Json(f) => f.to_string(),
-            Field::Bytes(f) => format!("(Binary)")
+            Field::Bytes(_f) => format!("(Binary)")
         }
     }
 

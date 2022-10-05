@@ -65,7 +65,7 @@ impl FromStr for DBType {
             "dp" | "double precision" | "float8" => Ok(Self::F64),
             "blob" | "BLOB" | "bytea" => Ok(Self::Bytes),
             "time" | "time with time zone" | "time without time zone" |
-            "timestamp with time zone" | "timestamp without time zone" | "time with time zone" | "time without time zone" => Ok(Self::Time),
+            "timestamp with time zone" | "timestamp without time zone" => Ok(Self::Time),
             "xml" => Ok(Self::Xml),
             "anyarray" | "array" | "ARRAY" => Ok(Self::Array),
             "trigger" => Ok(Self::Trigger),
@@ -108,23 +108,6 @@ pub struct Relation {
     pub src_col : String,
     pub tgt_col : String
 }
-
-/*#[derive(Debug, Clone)]
-pub enum DBView {
-
-    Schema { name : String, children : Vec<DBView> },
-
-    View { name : String }
-}
-
-#[derive(Debug, Clone)]
-pub enum DBFunction {
-
-    Schema { name : String, chidren : Vec<DBFunction> },
-
-    Function { args : Vec<DBType>, ret : DBType }
-
-}*/
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DBObject {
@@ -211,7 +194,7 @@ pub fn build_er_diagram(mut er : String, schemata : &[DBObject]) -> String {
             DBObject::Schema { children, .. } => {
                 er = build_er_diagram(er, children);
             },
-            DBObject::Table { schema, name, cols, rels } => {
+            DBObject::Table { schema: _, name, cols, rels } => {
                 let cols : String = cols.iter().map(|c| c.0.clone() ).collect::<Vec<_>>().join("\\n");
                 let mut tbl = format!("{} [ label = \"{} | {} \"];\n", name, name, cols);
                 for rel in rels.iter() {

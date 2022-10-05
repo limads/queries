@@ -20,7 +20,7 @@ pub fn files() {
     });
     scripts.connect_opened(|f : OpenedFile| {
         println!("Opened");
-        assert!(Path::new(&f.path).exists());
+        assert!(Path::new(&f.path.unwrap()).exists());
     });
     scripts.connect_closed(|_f : (OpenedFile, usize)|{
         println!("Closed");
@@ -33,7 +33,7 @@ pub fn files() {
     });
     scripts.connect_file_persisted(|f : OpenedFile| {
         println!("File persisted");
-        assert!(Path::new(&f.path).exists());
+        assert!(Path::new(&f.path.unwrap()).exists());
     });
     scripts.connect_error(|e : String| {
         panic!("{}", e);
@@ -54,11 +54,15 @@ pub fn files() {
         println!("Name changed");
     });
     let tempfile = "/tmp/file";
+    
     scripts.send(MultiArchiverAction::NewRequest);
-    scripts.send(MultiArchiverAction::WindowCloseRequest);
-    scripts.send(MultiArchiverAction::SaveRequest(tempfile));
-    scripts.send(MultiArchiverAction::CloseRequest(0, true));
-    scripts.send(MultiArchiverAction::OpenRequest(tempfile));
+    scripts.send(MultiArchiverAction::Select(Some(0)));
+    scripts.send(MultiArchiverAction::SaveRequest(Some(format!("{}", tempfile))));
+    
+    // Call those only after file is saved.
+    // scripts.send(MultiArchiverAction::CloseRequest(0, true));
+    // scripts.send(MultiArchiverAction::OpenRequest(format!("{}", tempfile)));
+    
     common::run_loop_for_ms(200);
     println!("{:?}", scripts.final_state());
 }

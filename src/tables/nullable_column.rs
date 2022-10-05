@@ -7,7 +7,7 @@ use super::column::*;
 use postgres::types::{ToSql, FromSql};
 use std::marker::Sync;
 use std::convert::{TryFrom, TryInto};
-use std::mem;
+
 use std::borrow::Cow;
 use std::collections::HashMap;
 use crate::tables::field::Field;
@@ -142,7 +142,7 @@ impl<'a> NullableColumn {
         unimplemented!()
     }
 
-    pub fn truncate(&mut self, n : usize) {
+    pub fn truncate(&mut self, _n : usize) {
         //self.col.truncate(n);
         unimplemented!()
     }
@@ -179,7 +179,7 @@ impl<T> TryInto<Vec<Option<T>>> for NullableColumn
 {
     type Error = &'static str;
 
-    fn try_into(mut self) -> Result<Vec<Option<T>>, Self::Error> {
+    fn try_into(self) -> Result<Vec<Option<T>>, Self::Error> {
         /*let n = self.n;
         let mut null_ix = Vec::new();
         mem::swap(&mut null_ix, &mut self.null_ix);

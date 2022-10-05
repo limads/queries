@@ -5,7 +5,7 @@ For a copy, see http://www.gnu.org/licenses.*/
 
 use super::*;
 use sqlparser::dialect::{PostgreSqlDialect};
-use sqlparser::ast::{Statement, Function, Select, Value, Expr, SetExpr, SelectItem, Ident, TableFactor, Join, JoinOperator};
+use sqlparser::ast::{Statement, SetExpr, SelectItem};
 use sqlparser::parser::{Parser, ParserError};
 use sqlparser::dialect::keywords::Keyword;
 use sqlparser::dialect;
@@ -135,91 +135,10 @@ where
     }
 }
 
-// TODO check UTF-8 encoding. Getting error:
-// thread 'main' panicked at 'byte index 64 is not a char boundary; it is inside 'ç' (bytes 63..65) of
-// When using ç in a text field.
-
-/*#[derive(Debug, Clone)]
-pub struct Substitution {
-    proj_ix : usize,
-    func_name : String,
-    func_args : Vec<String>
-}
-
-fn split_function(f : Function) -> Substitution {
-    let mut args = Vec::new();
-    for a in f.args {
-        match a {
-            Expr::Identifier(id) => args.push(id.value),
-            Expr::Wildcard => args.push(String::from("*")),
-            Expr::Value(v) => match v {
-                Value::Number(n) => args.push(n),
-                Value::SingleQuotedString(s) => args.push(s),
-                Value::Boolean(b) => args.push(b.to_string()),
-                Value::Null => args.push(String::from("NULL")),
-                _ => { }
-            },
-            Expr::QualifiedWildcard(ws) => {
-                for w in ws {
-                    args.push(w.to_string())
-                }
-            },
-            Expr::CompoundIdentifier(ids) => {
-                for id in ids {
-                    args.push(id.to_string())
-                }
-            },
-            _ => { }
-        }
-    }
-    Substitution{ proj_ix : 0, func_name : f.name.to_string(), func_args : args }
-}
-
-/// If query has a single function call statement, separate it for client-side
-/// execution while the naked arguments are sent to the database. Pass the statement
-/// unchanged and None otherwise.
-fn filter_single_function_out(stmt : &Statement) -> (Statement, Option<Substitution>) {
-    let mut transf_stmt = stmt.clone();
-    let sub : Option<Substitution> = match transf_stmt {
-        Statement::Query(ref mut q) => match q.body {
-            SetExpr::Select(ref mut sel) => {
-                if sel.projection.len() == 1 {
-                    if let Some(proj) = sel.projection.iter().next().cloned() {
-                        match proj {
-                            SelectItem::ExprWithAlias{ expr, .. } | SelectItem::UnnamedExpr(expr) => {
-                                match expr {
-                                    Expr::Function(func) => {
-                                        let sub = split_function(func);
-                                        sel.projection.remove(0);
-                                        for name in sub.func_args.iter().rev() {
-                                            sel.projection.push(SelectItem::UnnamedExpr(Expr::Identifier(Ident::new(name))));
-                                        }
-                                        Some(sub)
-                                    },
-                                    _ => None
-                                }
-                            },
-                            _ => None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            },
-            _ => None,
-        },
-        _ => None
-    };
-    (transf_stmt, sub)
-}*/
-
 // TODO SQL parser is not accepting PostgreSQL double precision types
 // Use this if client-side parsing is desired.
-pub fn parse_sql(sql : &str, subs : &HashMap<String, String>) -> Result<Vec<Statement>, String> {
-    // let sql = substitute_if_required(sql, subs);
-    // let dialect = PostgreSqlDialect {};
+pub fn parse_sql(sql : &str, _subs : &HashMap<String, String>) -> Result<Vec<Statement>, String> {
+    
     let dialect = PostgreSqlDialect {};
     Parser::parse_sql(&dialect, &sql[..])
         .map_err(|e| {
@@ -316,7 +235,7 @@ pub fn split_statement_tokens(mut tokens : Vec<Token>) -> Result<Vec<Vec<Token>>
                 add_token(&mut stmt_tokens, tk.clone());
                 last_tk_is_dollar = false;
             },
-            other => {
+            _other => {
                 add_token(&mut stmt_tokens, tk.clone());
                 last_tk_is_dollar = false;
             }
@@ -367,7 +286,7 @@ fn join_tokens(token_group : &[Token]) -> String {
 
 /* Tries to determine the nature of an statement that couldn't be parsed by SQLParse from its
 first keyword. */
-fn define_raw_statement(tokens : Vec<Token>) -> Result<AnyStatement, SQLError> {
+fn _define_raw_statement(tokens : Vec<Token>) -> Result<AnyStatement, SQLError> {
     let kw = take_first_keyword(&mut tokens.iter())
         .ok_or(SQLError::Lexing(format!("No first token")))?;
     let is_query = match kw {
@@ -444,7 +363,7 @@ pub fn fully_parse_sql(
     sql : &str
 ) -> Result<Vec<AnyStatement>, SQLError> {
 
-    let mut tokens = extract_postgres_tokens(&sql)
+    let tokens = extract_postgres_tokens(&sql)
         .map_err(|e| SQLError::Lexing(e) )?;
 
     // It is important to reject queries with placeholder tokens, because
@@ -555,10 +474,10 @@ pub fn fully_parse_sql(
 /// Might fail globally if the tokenizer did not yield a valid token vector.
 pub fn partially_parse_sql(
     sql : &str,
-    subs : &HashMap<String, String>
+    _subs : &HashMap<String, String>
 ) -> Result<Vec<AnyStatement>, SQLError> {
 
-    let mut tokens = extract_postgres_tokens(&sql)
+    let tokens = extract_postgres_tokens(&sql)
         .map_err(|e| SQLError::Lexing(e) )?;
 
     let split_tokens = split_statement_tokens(tokens).map_err(|e| SQLError::Lexing(e) )?;
@@ -645,7 +564,7 @@ pub fn filter_repeated_queries(any_stmts : Vec<AnyStatement>) -> Vec<AnyStatemen
     for any_stmt in any_stmts {
         match &any_stmt {
             AnyStatement::Parsed(stmt, _) => match stmt {
-                Statement::Query(q) => {
+                Statement::Query(_q) => {
                     if filt_stmts.iter().find(|filt_stmt| **filt_stmt == any_stmt ).is_none() {
                         filt_stmts.push(any_stmt.clone());
                     }
@@ -778,7 +697,7 @@ where
 
 pub fn decide_client<'a, I>(
     token_iter : &mut I,
-    target : &copy::CopyTarget
+    _target : &copy::CopyTarget
 ) -> Result<copy::CopyClient, String>
 where
     I : Iterator<Item=&'a Token>
@@ -807,39 +726,9 @@ where
                 } else {
                     Err(format!("Invalid copy client specification"))
                 }
-                /*Ok(copy::CopyClient::File(file.to_string()))
-                } else {
-                    /*if &w.value[..] == "VARIABLE" || &w.value[..] == "variable" {
-                        if let Some(w) = take_word(token_iter) {
-                            Ok(copy::CopyClient::Variable(w.to_string()))
-                        } else {
-                            Err(format!("Invalid variable name"))
-                        }
-                    } else {
-                        if w.keyword == Keyword::STDIN {
-                            if *target == copy::CopyTarget::From {
-                                Ok(copy::CopyClient::Stdio)
-                            } else {
-                                Err(format!("Invalid copy client"))
-                            }
-                        } else {
-                            if &w.value[..] == "STDOUT" || &w.value[..] == "stdout" {
-                                if *target == copy::CopyTarget::To {
-                                    Ok(copy::CopyClient::Stdio)
-                                } else {
-                                    Err(format!("Invalid copy client"))
-                                }
-                            } else {
-                                Err(format!("Invalid copy client"))
-                            }
-                        }
-                    }*/
-                    Err(format!("Invalid client copy specification: {}", other))
-                }*/
             }
         },
         Some(Token::SingleQuotedString(s)) => {
-            // Ok(copy::CopyClient::File(file.to_string()))
             Err(format!("Invalid client copy specification: {}", s))
         },
         Some(other) => {
@@ -886,18 +775,6 @@ pub fn extract_postgres_tokens(stmt : &str) -> Result<Vec<Token>, String> {
     let mut tokenizer = Tokenizer::new(&dialect, stmt);
     tokenizer.tokenize().map_err(|e| format!("{}", e) )
 }
-
-/*/// Remove the content from all string literals from a SQL query.
-fn remove_string_literals(text : &str) -> String {
-    let split_text = text.split("\"|$$|'");
-    let mut out = String::new();
-    for (i, s) in split_text {
-        if  i % 2 == 0 {
-            out += &format!("{}\"\""s);
-        }
-    }
-    out
-}*/
 
 pub fn define_if_select(tk : &Token, might_be_select : &mut bool, is_select : &mut bool) {
     match tk {

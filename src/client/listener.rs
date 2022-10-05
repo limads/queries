@@ -4,18 +4,12 @@ This work is licensed under the terms of the GPL v3.0 License.
 For a copy, see http://www.gnu.org/licenses.*/
 
 use std::thread::{self, JoinHandle};
-use crate::sql::{StatementOutput, LocalStatement};
-use std::sync::{Arc, Mutex, mpsc::{self, channel, Sender, Receiver}};
-use super::*;
+use crate::sql::{StatementOutput};
+use std::sync::{Arc, Mutex, mpsc::{self, Sender, Receiver}};
 use std::collections::HashMap;
-use std::time::Duration;
 use crate::server::Connection;
-use sqlparser::ast::Statement;
 use crate::sql::object::{DBObject, DBInfo};
-use crate::sql::{parsing, SafetyLock};
-use crate::sql::parsing::AnyStatement;
-use std::ops::Deref;
-use stateful::Callbacks;
+use crate::sql::{SafetyLock};
 use std::fs::File;
 use std::io::Read;
 use crate::sql::copy::*;
@@ -27,7 +21,6 @@ pub struct ExecutionRequest {
     subs : HashMap<String, String>,
     safety : SafetyLock,
     is_schedule : bool,
-    timeout : usize,
     mode : ExecMode
 }
 
@@ -43,7 +36,7 @@ pub struct SqlListener {
 
     listen_channels : Arc<Mutex<Vec<String>>>,
 
-    handle : Arc<JoinHandle<()>>
+    _handle : Arc<JoinHandle<()>>
 
 }
 
@@ -59,7 +52,7 @@ impl SqlListener {
         }
     }
 
-    pub fn listen_to_notification(&mut self, channel : &str, filter : &str) {
+    pub fn listen_to_notification(&mut self, _channel : &str, _filter : &str) {
         /*if !self.listen_channels.lock().unwrap().iter().find(|ch| &ch[..] == channel ).is_some() {
             // self.listener.listen_to_notification(channel);
             self.listen_channels.push(channel.to_string());
@@ -75,7 +68,7 @@ impl SqlListener {
         }*/
     }
 
-    pub fn has_notification_queued(&self, at_channel : &str, filter : &str) -> bool {
+    pub fn has_notification_queued(&self, _at_channel : &str, _filter : &str) -> bool {
         /*if at_channel.is_empty() {
             return false;
         }
@@ -119,72 +112,25 @@ impl SqlListener {
         let (cmd_tx, cmd_rx) = mpsc::channel::<ExecutionRequest>();
         let engine : Arc<Mutex<Option<Box<dyn Connection>>>> = Arc::new(Mutex::new(None));
 
-        /*// Channel listening thread
-        thread::spawn({
-            let engine = engine.clone();
-            move|| {
-            /*loop {
-                match *engine.lock().unwrap() {
-                    Some(ref mut engine) => {
-                        // if let Some(ch) = self.listen_channels.get(0).clone() {
-                        //    engine.listen_at_channel(ch);
-                        // }
-                    },
-                    _ => {
-                        println!("Listen only supported on PostgreSQL engine");
-                    }
-                }
-                thread::sleep(Duration::from_millis(16));
-            }*/
-            }
-        });*/
-        // let on_results_arrived : Callbacks<&'a [StatementOutput]> = Default::default();
-
         // Statement listening thread.
         let handle = spawn_listener_thread(engine.clone(), result_cb, cmd_rx);
 
-        /*let (info_sender, info_r) = mpsc::channel::<()>();
-        let (info_s, info_recv) = mpsc::channel::<Option<DBInfo>>();
-        // Database info thread
-        thread::spawn({
-            let engine = self.engine.clone();
-            move|| {
-                loop {
-                    if let Ok(_) = info_r.recv() {
-                        let info = if let Some(ref mut engine) = *engine.lock().unwrap() {
-                            let opt_info = engine.info();
-                            if let Some(info) = &opt_info {
-                                // println!("{}", crate::sql::object::build_er_diagram(String::new(), &info[..]));
-                            }
-                            opt_info
-                        } else {
-                            println!("Unable to acquire lock over SQL engine");
-                            None
-                        };
-                        info_s.push(info);
-                    }
-                }
-            }
-        });*/
         Self {
-            // info_sender,
-            // info_receiver,
-            // ans_receiver : Some(ans_rx),
             cmd_sender : cmd_tx,
             engine,
             last_cmd : Arc::new(Mutex::new(Vec::new())),
             listen_channels : Arc::new(Mutex::new(Vec::new())),
-            handle : Arc::new(handle)
+            _handle : Arc::new(handle)
             
         }
     }
 
-    pub fn send_single_command(&self, sql : String, timeout : usize, safety : SafetyLock) -> Result<(), String> {
-        match self.cmd_sender.send(ExecutionRequest { sql : sql.clone(), subs : HashMap::new(), safety, timeout, is_schedule : false, mode : ExecMode::Single }) {
+    pub fn send_single_command(&self, sql : String, safety : SafetyLock) -> Result<(), String> {
+        match self.cmd_sender.send(ExecutionRequest { sql : sql.clone(), subs : HashMap::new(), safety, is_schedule : false, mode : ExecMode::Single }) {
             Ok(_) => {
 
             },
-            Err(e) => {
+            Err(_e) => {
                 // Most likely, a panic when running the client caused this.
                 return Err(format!("Database connection thread is down.\nPlease restart the application."));
             }
@@ -196,7 +142,7 @@ impl SqlListener {
     /// are correctly parsed, send the SQL to the server. If sequence is not
     /// correctly parsed, do not send anything to the server, and return the
     /// error to the user.
-    pub fn send_commands(&self, sql : String, subs : HashMap<String, String>, safety : SafetyLock, is_schedule : bool, timeout : usize) -> Result<(), String> {
+    pub fn send_commands(&self, sql : String, subs : HashMap<String, String>, safety : SafetyLock, is_schedule : bool) -> Result<(), String> {
 
         // Before sending a command, it might be interesting to check if self.handle.is_running()
         // when this stabilizes at the stdlib. If it is not running (i.e. there is a panic at the
@@ -208,67 +154,18 @@ impl SqlListener {
             return Err(String::from("Empty statement sequence"));
         }
 
-        /*if let Ok(mut last_cmd) = self.last_cmd.lock() {
-            last_cmd.clear();
-            match parse {
-                true => {
-                    match crate::sql::parsing::parse_sql(&sql[..], &subs) {
-                        Ok(stmts) => {
-                            for stmt in stmts.iter() {
-                                let stmt_txt = match stmt {
-                                    Statement::Query(_) => String::from("select"),
-                                    _ => String::from("other")
-                                };
-                                last_cmd.push(stmt_txt);
-                            }
-                        },
-                        Err(e) => {
-                            for stmt in parsing::split_unparsed_statements(sql.clone())? {
-                                match stmt {
-                                    AnyStatement::Raw(_, _, is_select) => {
-                                        let stmt_txt = match is_select {
-                                            true => String::from("select"),
-                                            false => String::from("other")
-                                        };
-                                        last_cmd.push(stmt_txt);
-                                    },
-                                    AnyStatement::Local(local) => {
-                                        match local {
-                                            LocalStatement::Exec(ref exec) => if exec.into.is_none() {
-                                                last_cmd.push(String::from("select"))
-                                            } else {
-                                                last_cmd.push(String::from("other"))
-                                            },
-                                            _ => last_cmd.push(String::from("other"))
-                                        }
-                                    },
-                                    _ => { /*Parsed variant not expected here*/ }
-                                }
-                            }
-                        }
-                    }
-                },
-                false => {
-                    last_cmd.push(String::from("other"));
-                }
-            }
-        } else {
-            return Err(format!("Unable to acquire lock over last commands"));
-        }*/
-
         let request = ExecutionRequest { 
             sql : sql.clone(), 
             subs, 
             safety, 
             is_schedule,
-            timeout, 
             mode : ExecMode::Multiple 
         };
         match self.cmd_sender.send(request) {
             Ok(_) => {
 
             },
-            Err(e) => {
+            Err(_e) => {
                 // Most likely, a panic when running the client caused this.
                 return Err(format!("Database connection thread is down.\nPlease restart the application."));
             }
@@ -355,7 +252,7 @@ impl SqlListener {
         let engine = self.engine.clone();
         thread::spawn(move|| {
             if let Ok(mut opt_engine) = engine.lock() {
-                if let Some(mut engine) = opt_engine.as_mut() {
+                if let Some(engine) = opt_engine.as_mut() {
                     f(engine.db_info().ok().map(|info| info.schema ));
                 } else {
                     f(None);
@@ -375,7 +272,7 @@ impl SqlListener {
         let engine = self.engine.clone();
         thread::spawn(move|| {
             if let Ok(mut opt_engine) = engine.lock() {
-                if let Some(mut engine) = opt_engine.as_mut() {
+                if let Some(engine) = opt_engine.as_mut() {
                     let ans = copy_table_from_csv(path, engine.as_mut(), action);
                     f(ans);
                 } else {
@@ -409,9 +306,9 @@ where
         loop {
             match cmd_rx.recv() {
             
-                Ok(ExecutionRequest { sql, subs, safety, is_schedule, timeout, mode }) => {
+                Ok(ExecutionRequest { sql, subs, safety, is_schedule, mode }) => {
                 
-                    let mut result = Vec::new();
+                    let result;
                     
                     match engine.lock() {
                         Ok(mut opt_eng) => match &mut *opt_eng {
@@ -444,7 +341,7 @@ where
                     result_cb(result, mode);
                     
                 },
-                Err(e) => {
+                Err(_e) => {
 
                     // If this is reached, it means the main thread is down. 
                     // There is nothing to do except break the loop.
@@ -471,7 +368,7 @@ fn copy_table_from_csv(
                 conn.import(
                     &mut tbl,
                     &action.table[..],
-                    &action.cols[..],
+                    // &action.cols[..],
                     // false,
                     // true
                 )

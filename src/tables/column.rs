@@ -7,7 +7,7 @@ use postgres::types::ToSql;
 use std::marker::Sync;
 use rust_decimal::Decimal;
 use super::nullable_column::*;
-use num_traits::ToPrimitive;
+
 use super::field::Field;
 use serde_json::Value;
 use std::borrow::Cow;
@@ -250,7 +250,7 @@ impl<'a> Column {
 pub mod from {
 
     use super::*;
-    use std::convert::{ From, TryFrom };
+    use std::convert::{ From };
 
     impl Into<()> for Column {
         fn into(self) -> () {
@@ -259,13 +259,13 @@ pub mod from {
     }
 
     impl From<()> for Column {
-        fn from(value: ()) -> Self {
+        fn from(_value: ()) -> Self {
             unimplemented!()
         }
     }
 
     impl From<Vec<()>> for Column {
-        fn from(value: Vec<()>) -> Self {
+        fn from(_value: Vec<()>) -> Self {
             unimplemented!()
         }
     }
@@ -376,7 +376,7 @@ pub mod from {
 
 pub mod try_into {
 
-    use std::convert::{ TryInto, TryFrom};
+    use std::convert::{ TryFrom};
     use super::*;
 
     impl TryFrom<Column> for Vec<bool> {
