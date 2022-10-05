@@ -44,7 +44,6 @@ rand = "0.8.5"
 name="queries"
 path="src/main.rs"
 
-
 [build-dependencies]
 gtk4 = "0.4"
 
