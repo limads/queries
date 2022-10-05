@@ -15,5 +15,5 @@ pub mod sql;
 
 pub const SETTINGS_FILE : &'static str = "user.json";
 
-pub const APP_ID : &'static str = "com.github.limads.queries";
+pub const APP_ID : &'static str = "com.github.limads.Queries";
 

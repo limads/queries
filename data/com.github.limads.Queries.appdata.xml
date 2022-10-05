@@ -3,7 +3,29 @@
 	<id>com.github.limads.Queries.desktop</id>
 	<metadata_license>CC0-1.0</metadata_license>
 	<project_license>GPL-3.0-or-later</project_license>
+	<summary>Listen to your favorite shows</summary>
 	<description>
 	  <p>A simple SQL client</p>
 	</description>
+	<developer_name>Diego Lima</developer_name>
+    <url type="homepage">https://github.com/limads/queries</url>
+    <url type="bugtracker">https://github.com/limads/queries/issues</url>
+    <url type="donation">https://www.gnome.org/donate/</url>
+  <screenshots>
+    <screenshot>
+      <image>https://github.com/limads/queries/blob/master/data/icons/hicolor/128x128/apps/com.github.limads.Queries.png</image>
+    </screenshot>
+  </screenshots>
+  <releases>
+    <release version="0.1" date="2022-10-06">
+     <description>
+        <p>
+          Initial release
+        </p>
+        <ul>
+          <li>Initial feature</li>
+          <li>Initial feature</li>
+        </ul>
+      </description>
+    </release>
 </component>
