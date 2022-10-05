@@ -9,7 +9,6 @@
     "command" : "queries",
     "finish-args" : [
         "--share=network",
-        "--share=ipc",
         "--socket=wayland",
         "--socket=x11",
         "--socket=fallback-x11",
@@ -20,11 +19,7 @@
         "append-path" : "/usr/lib/sdk/rust-stable/bin",
         "build-args" : [
             "--share=network"
-        ],
-        "env" : {
-            "RUST_BACKTRACE" : "1",
-            "RUST_LOG" : "Queries=debug"
-        }
+        ]
     },
     "cleanup" : [
         "/include",
