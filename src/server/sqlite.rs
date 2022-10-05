@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use rusqlite;
 use std::path::PathBuf;
 use super::*;
@@ -96,7 +101,6 @@ impl Connection for SqliteConnection {
         }*/
 
         let insert = tbl.sql_table_insertion(dst, cols);
-        println!("{}", insert);
         let mut insert_stmt = client.prepare(&insert).map_err(|e| format!("{}", e) )?;
         insert_stmt.execute(rusqlite::NO_PARAMS).map_err(|e| format!("{}", e) )?;
         Ok(tbl.shape().0)
@@ -123,7 +127,6 @@ impl Connection for SqliteConnection {
                                 }
                             },
                             Err(e) => {
-                                println!("Error building table: {}", e);
                                 StatementOutput::Invalid(crate::sql::build_error_with_stmt(&e, &query), false)
                             }
                         }

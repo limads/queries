@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use postgres::Client;
 use serde_json;
 use std::str::FromStr;
@@ -14,7 +19,6 @@ pub fn listen_at_channel(conn : &mut Client, ch : &mut (String, String, bool)) {
                 } else {
                     if let Ok(filt) = serde_json::Value::from_str(&ch.1) {
                         if notif.payload().is_empty() {
-                            println!("Payload empty");
                             return;
                         }
                         if let Ok(pay) = serde_json::Value::from_str(&notif.payload()) {
@@ -33,7 +37,6 @@ pub fn listen_at_channel(conn : &mut Client, ch : &mut (String, String, bool)) {
                                                         }
                                                     },
                                                     _ => {
-                                                        println!("Filter value expected to be string");
                                                         return;
                                                     }
                                                 }
@@ -42,7 +45,7 @@ pub fn listen_at_channel(conn : &mut Client, ch : &mut (String, String, bool)) {
                                                 match_all = false;
                                             },
                                             _ => {
-                                                println!("Payload key is not string");
+                                                eprintln!("Payload key is not string");
                                                 return;
                                             }
                                         }
@@ -50,20 +53,20 @@ pub fn listen_at_channel(conn : &mut Client, ch : &mut (String, String, bool)) {
                                     match_all
                                 },
                                 (serde_json::Value::Object(filt_map), _) => {
-                                    println!("Payload is not valid JSON");
+                                    eprintln!("Payload is not valid JSON");
                                     return;
                                 },
                                 _ => {
-                                    println!("Filter is not valid JSON");
+                                    eprintln!("Filter is not valid JSON");
                                     return;
                                 }
                             }
                         } else {
-                            println!("Unable to parse payload as JSON");
+                            eprintln!("Unable to parse payload as JSON");
                             return;
                         }
                     } else {
-                        println!("Unable to parse output as JSON");
+                        eprintln!("Unable to parse output as JSON");
                         return;
                     }
                 };

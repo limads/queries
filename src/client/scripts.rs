@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use stateful::{React, Inherit};
 use stateful::{Callbacks, ValuedCallbacks};
 use gtk4::prelude::*;
@@ -34,7 +39,7 @@ impl OpenedScripts  {
 
     pub fn send(&self, action : MultiArchiverAction) {
         if let Err(e) = self.0.sender().send(action) {
-            println!("{}", e);
+            eprintln!("{}", e);
         }
     }
 
@@ -73,7 +78,6 @@ impl React<SaveDialog> for OpenedScripts {
                 ResponseType::Accept => {
                     if let Some(path) = dialog.file().and_then(|f| f.path() ) {
                         send.send(MultiArchiverAction::SaveRequest(Some(path.to_str().unwrap().to_string()))).unwrap();
-                        println!("Asked to save to path {:?}", path);
                     }
                 },
                 _ => { }
@@ -182,7 +186,6 @@ impl React<QueriesEditor> for OpenedScripts {
         editor.script_list.list.connect_row_activated({
             let send = self.sender().clone();
             move |list, row| {
-                println!("Row activated");
                 let child = row.child().unwrap().downcast::<Box>().unwrap();
                 let lbl = PackedImageLabel::extract(&child).unwrap();
                 let path = lbl.lbl.text().as_str().to_string();

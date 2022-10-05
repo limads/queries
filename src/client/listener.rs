@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use std::thread::{self, JoinHandle};
 use crate::sql::{StatementOutput, LocalStatement};
 use std::sync::{Arc, Mutex, mpsc::{self, channel, Sender, Receiver}};
@@ -333,16 +338,13 @@ impl SqlListener {
         if let Ok(ref mut opt_engine) = self.engine.lock() {
             if let Some(ref mut engine) = opt_engine.as_mut() {
                 let opt_info = engine.db_info().ok();
-                // if let Some(info) = &opt_info {
-                // println!("{}", crate::sql::object::build_er_diagram(String::new(), &info[..]));
-                // }
                 opt_info
             } else {
-                println!("No active engine");
+                eprintln!("No active engine");
                 None
             }
         } else {
-            println!("Unable to acquire lock over SQL engine");
+            eprintln!("Unable to acquire lock over SQL engine");
             None
         }
     }
@@ -359,7 +361,7 @@ impl SqlListener {
                     f(None);
                 }
             } else {
-                println!("Unable to acquire lock over engine");
+                eprintln!("Unable to acquire lock over engine");
             }
         });
     }
@@ -380,7 +382,7 @@ impl SqlListener {
                     f(Err(String::from("No active connection")));
                 }
             } else {
-                println!("Unable to acquire lock over engine");
+                eprintln!("Unable to acquire lock over engine");
             }
         });
     }

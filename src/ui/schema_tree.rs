@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use gtk4::*;
 use gtk4::prelude::*;
 use gio::prelude::*;
@@ -405,16 +410,16 @@ impl SchemaTree {
                                 let mut rendc = rendered_content.borrow_mut();
                                 if let Some(cont) = rendc.take() {
                                     if cont.is_empty() {
-                                        println!("Warning: Content to be rendered is empty");
+                                        eprintln!("Warning: Content to be rendered is empty");
                                     }
                                     if let Err(e) = f.write_all(cont.as_bytes()) {
-                                        println!("{}", e);
+                                        eprintln!("{}", e);
                                     }
                                 } else {
-                                    println!("No content to be rendered");
+                                    eprintln!("No content to be rendered");
                                 }
                             } else {
-                                println!("Unable to create/write to file");
+                                eprintln!("Unable to create/write to file");
                             }
                         }
                     },
@@ -770,7 +775,6 @@ impl React<ConnectionBox> for SchemaTree {
     fn react(&self, conn_bx : &ConnectionBox) {
         let schema_tree = self.clone();
         conn_bx.switch.connect_state_set(move |switch, _| {
-            println!("Switch changed");
             if switch.is_active() {
                 schema_tree.repopulate(vec![DBObject::Schema { 
                     name : String::from("Connecting..."), 
@@ -901,7 +905,7 @@ impl React<ActiveConnection> for SchemaTree {
                         send.send(ActiveConnectionAction::Error(("Invalid template path".to_owned())));
                     }
                 } else {
-                    println!("No file selected");
+                    eprintln!("No file selected");
                 }
             }
         });
@@ -1246,7 +1250,7 @@ impl ReportDialog {
                         files.1 = ix;
                         btn_gen.set_sensitive(true);
                     } else {
-                        println!("No file with {:?}", id);
+                        eprintln!("No file with {:?}", id);
                     }
                 } else {
                     btn_gen.set_sensitive(false);

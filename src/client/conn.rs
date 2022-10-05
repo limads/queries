@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use gtk4::*;
 use gtk4::prelude::*;
 use stateful::{React, Callbacks};
@@ -184,7 +189,6 @@ impl ConnectionSet {
             // let on_view = on_view.clone();
             let mut certs = Vec::new();
             move |action| {
-                println!("{:?} {:?}", action, conns.0);
                 match action {
                     ConnectionAction::Switch(opt_ix) => {
                         conns.1 = opt_ix;
@@ -227,7 +231,6 @@ impl ConnectionSet {
                         // was added from the settings file, there will be a valid value here.
                         let mut conn = opt_conn.unwrap_or_default();
                         update_certificate(&mut conn, &certs);
-                        println!("Adding {:?}", conn);
                         
                         conns.0.push(conn.clone());
 
@@ -271,7 +274,7 @@ impl ConnectionSet {
                             
                             updated.call((ix, conns.0[ix as usize].clone()));
                         } else {
-                            println!("No connection selected");
+                            eprintln!("No connection selected");
                         }
                     },
                     
@@ -281,7 +284,7 @@ impl ConnectionSet {
                         selected.call(None);
                     },
                     ConnectionAction::CloseWindow => {
-                        // println!("Replacing with {:?}", conns.0);
+
                         final_state.replace(conns.0.clone());
                     }
                 }
@@ -467,11 +470,11 @@ fn conn_str_test() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
 
 }
 
-pub fn is_local(info : &ConnectionInfo) -> bool {
+pub fn is_local(info : &ConnectionInfo) -> Option<bool> {
     if let Some(fst_part) = info.host.split(":").next() {
-        fst_part.trim() == "127.0.0.1" || fst_part.trim() == "localhost"
+        Some(fst_part.trim() == "127.0.0.1" || fst_part.trim() == "localhost")
     } else {
-        false
+        None
     }
 }
 
@@ -490,8 +493,7 @@ pub enum Security {
 #[derive(Debug, Clone)]
 pub struct ConnURI {
     pub info : ConnectionInfo,
-    pub uri : String,
-    // pub security : Security
+    pub uri : String
 }
 
 impl ConnURI {
@@ -522,15 +524,11 @@ impl ConnURI {
         uri += "@";
         let split_port : Vec<&str> = info.host.split(":").collect();
         let (host_prefix, port) = match split_port.len() {
-            // 1 => {
-            // (split_port[0], None)
-            //    return Err(
-            // },
             2 => {
                 (split_port[0], split_port[1])
             },
             _n => {
-                return Err(format!("Invalid host value (expected host:port)\n(ex. 127.0.0.1:5432"));
+                return Err(format!("Invalid host value (expected host:port format)\n(ex. 127.0.0.1:5432"));
             }
         };
         uri += host_prefix;
@@ -543,18 +541,13 @@ impl ConnURI {
         uri += "/";
         uri += &info.database;
         
-        // sslmode=verify-ca/verify-full
-        let local = is_local(&info);
-        println!("is local = {:?}", local);
+        /*// sslmode=verify-ca/verify-full
+        let local = is_local(&info)
+            .ok_or(String::from("Could not determine if host is local"))?;
         if !local {
-            if info.is_tls == Some(true) {
-                uri += "?tlsmode=require";
-            } else if info.is_tls == Some(false) {
-                uri += "?sslmode=require";
-            }
-        }
+            uri += "?sslmode=require";
+        }*/
         
-        println!("Conn URI: {}", uri);
         Ok(ConnURI { info, uri })
     }
 
@@ -755,19 +748,14 @@ impl ActiveConnection {
                                 uri.info.is_tls = Some(cert.is_tls);
                             }
                             
-                            println!("Final URI: {:?}", uri);
-                            
                             let timeout_secs = us.execution.statement_timeout;
                             move || {
                                 match PostgresConnection::try_new(uri.clone()) {
                                     Ok(mut conn) => {
                                     
-                                        println!("Connected");
-
                                         let db_info = match conn.db_info() {
                                             Ok(info) => Some(info),
                                             Err(e) => {
-                                                println!("{}", e);
                                                 None
                                             }
                                         };
@@ -783,7 +771,6 @@ impl ActiveConnection {
                                         send.send(ActiveConnectionAction::ConnectAccepted(boxed::Box::new(conn), db_info)).unwrap();
                                     },
                                     Err(e) => {
-                                        println!("Connection failure");
                                         send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(), e)).unwrap();
                                     }
                                 }
@@ -794,14 +781,12 @@ impl ActiveConnection {
                     // At this stage, the connection is active, and the URI is already
                     // forgotten.
                     ActiveConnectionAction::ConnectAccepted(conn, db_info) => {
-                    
-                        println!("Connection accepted");
                         
                         schema = db_info.as_ref().map(|info| info.schema.clone() );
                         selected_obj = None;
                         let info = conn.conn_info();
                         if let Err(e) = listener.update_engine(conn) {
-                            println!("{}", e);
+                            eprintln!("{}", e);
                         }
                         // if let Some(info) = &mut db_info {
                         //    info.info.dt = Some(Local::now().to_string());
@@ -1480,8 +1465,6 @@ impl React<SchemaTree> for ActiveConnection {
 
         tree.form.btn_ok.connect_clicked({
 
-            // println!("Tree btn clicked");
-
             let insert_action = tree.insert_action.clone();
             let call_action = tree.call_action.clone();
             let entries = tree.form.entries.clone();
@@ -1511,19 +1494,13 @@ impl React<SchemaTree> for ActiveConnection {
                 //match form_action {
                 //    FormAction::Table(obj) => {
 
-                // println!("Database object: {:?}", obj);
-
                 match obj {
                     DBObject::Table { schema, name, cols, .. } => {
-
-                        // println!("Database object: {:?}", obj);
 
                         let tys : Vec<DBType> = cols.iter().map(|col| col.1 ).collect();
                         match sql_literal_tuple(&entries, &tys) {
                             Ok(tuple) => {
                                 let insert_stmt = format!("insert into {}.{} values {};", schema, name, tuple);
-
-                                // println!("{}", insert_stmt);
 
                                 send.send(ActiveConnectionAction::ExecutionRequest(insert_stmt));
                             },
@@ -1534,7 +1511,6 @@ impl React<SchemaTree> for ActiveConnection {
                     },
                     DBObject::Function { schema, name, args, ret, .. } => {
                         if args.len() == 0 {
-                            // println!("Return type: {:?}", ret);
                             let call_stmt = if ret.is_some() {
                                 format!("select {}.{}();", schema, name)
                             } else {
@@ -1558,7 +1534,7 @@ impl React<SchemaTree> for ActiveConnection {
                         }
                     },
                     _ => {
-                        println!("Database object is: {:?}", obj);
+
                     }
                 }
 
@@ -1579,7 +1555,6 @@ impl React<SchemaTree> for ActiveConnection {
                     ResponseType::Accept => {
                         if let Some(path) = dialog.file().and_then(|f| f.path() ) {
                             send.send(ActiveConnectionAction::TableImport(path.to_str().unwrap().to_string())).unwrap();
-                            println!("Asked to save to path {:?}", path);
                         }
                     },
                     _ => { }

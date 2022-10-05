@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use gtk4::prelude::*;
 use gtk4::*;
 use libadwaita;
@@ -287,7 +292,6 @@ impl React<ActiveConnection> for QueriesContent {
             let stack = self.results.stack.clone();
             let curr_toast = self.curr_toast.clone();
             move |(info, err)| {
-                println!("Db failure");
                 let mut last_toast = curr_toast.borrow_mut();
                 if let Some(t) = last_toast.take() {
                     t.dismiss();

@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use gtk4::*;
 use gtk4::prelude::*;
 use crate::ui::PackedImageLabel;
@@ -113,7 +118,7 @@ impl React<OpenedScripts> for FileList {
                 if let Some(row) = list.row_at_index(info.index as i32) {
                     list.select_row(Some(&row));
                 } else {
-                    println!("Missing file {:?}, at index {}", info.path, info.index);
+                    eprintln!("Missing file {:?}, at index {}", info.path, info.index);
                 }
             }
         });

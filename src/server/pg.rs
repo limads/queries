@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use postgres;
 use crate::sql::{*, object::*};
 use rust_decimal::Decimal;
@@ -61,6 +66,11 @@ pub struct PostgresConnection {
 
 }
 
+const CERT_ERR : &'static str = r#"
+"Remote connections without an associated TLS/SSL certificate are unsupported.
+Inform a certificate file path for this host at the security settings."
+"#;
+
 async fn connect(
     rt : &tokio::runtime::Runtime, 
     uri : &ConnURI
@@ -76,7 +86,6 @@ async fn connect(
                 use native_tls::{Certificate, TlsConnector};
                 use postgres_native_tls::MakeTlsConnector;
 
-                println!("Reading certificate");
                 let cert_content = fs::read(cert).map_err(|e| format!("{}", e) )?;
                 let cert = Certificate::from_pem(&cert_content)
                     .map_err(|e| format!("{}", e) )?;
@@ -85,11 +94,8 @@ async fn connect(
                     .build().map_err(|e| format!("{}", e) )?;
                 
                 let connector = MakeTlsConnector::new(connector);
-                println!("TLS connector built");
-                println!("Attempting connection");
                 match tokio_postgres::connect(&uri.uri[..], connector).await {
                     Ok((cli, conn)) => {
-                        println!("Connected");
                         /*Ok(Self{
                             conn,
                             exec : Arc::new(Mutex::new((Executor::new(), String::new()))),
@@ -100,7 +106,6 @@ async fn connect(
                         Ok(cli)
                     },
                     Err(e) => {
-                        println!("Connection error");
                         let mut e = e.to_string();
                         format_pg_string(&mut e);
                         Err(e)
@@ -119,7 +124,6 @@ async fn connect(
                 let connector = MakeTlsConnector::new(builder.build());
                 match tokio_postgres::connect(&uri.uri[..], connector).await {
                     Ok((cli, conn)) => {
-                        println!("Connected");
                         /*Ok(Self{
                             conn,
                             exec : Arc::new(Mutex::new((Executor::new(), String::new()))),
@@ -130,7 +134,6 @@ async fn connect(
                         Ok(cli)
                     },
                     Err(e) => {
-                        println!("Connection error");
                         let mut e = e.to_string();
                         format_pg_string(&mut e);
                         Err(e)
@@ -145,7 +148,7 @@ async fn connect(
             // }
         }
     } else {
-        if crate::client::is_local(&uri.info) {
+        if crate::client::is_local(&uri.info)  == Some(true) {
             // Only connect without SSL/TLS when the client is local.
             match tokio_postgres::connect(&uri.uri[..], NoTls{ }).await {
                 Ok((cli, conn)) => {
@@ -166,7 +169,7 @@ async fn connect(
                 }
             }
         } else {
-            Err(format!("Remote connections without an TLS/SSL certificate is unsupported.\nInform a certificate file path for this host at the security settings."))
+            Err(format!("{}", CERT_ERR))
         }
     }
 }
@@ -287,7 +290,6 @@ async fn query_multiple(
         match s {
             AnyStatement::Parsed(stmt, sql) => {
                 if crate::sql::is_like_query(&stmt) {
-                    println!("{}", sql);
                     query_futures.push(client.query(sql, &[]));
                 } else {
                     panic!("Only queries can be executed asynchronously")
@@ -309,7 +311,7 @@ impl Connection for PostgresConnection {
             match self.client.execute(&cfg_stmt[..], &[]).await {
                 Ok(_) => { },
                 Err(e) => {
-                    println!("{}", e);
+                    eprintln!("{}", e);
                 }
             }
         });
@@ -320,9 +322,6 @@ impl Connection for PostgresConnection {
     }
 
     fn query(&mut self, query : &str, subs : &HashMap<String, String>) -> StatementOutput {
-        // let query = substitute_if_required(q, subs);
-        // println!("Final query: {}", query);
-        // println!("Executing: {}", query);
         self.rt.as_ref().unwrap().block_on(async {
             match self.client.query(&query[..], &[]).await {
                 Ok(rows) => {
@@ -448,9 +447,6 @@ impl Connection for PostgresConnection {
         self.rt.as_ref().unwrap().block_on(async {
             let ans = match stmt {
                 AnyStatement::Parsed(_, s) | AnyStatement::ParsedTransaction(_, s) => {
-                    // let s = format!("{}", stmt);
-                    // let final_statement = substitute_if_required(&s, subs);
-                    // println!("Final statement: {}", final_statement);
                     self.client.execute(&s[..], &[]).await
                 },
                 AnyStatement::Raw(_, s, _) => {
@@ -477,8 +473,6 @@ impl Connection for PostgresConnection {
     }
 
     fn db_info(&mut self) -> Result<DBInfo, Box<dyn Error>> {
-        
-        println!("Querying info...");
         
         let mut col_queries = Vec::new();
         let mut pk_queries = Vec::new();
@@ -553,16 +547,14 @@ impl Connection for PostgresConnection {
             top_objs.push(schema_obj);
         }
         
-        println!("Schema: {:?}", top_objs);
         let details = match query_db_details(self, &self.info.database.clone()[..]) {
             Ok(details) => Some(details),
             Err(e) => {
-                println!("{}", e);
+                eprintln!("{}", e);
                 None
             }
         };
 
-        println!("Details: {:?}", details);
         Ok(DBInfo { schema : top_objs, details })
 
         /*} else {

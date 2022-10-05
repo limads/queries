@@ -1,12 +1,8 @@
-
-
-
-
 mod common;
 
 #[test]
 pub fn simple_connection() {
-    /*common::run_with_temp_db(|temp| {
+    common::run_with_temp_db(|temp| {
         gtk4::init();
         let conn = ActiveConnection::new(&SharedUserState::default());
         conn.connect_db_connected(move|(conn,info)| {
@@ -24,6 +20,6 @@ pub fn simple_connection() {
         });
         conn.send(ActiveConnectionAction::ConnectRequest(temp.uri()));
         common::run_loop_for_ms(500);
-    });*/
+    });
 }
 

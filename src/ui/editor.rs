@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use gtk4::prelude::*;
 use gtk4::*;
 use sourceview5;
@@ -93,8 +98,6 @@ impl React<OpenedScripts> for QueriesEditor {
             move |file| {
                 if let Some(content) = file.content.clone() {
                     views[file.index].buffer().set_text(&content);
-                } else {
-                    println!("File does not have content");
                 }
                 add_if_not_present(&list, &file);
             }
@@ -169,17 +172,16 @@ impl React<ExecButton> for QueriesEditor {
             if selected_view >= 0 {
                 if let Some(view) = weak_views[selected_view as usize].upgrade() {
                     if let Ok(Some(txt)) = retrieve_statements_from_buffer(&view) {
-                        println!("Executing...");
 
                         // Implemented at React<ExecButton> for ActiveConnection
 
                         exec_action.activate(Some(&txt.to_variant()));
                     } else {
-                        println!("No text to be retrieved");
+                        eprintln!("No text to be retrieved");
                     }
                 }
             } else {
-                println!("No selected view");
+                eprintln!("No selected view");
             }
         });
     }
@@ -609,7 +611,6 @@ impl ExportDialog {
             &[("Cancel", ResponseType::None), ("Save", ResponseType::Accept)]
         );
         dialog.connect_response(move |dialog, resp| {
-            println!("{:?}", resp);
             match resp {
                 ResponseType::Close | ResponseType::Reject | ResponseType::Accept |
                 ResponseType::Yes | ResponseType::No | ResponseType::None => {
@@ -788,18 +789,16 @@ impl React<QueriesEditor> for FindDialog {
             let matches_lbl = self.matches_lbl.clone();
             let (replace_btn, replace_all_btn) = (self.replace_btn.clone(), self.replace_all_btn.clone());
             self.find_action.connect_activate(move |action, _| {
-                println!("Find activated");
                 if let Some(ix) = get_index(&action) {
-                    println!("Index = {}", ix);
                     if let Ok(mut ctx) = ctx.try_borrow_mut() {
                         let txt = find_entry.text().to_string();
                         if let Some(new_ctx) = start_search(&views[ix], &txt) {
                             *ctx = Some((new_ctx, None, None));
                         } else {
-                            println!("Unable to get text buffer to create search context");
+                            eprintln!("Unable to get text buffer to create search context");
                         }
                     } else {
-                        println!("Unable to borrow search context");
+                        eprintln!("Unable to borrow search context");
                     }
 
                     let n_found = move_match(&views[ix], &ctx, &matches_lbl, true);
@@ -811,7 +810,7 @@ impl React<QueriesEditor> for FindDialog {
                     replace_btn.set_sensitive(sensitive);
                     replace_all_btn.set_sensitive(sensitive);
                 } else {
-                    println!("No index available");
+                    eprintln!("No index available");
                 }
             });
         }
@@ -841,7 +840,7 @@ impl React<QueriesEditor> for FindDialog {
                 if let Some((ref ctx, _, _)) = &*ctx {
                     match ctx.replace_all(&new_txt[..]) {
                         Ok(_n) => { },
-                        Err(e) => { println!("{}", e) }
+                        Err(e) => { eprintln!("{}", e) }
                     }
                 }
                 *ctx = None;
@@ -948,7 +947,7 @@ fn move_match(
                 (false, Some(start), Some(end)) => {
                     start.clone()
                 },
-                _ => { println!("No start buffer"); return None; }
+                _ => { eprintln!("No start buffer"); return None; }
             };
             let next_match = if is_forward {
                 // ctx.forward2(&start_search)
@@ -973,15 +972,14 @@ fn move_match(
                     None
                 }
             } else {
-                println!("No search available");
                 None
             }
         } else {
-            println!("Unable to borrow context");
+            eprintln!("Unable to borrow context");
             None
         }
     } else {
-        println!("Unabele to borrow search context");
+        eprintln!("Unabele to borrow search context");
         None
     }
 }

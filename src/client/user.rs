@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use super::{ConnectionSet, ConnectionInfo, ActiveConnection, OpenedScripts};
 use archiver::OpenedFile;
 use chrono::prelude::*;
@@ -522,15 +527,21 @@ impl PersistentState<QueriesWindow> for SharedUserState {
 
     fn persist(&self, path : &str) -> JoinHandle<bool> {
         self.try_borrow_mut().and_then(|mut s| {
-            s.conns.sort_by(|a, b| {
-                a.host.cmp(&b.host).then(a.database.cmp(&b.database)).then(a.user.cmp(&b.user))
-            });
-            s.conns.dedup_by(|a, b| {
-                &a.host[..] == &b.host[..] && &a.database[..] == &b.database[..] && &a.user[..] == &b.user[..]
-            });
-            
-            // Only preserve connections that have been accepted at least once.
-            s.conns.retain(|c| !c.is_default() && !c.host.is_empty() && !c.database.is_empty() && !c.user.is_empty() && c.dt.is_some() );
+
+            if s.security.save_conns {
+                s.conns.sort_by(|a, b| {
+                    a.host.cmp(&b.host).then(a.database.cmp(&b.database)).then(a.user.cmp(&b.user))
+                });
+                s.conns.dedup_by(|a, b| {
+                    &a.host[..] == &b.host[..] && &a.database[..] == &b.database[..] && &a.user[..] == &b.user[..]
+                });
+
+                // Only preserve connections that have been accepted at least once.
+                s.conns.retain(|c| !c.is_default() && !c.host.is_empty() && !c.database.is_empty() && !c.user.is_empty() && c.dt.is_some() );
+            } else {
+                s.conns.clear();
+                s.certs.clear();
+            }
             
             s.scripts.iter_mut().for_each(|mut script| { script.content.as_mut().map(|c| c.clear() ); } );
             Ok(())

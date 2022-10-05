@@ -1,8 +1,12 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use std::thread::{self, JoinHandle};
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{ /*Receiver,*/ Sender, channel};
-use std::io::{self, /*Read, Write*/ };
-// use std::collections::HashMap;
+use std::sync::mpsc::{ Sender, channel};
+use std::io::{self};
 use std::time::Duration;
 use std::rc::Rc;
 

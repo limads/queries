@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use postgres::{self, types::ToSql };
 use std::convert::{TryInto, TryFrom};
 use rust_decimal::Decimal;
@@ -203,9 +208,7 @@ impl Table {
         }
         let ncols = names.len();
         let mut null_cols : Vec<NullableColumn> = Vec::new();
-        // println!("Column types");
         for i in 0..ncols {
-            // println!("{:?}", col_types[i]);
             let is_bool = col_types[i] == &Type::BOOL;
             let is_bytea = col_types[i] == &Type::BYTEA;
             let is_text = col_types[i] == &Type::TEXT ||
@@ -490,7 +493,6 @@ impl Table {
                 Ok(Table::new(None, names, parsed_cols)?)
             },
             Err(e) => {
-                println!("Error when creating table from text source : {}", e);
                 Err("Could not parse CSV content")
             }
         }
@@ -596,7 +598,6 @@ impl Table {
                 if i < ncol - 1 {
                     q += ","
                 } else {
-                    //println!("{}", nrows - 1 - line_n);
                     if line_n < nrows - 2 {
                         q += "),";
                     } else {
@@ -605,7 +606,6 @@ impl Table {
                 }
             }
         }
-        //println!("{}", q);
         q
     }
 
@@ -778,7 +778,7 @@ impl Table {
         for ix in ixs.iter() {
             match (self.names.get(*ix), self.cols.get(*ix)) {
                 (Some(name), Some(col)) => { cols = cols.take_and_push(name, col, *ix); },
-                _ => println!("Column not found at index {}", ix)
+                _ => { }
             }
         }
         cols
@@ -960,7 +960,6 @@ impl<'a> Columns<'a> {
                 if let Some(f) = d.to_f64() {
                     cvt.push(f);
                 } else {
-                    println!("Invalid decimal conversion");
                     return Err(NotNumericErr::DecConversion);
                 }
             }
@@ -981,10 +980,9 @@ impl<'a> Columns<'a> {
             let v : Result<Vec<T>,_> = c.clone().try_into();
             match v {
                 Ok(c) => { Some(c) },
-                Err(_) => { /*println!("{}", e);*/ None }
+                Err(_) => { None }
             }
         } else {
-            println!("Invalid column index");
             None
         }
     }
@@ -1106,7 +1104,6 @@ pub fn full_csv_display(tbl : &mut Table, cols : Vec<String>) -> String {
     };
     tbl.update_format(fmt);
     let csv_tbl = format!("{}", tbl);
-    println!("Table CSV:\n{}", csv_tbl);
     csv_tbl
 }
 
@@ -1170,7 +1167,6 @@ mod csv {
     pub fn parse_csv_as_text_cols(
         content : &String
     ) -> Result<Vec<(String, Vec<String>)>, String> {
-        // println!("Received content: {}", content);
         let mut csv_reader = csv::ReaderBuilder::new()
             .has_headers(true)
             .flexible(false)
@@ -1219,8 +1215,6 @@ mod csv {
                 }
             }
         }
-
-        // println!("Parsed CSV: {:?}", data_vec);
 
         match n_records {
             0 => Err("No records available.".to_string()),
@@ -1322,7 +1316,7 @@ pub fn col_as_vec<'a, T>(
     let mut data = Vec::new();
     for r in rows.iter() {
         let datum = r.try_get::<usize, T>(ix)
-            .map_err(|e| { println!("{}", e); "Unable to parse column" })?;
+            .map_err(|e| { "Unable to parse column" })?;
         data.push(datum);
     }
     Ok(data)
@@ -1336,11 +1330,10 @@ pub fn col_as_opt_vec<'a, T>(
         T : FromSql<'a> + ToSql + Sync,
 {
 
-    // println!("Type: {}", std::any::::<T>());
     let mut opt_data = Vec::new();
     for r in rows.iter() {
         let opt_datum = r.try_get::<usize, Option<T>>(ix)
-            .map_err(|e| { println!("{}", e); "Unable to parse column" })?;
+            .map_err(|e| { "Unable to parse column" })?;
         opt_data.push(opt_datum);
     }
     Ok(opt_data)

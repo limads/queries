@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use super::*;
 use sqlparser::dialect::{PostgreSqlDialect};
 use sqlparser::ast::{Statement, Function, Select, Value, Expr, SetExpr, SelectItem, Ident, TableFactor, Join, JoinOperator};
@@ -263,8 +268,6 @@ pub fn split_statement_tokens(mut tokens : Vec<Token>) -> Result<Vec<Vec<Token>>
     // dollar-quoted strings as its own kind of token.
     for tk in tokens.drain(0..) {
 
-        // println!("TK = {:?}, Inside dollar = {} Last is dollar = {}", tk, inside_dollar_quote, last_tk_is_dollar);
-
         match &tk {
             // Clear current token group and push as a new inner statement tokens vector
             Token::SemiColon => {
@@ -469,16 +472,12 @@ pub fn fully_parse_sql(
     let dialect = dialect::PostgreSqlDialect{};
     let mut any_stmts = Vec::new();
    
-    println!("{}", sql);
-    
     match Parser::parse_sql(&dialect, sql) {
         
         Ok(mut stmts) => {
         
             let mut curr_transaction = None;
             while stmts.len() > 0 {
-                
-                // println!("Parsed: {}", stmt);
                 
                 match stmts.remove(0) {
                     Statement::Copy{ .. } => {
@@ -527,7 +526,6 @@ pub fn fully_parse_sql(
     for token_group in split_tokens {
         match Parser::new(token_group.clone(), &dialect).parse_statement() {
             Ok(stmt) => {
-                // println!("{:?}", stmt);
                 match stmt {
                     Statement::Copy{ .. } => {
                         return Err(SQLError::Unsupported(format!("Unsupported statement (copy)")));
@@ -563,16 +561,12 @@ pub fn partially_parse_sql(
     let mut tokens = extract_postgres_tokens(&sql)
         .map_err(|e| SQLError::Lexing(e) )?;
 
-    // println!("{:?}", tokens);
-
     let split_tokens = split_statement_tokens(tokens).map_err(|e| SQLError::Lexing(e) )?;
 
     let dialect = dialect::PostgreSqlDialect{};
 
     let mut any_stmts = Vec::new();
     for token_group in split_tokens {
-
-        // println!("Recovered orig = {:?}", orig);
 
         /*// Make substitutions ONLY on the current token group string
         // We need to make this sutitution or else sqlparser won't be able
@@ -647,11 +641,6 @@ pub fn partially_parse_sql(
 // is executed. Repeated non-query statements are executed normally.
 pub fn filter_repeated_queries(any_stmts : Vec<AnyStatement>) -> Vec<AnyStatement> {
     let mut filt_stmts : Vec<AnyStatement> = Vec::new();
-
-    // println!("Examining repeated:");
-    // for stmt in any_stmts.iter() {
-        // println!("{:?}", stmt);
-    // }
 
     for any_stmt in any_stmts {
         match &any_stmt {
@@ -971,7 +960,6 @@ pub fn define_if_select(tk : &Token, might_be_select : &mut bool, is_select : &m
 pub fn split_unparsed_statements(sql_text : String) -> Result<Vec<AnyStatement>, String> {
     let mut unparsed_stmts = Vec::new();
     let tokens = extract_postgres_tokens(&sql_text)?;
-    // println!("Tokens: {:?}", tokens);
     let split_tokens = split_statement_tokens(tokens)?;
     for stmt_tokens in split_tokens {
         let mut token_iter = stmt_tokens.iter().peekable();
@@ -1013,8 +1001,6 @@ pub fn split_unparsed_statements(sql_text : String) -> Result<Vec<AnyStatement>,
             unparsed_stmts.push(AnyStatement::Raw(stmt_tokens.clone(), stmt_string.trim().to_string(), is_select));
         }
     }
-
-    //println!("Unparsed statements: {:?}", unparsed_stmts);
 
     Ok(unparsed_stmts)
 }

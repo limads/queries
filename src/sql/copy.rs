@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use std::cmp::{Eq, PartialEq};
 use sqlparser::tokenizer::{Tokenizer, Token, Word, Whitespace};
 use sqlparser::ast::{Statement, Function, Select, Value, Expr, SetExpr, SelectItem, Ident, TableFactor, Join, JoinOperator};
@@ -139,7 +144,6 @@ impl ToString for Copy {
             cp_s += &self.options[..];
         }
         cp_s += ";";
-        // println!("Built copy statement: {}", cp_s);
         cp_s
     }
 }

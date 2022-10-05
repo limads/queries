@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use quick_xml::Reader;
 use quick_xml::Writer;
 use quick_xml::events::{Event, BytesEnd, BytesStart, BytesText, attributes::Attribute };
@@ -55,7 +60,6 @@ fn substitute_field(
     missing : Option<&str>
 ) -> Result<(), Box<dyn Error>> {
     // Search for this txt in the data table columns
-	// println!("Looking for {}", txt.trim());
     let col = table.get_column_by_name(colname).ok_or(SubstitutionError(colname.to_string()))?;
     let field = col.at(row_ix, missing).unwrap();
 
@@ -98,8 +102,6 @@ fn substitute_field(
                 },
                 Err(e) => {
 
-                    println!("Plot parsing error: {}", e);
-
                     match Table::try_from(json.clone()) {
                         Ok(inner_tbl) => {
                             if is_html {
@@ -109,7 +111,6 @@ fn substitute_field(
                             }
                         },
                         Err(e) => {
-                            println!("Could not parse table from JSON: {}", e);
                             json.to_string()
                         }
                     }
@@ -127,14 +128,10 @@ fn substitute_field(
         }
     };
 
-    // let bytes_txt = BytesText::from_plain(content.as_ref());
-    // writer.write_event(Event::Text(bytes_txt));
     writer.write(content.as_bytes());
 
     Ok(())
 
-	// println!("{}", txt);
-	// writer.write_event(Event::End(BytesEnd::borrowed(b"text:p")));
 }
 
 pub mod html {
@@ -352,9 +349,6 @@ pub fn extract_body(txt : &str, is_html : bool) -> Result<Document, Box<dyn Erro
 	            if section == Section::Postlude {
                     return Ok(Document { body, prelude, postlude });
                 } else {
-                    println!("prelude = {};", prelude);
-                    println!("body = {};", body);
-                    println!("postlude = {};", postlude);
                     return Err(Box::new(ParseError(String::from("ParseError: Body of document was not closed"))));
                 }
 	        },
@@ -538,8 +532,6 @@ pub fn launch_report(
         File::create(out).map_err(|e| format!("{}", e) )?
             .write_all(out_data.as_bytes())
             .map_err(|e| format!("{}", e) )?;
-    } else {
-        println!("{}", out_data);
     }
 
     Ok(())

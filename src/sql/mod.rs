@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use std::fmt::Display;
 use std::fmt;
 use std::error::Error;
@@ -485,8 +490,6 @@ pub fn table_name_from_sql(sql : &str) -> Option<(String, String)> {
                     }
                 }
             }
-            // println!("Name: {:?}", from_names);
-            // println!("Relation: {:?}", relation);
             Some((from_names, relation))
         } else {
             None
@@ -511,7 +514,6 @@ pub fn pack_column_types(
         if let Ok(t) = ty.parse::<DBType>() {
             types.push(t);
         } else {
-            println!();
             return Err(format!("Unable to parse type: {:?}", ty).into());
         }
     }
@@ -543,7 +545,6 @@ pub fn wait_command_execution(call : &str, exec : &Arc<Mutex<(Executor, String)>
             Err(format!("Command execution failed: {}", out.txt))
         }
     })?;
-    // println!("Captured into stdout: {}", content);
     Ok(content)
 }
 

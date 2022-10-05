@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use gtk4::prelude::*;
 use gtk4::*;
 use sourceview5::prelude::*;
@@ -317,12 +322,10 @@ impl ConnectionList {
     fn update(&self) {
         self.list.connect_row_activated({
             move|list, row| {
-                println!("Row activated");
                 let n = list.observe_children().n_items();
                 if row.index() == (n-1) as i32 {
                     let new_row = ConnectionRow::build();
                     list.insert(&new_row.row, (n-1) as i32);
-                    println!("Inserted at {}", n-1);
                     // rows.push(new_row);
                 }
             }
@@ -335,7 +338,6 @@ impl React<ConnectionSet> for ConnectionList {
 
     fn react(&self, conns : &ConnectionSet) {
         conns.connect_added({
-            println!("Conn added");
             let list = self.list.clone();
             move |info| {
                 let new_row = ConnectionRow::from(&info);
@@ -355,7 +357,6 @@ impl React<ConnectionSet> for ConnectionList {
         conns.connect_removed({
             let list = self.list.clone();
             move |ix| {
-                println!("Conn removed");
                 list.remove(&list.row_at_index(ix).unwrap());
             }
         });
@@ -374,7 +375,6 @@ impl React<ActiveConnection> for ConnectionList {
             if list.is_sensitive() {
                 list.set_sensitive(false);
             }
-            // println!("Sensitive false");
 
             // TODO add connection to settings
         });
@@ -387,7 +387,6 @@ impl React<ActiveConnection> for ConnectionList {
             if !list.is_sensitive() {
                 list.set_sensitive(true);
             }
-            println!("Sensitive true");
         });
     }
 
@@ -399,7 +398,6 @@ impl React<ConnectionBox> for ConnectionList {
 
         for (ix, entry) in [&bx.host.entry, &bx.db.entry, &bx.user.entry].iter().enumerate() {
             entry.connect_changed({
-                println!("Entry changed");
                 let list = self.list.clone();
                 move |entry| {
                     change_text_at_conn_row(&list, ix, &entry)
@@ -580,7 +578,6 @@ impl React<ConnectionSet> for ConnectionBox {
         connections.connect_selected({
             let conn_bx = self.clone();
             move |opt_sel| {
-                println!("selected {:?}", opt_sel);
                 if let Some((sel_ix, sel_info)) = opt_sel {
                     conn_bx.set_sensitive(true);
                     if sel_info.is_default() {
@@ -596,7 +593,6 @@ impl React<ConnectionSet> for ConnectionBox {
                         conn_bx.password.entry.grab_focus();
                     }
                 } else {
-                    println!("No selection");
                     conn_bx.host.entry.set_text("");
                     conn_bx.db.entry.set_text("");
                     conn_bx.user.entry.set_text("");

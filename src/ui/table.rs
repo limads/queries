@@ -1,10 +1,13 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use gtk4::*;
 use gtk4::prelude::*;
 use std::rc::Rc;
 use std::cell::RefCell;
 use crate::tables::table::Table;
-// use gdk::prelude::*;
-// use gdk::{Cursor, CursorType};
 use std::iter::ExactSizeIterator;
 
 #[derive(Clone, Debug)]
@@ -51,10 +54,8 @@ impl TableWidget {
 
     pub fn new_from_table(tbl : &Table, max_nrows : usize, max_ncols : usize) -> Self {
         let mut tbl_wid = Self::new();
-        println!("Table created");
         let data = tbl.text_rows(Some(max_nrows), Some(max_ncols));
         tbl_wid.update_data(data);
-        println!("Table populated");
         tbl_wid
     }
 
@@ -373,8 +374,6 @@ fn switch_selected(grid : Grid, cols : &mut [(String, usize, bool)], pos : usize
         } else {
             switch_to(grid.clone(), col, ncols, true);
         }
-    } else {
-        println!("Invalid column index")
     }
 }
 

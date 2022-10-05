@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.  
+For a copy, see http://www.gnu.org/licenses.*/
+
 use gtk4::*;
 use gtk4::prelude::*;
 use std::fs::File;
@@ -524,7 +529,6 @@ impl Tables {
                     EnvironmentUpdate::NewTables(new_cols, self.queries.clone())
                 };
                 self.history.push(last_update.clone());
-                // println!("History: {:?}", self.history);
                 Some(Ok(last_update))
             } else {
                 Some(Ok(EnvironmentUpdate::Clear))
@@ -546,7 +550,6 @@ impl Tables {
             }
         }
         if let Some(r) = results.last() {
-            // println!("Last statement: {:?}", r);
             match r {
                 StatementOutput::Statement(s) => Some(Ok(s.clone())),
                 StatementOutput::Invalid(e, is_server) => Some(Err(ExecutionError { msg : e.clone(), is_server : *is_server })),
@@ -1103,18 +1106,15 @@ impl Tables {
 
     pub fn get_global_indices_for_names(&self, names : &[String]) -> Option<Vec<usize>> {
         let all_names = self.all_names();
-        // println!("All names: {:?}", all_names);
         let mut global_ixs = Vec::new();
         // This does not guarantee uniqueness (just that at least one element exists)
         for name in names.iter() {
             if let Some(pos) = all_names.iter().position(|n| &name[..] == &n[..] ) {
                 global_ixs.push(pos);
             } else {
-                println!("No global index found for {} in the current environment", name);
                 return None;
             }
         }
-        // println!("Global indices: {:?}", global_ixs);
         Some(global_ixs)
     }
 
@@ -1166,8 +1166,6 @@ impl Tables {
                     ixs.push(global_ixs[i]);
                     n_found += 1;
                 }
-            } else {
-                println!("No table column name at index {}", i);
             }
             if ixs.len() == test_names.len() {
                 return Some(ixs);
@@ -1182,7 +1180,6 @@ impl Tables {
         if self.are_column_names_unique(&global_ixs[..]) {
             self.get_columns(&global_ixs[..])
         } else {
-            println!("Names are not unique");
             return None;
         }
     }
@@ -1200,7 +1197,6 @@ impl Tables {
     pub fn are_column_names_unique(&self, global_ixs : &[usize]) -> bool {
         if let Some((selected_names, _, _)) = self.get_column_names(global_ixs) {
             let all_names = self.all_names();
-            // println!("Testing {:?} against {:?}", selected_names, all_names);
             for (name, global_ix) in selected_names.iter().zip(global_ixs.iter()) {
                 let has_before = if *global_ix > 0 {
                     all_names[0..*global_ix].iter().find(|n| &name[..] == &n[..] ).is_some()
@@ -1213,7 +1209,6 @@ impl Tables {
                     false
                 };
                 if has_before || has_after {
-                    println!("Name {} at global index {} is not unique", name, global_ix);
                     return false;
                 }
             }
@@ -1242,7 +1237,6 @@ impl Tables {
                 .collect();
             Some((names, tbl_ix, query))
         } else {
-            println!("Failed getting column names for indices {:?}", global_ixs);
             None
         }
     }
