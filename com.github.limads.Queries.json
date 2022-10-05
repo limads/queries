@@ -9,7 +9,10 @@
     "command" : "queries",
     "finish-args" : [
         "--share=network",
+        "--device=dri",
         "--socket=wayland",
+        "--share=ipc",
+        "--socket=fallback-x11",
         "--filesystem=home"
     ],
     "build-options" : {
