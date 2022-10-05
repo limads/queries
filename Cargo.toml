@@ -37,7 +37,7 @@ base64 = "0.13.0"
 stateful =  { git="https://github.com/limads/stateful.git" }
 archiver = { git="https://github.com/limads/archiver.git" }
 log = "0.4.17"
-systemd-journal-logger = "0.5.0"
+# systemd-journal-logger = "0.5.0"
 rand = "0.8.5"
 
 [[bin]]
