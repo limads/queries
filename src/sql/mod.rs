@@ -330,6 +330,7 @@ pub fn build_statement_result(any_stmt : &AnyStatement, n : usize) -> StatementO
                     ObjectType::View => "Drop view",
                     ObjectType::Index => "Drop index",
                     ObjectType::Schema => "Drop schema",
+                    ObjectType::Role => "Drop role",
                 };
                 StatementOutput::Modification(format!("{}", drop_msg))
             },

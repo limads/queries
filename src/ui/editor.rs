@@ -423,21 +423,33 @@ impl FindDialog {
 
     pub fn build() -> Self {
         let dialog = Dialog::new();
-
+        dialog.set_title(Some("Find/replace"));
         let find_bx = Box::new(Orientation::Horizontal, 0);
         find_bx.style_context().add_class("linked");
         let find_entry = Entry::builder().primary_icon_name("edit-find-symbolic").build();
+        find_entry.set_hexpand(true);
+        find_entry.set_placeholder_text(Some("Find"));
         let search_up_btn = Button::builder().icon_name("go-up-symbolic").build();
         let search_down_btn = Button::builder().icon_name("go-down-symbolic").build();
-        find_bx.append(&Label::new(Some("Find")));
+        // find_bx.append(&Label::new(Some("Find")));
         find_bx.append(&find_entry);
         find_bx.append(&search_up_btn);
         find_bx.append(&search_down_btn);
+        find_bx.set_halign(Align::Fill);
+        find_bx.set_hexpand(true);
+        super::set_margins(&find_bx, 6, 0);
 
         let replace_bx = Box::new(Orientation::Horizontal, 0);
         let replace_entry = Entry::builder().primary_icon_name("edit-find-replace-symbolic").build();
-        replace_bx.append(&Label::new(Some("Replace with")));
+        replace_entry.set_placeholder_text(Some("Replace"));
+        replace_entry.set_hexpand(true);
+        // replace_bx.append(&Label::new(Some("Replace with")));
         replace_bx.append(&replace_entry);
+        replace_bx.set_halign(Align::Fill);
+        replace_bx.set_hexpand(true);
+        replace_bx.set_margin_start(6);
+        replace_bx.set_margin_end(6);
+        replace_bx.set_margin_bottom(12);
 
         let btn_bx = Box::new(Orientation::Horizontal, 0);
         btn_bx.style_context().add_class("linked");
@@ -447,8 +459,15 @@ impl FindDialog {
         btn_bx.append(&find_btn);
         btn_bx.append(&replace_btn);
         btn_bx.append(&replace_all_btn);
+        btn_bx.set_halign(Align::Center);
+        btn_bx.set_hexpand(false);
+        btn_bx.set_margin_bottom(12);
 
         let matches_lbl = Label::new(Some("Matches : 0"));
+        super::set_margins(&matches_lbl, 6, 12);
+        
+        matches_lbl.set_halign(Align::Center);
+        matches_lbl.set_hexpand(false);
         let bx = Box::new(Orientation::Vertical, 0);
         bx.append(&find_bx);
         bx.append(&replace_bx);
