@@ -1,4 +1,7 @@
 
+echo "Cargo version"
+cargo --version
+
 cargo build --release --offline --verbose \
     --config "source.vendored-sources.directory=\"queries-deps\""
     --config "source.crates-io.replace-with = \"vendored-sources\"" \
