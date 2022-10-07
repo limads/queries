@@ -16,10 +16,7 @@
         "--filesystem=home"
     ],
     "build-options" : {
-        "append-path" : "/usr/lib/sdk/rust-stable/bin",
-        "build-args" : [
-            "--share=network"
-        ]
+        "append-path" : "/usr/lib/sdk/rust-stable/bin"
     },
     "cleanup" : [
         "/include",

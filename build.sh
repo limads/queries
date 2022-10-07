@@ -1,5 +1,5 @@
 cargo build --release --offline --verbose \
-    --config "source.vendored-sources.directory=\"queries-deps\"" \
+    --config "source.vendored-sources.directory=\"queries-deps2\"" \
     --config "source.crates-io.replace-with = \"vendored-sources\"" \
     --config "source.\"https://github.com/limads/archiver.git\".git = \"https://github.com/limads/archiver.git\"" \
     --config "source.\"https://github.com/limads/archiver.git\".replace-with = \"vendored-sources\"" \
