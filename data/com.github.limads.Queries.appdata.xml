@@ -1,41 +1,72 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<component type="desktop">
-	<id>com.github.limads.Queries.desktop</id>
-	<metadata_license>CC0-1.0</metadata_license>
-	<project_license>GPL-3.0-or-later</project_license>
-	<summary>Listen to your favorite shows</summary>
-	<description>
-	  <p>A simple SQL client</p>
-	</description>
-	    <categories>
-        <category>Game</category>
-        <category>ArcadeGame</category>
-    </categories>
 
+<component type="desktop">
+
+	<id>com.github.limads.Queries.desktop</id>
+	
+	<metadata_license>CC0-1.0</metadata_license>
+	
+	<project_license>GPL-3.0-or-later</project_license>
+	
+	<summary>A workbench to interact with relational databases.</summary>
+	
+	<description>
+	  <p>Queries is a workbench to interact with relational databases, with initial support for the Postgres
+	  database management system (DBMS).</p>
+	  <h2>Features</h2>
+	  <ul>
+	  <li>Feel at home: Establishing a database connection immediately shows all the relevant
+	  database contextual information (schemata, tables, views and columns) that
+	  you need to write valid SQL.</li>
+	  <li>Correctness: All SQL is parsed and verified at the client side before being
+	  sent to the database server, allowing immediate feedback and faster iteration cycles when writing
+	  and debugging complex queries.</li>
+	  <li>Security: Queries supports encrypted connections via SSL and TLS,
+	  allowing you to interact safely with remote (cloud or on-premise) databases.</li>
+	  <li>Performance: Queries examines written statement sequences and executes them asynchronously 
+	  when possible. That means that a script total execution time is bounded by the slowest query,
+	  and not by the ammount of statements you send to the server at the same time.</li>
+	  <li>Data visualization and reporting: Build line, scatter and bar graphs without external tools
+	  using plain SQL, simply by aggregating your data according to a valid JSON specification.
+	  Export tables as plain CSV files and build dynamic HTML reports containing rich </li>
+	  </ul>
+	</description>
+	
+	<categories>
+        <category>Office</category>
+        <category>Development</category>
+    </categories>
+    
     <keywords>
-  <keyword translate="no">IDE</keyword>
+      <keyword translate="no">SQL</keyword>
+      <keyword translate="no">DBMS</keyword>
+      <keyword translate="no">Database</keyword>
+      <keyword translate="no">Postgres</keyword>
+      <keyword translate="no">Data</keyword>
   </keywords>
+  
     <icon>
+    </icon>
+    
 	<developer_name>Diego Lima</developer_name>
+	
     <url type="homepage">https://github.com/limads/queries</url>
     <url type="bugtracker">https://github.com/limads/queries/issues</url>
     <url type="donation">https://www.gnome.org/donate/</url>
     <url type="help">https://github.com/limads/queries</url>
+    
   <screenshots>
     <screenshot>
       <image>https://github.com/limads/queries/blob/master/data/icons/hicolor/128x128/apps/com.github.limads.Queries.png</image>
     </screenshot>
   </screenshots>
+  
   <releases>
-    <release version="0.1" date="2022-10-06">
+    <release version="0.1" date="2022-10-07">
      <description>
-        <p>
-          Initial release
-        </p>
-        <ul>
-          <li>Initial feature</li>
-          <li>Initial feature</li>
-        </ul>
+        <p> Initial release</p>
       </description>
     </release>
+  </releases>
+  
 </component>

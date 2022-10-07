@@ -51,15 +51,9 @@ pub mod copy;
 // Wraps thread that listen to SQL commands.
 // pub mod listener;
 
-
-
 use parsing::*;
 
 use copy::*;
-
-
-
-// use listener::*;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SafetyLock {

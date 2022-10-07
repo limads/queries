@@ -32,7 +32,6 @@
         "*.la",
         "*.a"
     ],
-
     "modules" : [
         {
 	        "name" : "Queries",
@@ -45,8 +44,8 @@
 	        
 	        {
 	            "type" : "archive",
-	            "url" : "file:///home/diego/Downloads/queries-deps.tar.gz",
-	            "sha256" : "c2faf089b499c47df554b307fc00c8370bb7ab251a6f90c056b38fd37cbec5c4"
+	            "url" : "file:///home/diego/Downloads/vendored.tar.gz",
+	            "sha256" : "fb5c9b1c38fd1185814a064c311f3efae71aebacca4dc9cef39ebcce98e066d1"
 	        },
 	        
 		    {

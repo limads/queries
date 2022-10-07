@@ -7,7 +7,6 @@ use super::column::*;
 use tokio_postgres::types::{ToSql, FromSql};
 use std::marker::Sync;
 use std::convert::{TryFrom, TryInto};
-
 use std::borrow::Cow;
 use std::collections::HashMap;
 use crate::tables::field::Field;
