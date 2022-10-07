@@ -222,9 +222,9 @@ impl ExecutionBox {
         let dml_switch = Switch::new();
         let ddl_switch = Switch::new();
 
-        list.append(&NamedBox::new("Enable update and delete", Some("Allow execution of potentially destructive \ndata modification statements\n"), dml_switch.clone()).bx);
-        list.append(&NamedBox::new("Enable alter, drop and truncate", Some("Allow execution of potentially destructive \ndata definition statements\n"), ddl_switch.clone()).bx);
-            
+        list.append(&NamedBox::new("Enable UPDATE and DELETE", Some("Allow execution of potentially destructive \ndata modification statements\n"), dml_switch.clone()).bx);
+        list.append(&NamedBox::new("Enable ALTER, DROP and TRUNCATE", Some("Allow execution of potentially destructive \ndata definition statements\n"), ddl_switch.clone()).bx);
+
         set_all_not_selectable(&list);
         
         Self { list, row_limit_spin, /*col_limit_spin*/ schedule_scale, timeout_scale, dml_switch, ddl_switch }

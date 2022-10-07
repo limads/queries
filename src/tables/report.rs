@@ -16,7 +16,7 @@ use std::fmt;
 use either::Either;
 use std::fs::File;
 use std::io::{Read, Write};
-use postgres::Client;
+// use postgres::Client;
 
 /* Report requires that all tables return at least one row. */
 
@@ -503,7 +503,7 @@ fn process_end(end : &BytesEnd<'_>, end_tag : &[u8], inside_placeholder : &mut b
 	}
 }
 
-pub fn make_report(
+/*pub fn make_report(
     client : &mut Client,
     sql : &str,
     layout_path : String,
@@ -518,7 +518,7 @@ pub fn make_report(
         },
         Err(e) => Err(format!("{}", e) )
     }
-}
+}*/
 
 pub fn launch_report(
     tbl : &Table,

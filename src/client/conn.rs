@@ -638,6 +638,10 @@ pub struct ActiveConnection {
     on_conn_failure : Callbacks<(ConnectionInfo, String)>,
     
     on_disconnected : Callbacks<()>,
+    
+    on_schedule_start : Callbacks<()>,
+    
+    on_schedule_end : Callbacks<()>,
 
     on_error : Callbacks<String>,
 
@@ -674,6 +678,8 @@ impl ActiveConnection {
         let on_schema_update : Callbacks<Option<Vec<DBObject>>> = Default::default();
         let on_object_selected : Callbacks<Option<DBObject>> = Default::default();
         let on_schema_invalidated : Callbacks<()> = Default::default();
+        let on_schedule_start : Callbacks<()> = Default::default();
+        let on_schedule_end : Callbacks<()> = Default::default();
         
         let mut schema_valid = true;
         
@@ -716,6 +722,7 @@ impl ActiveConnection {
                 on_exec_result.clone(),
                 on_single_query_result.clone()
             );
+            let (on_schedule_start, on_schedule_end) = (on_schedule_start.clone(), on_schedule_end.clone());
             let on_conn_failure = on_conn_failure.clone();
             let on_object_selected = on_object_selected.clone();
             let on_schema_update = on_schema_update.clone();
@@ -865,11 +872,13 @@ impl ActiveConnection {
                         }
                         
                         active_schedule.replace(true);
-                        glib::timeout_add_local(Duration::from_secs(user_state.borrow().execution.execution_interval as u64), {
+                        let dur = Duration::from_secs(user_state.borrow().execution.execution_interval as u64);
+                        glib::timeout_add_local(dur, {
                             let active_schedule = active_schedule.clone();
                             let on_error = on_error.clone();
                             let listener = listener.clone();
                             let user_state = user_state.clone();
+                            let send = send.clone();
                             move || {
 
                                 // Just ignore this schedule step if the previous statement is not
@@ -879,6 +888,11 @@ impl ActiveConnection {
                                 }
 
                                 let us = user_state.borrow();
+                                
+                                let should_continue = *active_schedule.borrow();
+                                if !should_continue {
+                                    return Continue(false);
+                                }
                                 let send_ans = listener.send_commands(
                                     stmts.clone(),
                                     HashMap::new(),
@@ -886,15 +900,17 @@ impl ActiveConnection {
                                     true
                                 );
                                 match send_ans {
-                                    Ok(_) => { },
+                                    Ok(_) => { 
+                                        Continue(should_continue)    
+                                    },
                                     Err(e) => {
-                                        on_error.call(e.clone());
+                                        send.send(ActiveConnectionAction::Error(e));
+                                        Continue(false)
                                     }
                                 }
-                                let should_continue = *active_schedule.borrow();
-                                Continue(should_continue)
                             }
                         });
+                        on_schedule_start.call(());
                     },
                     
                     // Execution was un-toggled in scheduled mode.
@@ -906,6 +922,7 @@ impl ActiveConnection {
                         }
                         
                         active_schedule.replace(false);
+                        on_schedule_end.call(());
                     },
                     
                     // Table import at the schema tree.
@@ -952,6 +969,11 @@ impl ActiveConnection {
                             }).next();
                         if let Some(error) = fst_error {
                             on_error.call(error.clone());
+                            
+                            if *(active_schedule.borrow()) == true {
+                                send.send(ActiveConnectionAction::EndSchedule);
+                            }
+                        
                         } else {
                             on_exec_result.call(results.clone());
                         }
@@ -1016,6 +1038,9 @@ impl ActiveConnection {
                     },
                     ActiveConnectionAction::Error(e) => {
                         on_error.call(e.clone());
+                        if *(active_schedule.borrow()) == true {
+                            send.send(ActiveConnectionAction::EndSchedule);
+                        }
                     }
                 }
                 glib::Continue(true)
@@ -1033,7 +1058,9 @@ impl ActiveConnection {
             on_schema_update,
             on_object_selected,
             on_single_query_result,
-            on_schema_invalidated
+            on_schema_invalidated,
+            on_schedule_start,
+            on_schedule_end
         }
     }
 
@@ -1054,7 +1081,21 @@ impl ActiveConnection {
     {
         self.on_disconnected.bind(f);
     }
+    
+    pub fn connect_schedule_start<F>(&self, f : F)
+    where
+        F : Fn(()) + 'static
+    {
+        self.on_schedule_start.bind(f);
+    }
 
+    pub fn connect_schedule_end<F>(&self, f : F)
+    where
+        F : Fn(()) + 'static
+    {
+        self.on_schedule_end.bind(f);
+    }
+    
     pub fn connect_db_error<F>(&self, f : F)
     where
         F : Fn(String) + 'static
@@ -1146,32 +1187,46 @@ impl React<ExecButton> for ActiveConnection {
         let send = self.send.clone();
         let schedule_action = btn.schedule_action.clone();
         let is_scheduled = Rc::new(RefCell::new(false));
-        let exec_btn = btn.btn.clone();
-        btn.exec_action.connect_activate(move |_action, param| {
+        btn.exec_action.connect_activate({
+            let is_scheduled = is_scheduled.clone();
+            let exec_btn = btn.btn.clone();
+            move |_action, param| {
 
-            // Perhaps replace by a ValuedCallback that just fetches the contents of editor.
-            // Then impl React<ExecBtn> for Editor, then React<Editor> for ActiveConnection,
-            // where editor exposes on_script_read(.).
+                // Perhaps replace by a ValuedCallback that just fetches the contents of editor.
+                // Then impl React<ExecBtn> for Editor, then React<Editor> for ActiveConnection,
+                // where editor exposes on_script_read(.).
 
-            let mut is_scheduled = is_scheduled.borrow_mut();
+                let mut is_scheduled = is_scheduled.borrow_mut();
 
-            if *is_scheduled {
-                exec_btn.set_icon_name("download-db-symbolic");
-                *is_scheduled = false;
-                send.send(ActiveConnectionAction::EndSchedule).unwrap();
-            } else {
-
-                let stmts = param.unwrap().get::<String>().unwrap();
-                let must_schedule = schedule_action.state().unwrap().get::<bool>().unwrap();
-                if must_schedule {
-                    exec_btn.set_icon_name("clock-app-symbolic");
-                    *is_scheduled = true;
-                    send.send(ActiveConnectionAction::StartSchedule(stmts)).unwrap();
+                if *is_scheduled {
+                    exec_btn.set_icon_name("download-db-symbolic");
+                    *is_scheduled = false;
+                    send.send(ActiveConnectionAction::EndSchedule).unwrap();
                 } else {
-                    send.send(ActiveConnectionAction::ExecutionRequest(stmts)).unwrap();
+
+                    let stmts = param.unwrap().get::<String>().unwrap();
+                    let must_schedule = schedule_action.state().unwrap().get::<bool>().unwrap();
+                    if must_schedule {
+                        exec_btn.set_icon_name("clock-app-symbolic");
+                        *is_scheduled = true;
+                        send.send(ActiveConnectionAction::StartSchedule(stmts)).unwrap();
+                    } else {
+                        send.send(ActiveConnectionAction::ExecutionRequest(stmts)).unwrap();
+                    }
                 }
             }
-
+        });
+        
+        self.connect_schedule_end({
+            let is_scheduled = is_scheduled.clone();
+            let exec_btn = btn.btn.clone();
+            move|_| { 
+                let mut is_scheduled = is_scheduled.borrow_mut();
+                if *is_scheduled {
+                    *is_scheduled = false;
+                    exec_btn.set_icon_name("download-db-symbolic");
+                }
+             }
         });
 
     }

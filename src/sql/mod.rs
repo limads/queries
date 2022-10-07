@@ -45,8 +45,8 @@ pub mod parsing;
 /// Locally-parsed and executed copy statements.
 pub mod copy;
 
-/// PostgreSQL notifications
-pub mod notify;
+// PostgreSQL notifications
+// pub mod notify;
 
 // Wraps thread that listen to SQL commands.
 // pub mod listener;

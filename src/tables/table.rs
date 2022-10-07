@@ -3,7 +3,9 @@
 This work is licensed under the terms of the GPL v3.0 License.  
 For a copy, see http://www.gnu.org/licenses.*/
 
-use postgres::{self, types::ToSql };
+use tokio_postgres::{self, types::ToSql };
+use tokio_postgres::types::{self, Type, FromSql};
+use tokio_postgres::row;
 use std::convert::{TryInto, TryFrom};
 use rust_decimal::Decimal;
 use super::column::*;
@@ -21,7 +23,7 @@ use std::cmp::{Eq, PartialEq};
 use quick_xml::Reader;
 use quick_xml::events::{Event };
 use crate::tables::nullable_column::NullableColumn;
-use postgres::types::{Type, FromSql};
+
 
 #[derive(Debug, Clone)]
 pub struct TableSource {
@@ -211,7 +213,7 @@ impl Table {
         }
     }
     
-    pub fn from_rows(rows : &[postgres::row::Row]) -> Result<Table, &'static str> {
+    pub fn from_rows(rows : &[row::Row]) -> Result<Table, &'static str> {
         let mut names : Vec<String> = rows.get(0)
             .map(|r| r.columns().iter().map(|c| c.name().to_string()).collect() )
             .ok_or("No rows available")?;
@@ -1343,7 +1345,7 @@ impl TryFrom<serde_json::Value> for Table {
 }
 
 pub fn col_as_vec<'a, T>(
-    rows : &'a [postgres::row::Row],
+    rows : &'a [row::Row],
     ix : usize
 ) -> Result<Vec<T>, &'static str>
     where
@@ -1359,7 +1361,7 @@ pub fn col_as_vec<'a, T>(
 }
 
 pub fn col_as_opt_vec<'a, T>(
-    rows : &'a [postgres::row::Row],
+    rows : &'a [row::Row],
     ix : usize
 ) -> Result<Vec<Option<T>>, &'static str>
     where
@@ -1376,7 +1378,7 @@ pub fn col_as_opt_vec<'a, T>(
 }
 
 pub fn nullable_from_rows<'a, T>(
-    rows : &'a [postgres::row::Row],
+    rows : &'a [row::Row],
     ix : usize
 ) -> Result<NullableColumn, &'static str>
     where
@@ -1388,7 +1390,7 @@ pub fn nullable_from_rows<'a, T>(
 }
 
 pub fn as_nullable_text<'a, T>(
-    rows : &'a [postgres::row::Row],
+    rows : &'a [row::Row],
     ix : usize
 ) -> Result<NullableColumn, &'static str>
     where
@@ -1411,7 +1413,7 @@ pub enum ArrayType {
     Json
 }
 
-pub fn nullable_unable_to_parse<'a>(rows : &'a [postgres::row::Row], ty_name : &postgres::types::Type) -> NullableColumn {
+pub fn nullable_unable_to_parse<'a>(rows : &'a [row::Row], ty_name : &types::Type) -> NullableColumn {
     let unable_to_parse : Vec<Option<String>> = rows.iter()
         .map(|_| Some(format!("Unable to parse ({})", ty_name)))
         .collect();
@@ -1430,7 +1432,7 @@ where
 }
 
 pub fn nullable_from_arr<'a>(
-    rows : &'a [postgres::row::Row],
+    rows : &'a [row::Row],
     ix : usize,
     ty : ArrayType
 ) -> Result<NullableColumn, &'static str> {

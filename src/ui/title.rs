@@ -95,9 +95,10 @@ pub struct ExecButton {
     pub restore_action : gio::SimpleAction,
 
     // Sets the query button to "schedule" mode, for which the sequence of SQL
-    // statement is executed repeatedly every n seconds.
+    // statement is executed repeatedly every n seconds. Although logically we
+    // would need only one action, we use two so the two modes are visible
+    // to be chosen by the user at the menu.
     pub schedule_action : gio::SimpleAction,
-
     pub single_action : gio::SimpleAction,
 
 }

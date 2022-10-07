@@ -9,6 +9,7 @@ use crate::ui::PackedImageLabel;
 use crate::client::OpenedScripts;
 use stateful::React;
 use archiver::MultiArchiverImpl;
+use crate::client::ActiveConnection;
 
 #[derive(Debug, Clone)]
 pub struct FileList {
@@ -148,6 +149,25 @@ impl React<OpenedScripts> for FileList {
         });
     }
 
+}
+
+impl React<ActiveConnection> for FileList {
+
+    fn react(&self, conn : &ActiveConnection) {
+        conn.connect_schedule_start({
+            let list = self.list.clone();
+            move|_| {
+                list.set_sensitive(false);
+            }
+        });
+        conn.connect_schedule_end({
+            let list = self.list.clone();
+            move|_| {
+                list.set_sensitive(true);
+            }
+        });
+    }
+    
 }
 
 const ITALIC_SPAN_START : &'static str = "<span font_style=\"italic\">";

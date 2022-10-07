@@ -3,7 +3,7 @@
 This work is licensed under the terms of the GPL v3.0 License.  
 For a copy, see http://www.gnu.org/licenses.*/
 
-use postgres::types::ToSql;
+use tokio_postgres::types::ToSql;
 use std::marker::Sync;
 use rust_decimal::Decimal;
 use super::nullable_column::*;

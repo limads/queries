@@ -7,10 +7,20 @@
 	<description>
 	  <p>A simple SQL client</p>
 	</description>
+	    <categories>
+        <category>Game</category>
+        <category>ArcadeGame</category>
+    </categories>
+
+    <keywords>
+  <keyword translate="no">IDE</keyword>
+  </keywords>
+    <icon>
 	<developer_name>Diego Lima</developer_name>
     <url type="homepage">https://github.com/limads/queries</url>
     <url type="bugtracker">https://github.com/limads/queries/issues</url>
     <url type="donation">https://www.gnome.org/donate/</url>
+    <url type="help">https://github.com/limads/queries</url>
   <screenshots>
     <screenshot>
       <image>https://github.com/limads/queries/blob/master/data/icons/hicolor/128x128/apps/com.github.limads.Queries.png</image>

@@ -3,7 +3,7 @@
 This work is licensed under the terms of the GPL v3.0 License.  
 For a copy, see http://www.gnu.org/licenses.*/
 
-use postgres;
+// use postgres;
 use crate::sql::{*, object::*};
 use std::error::Error;
 use crate::tables::table::{Table};
@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::fs::{self};
 use std::convert::{TryFrom, TryInto};
 use std::str::FromStr;
-use postgres::NoTls;
+// use postgres::NoTls;
 use tokio_postgres::Client;
 use crate::client::ConnectionInfo;
 use crate::client::{ConnURI, ConnConfig};
@@ -101,7 +101,7 @@ async fn connect(
     } else {
         if crate::client::is_local(&uri.info)  == Some(true) {
             // Only connect without SSL/TLS when the client is local.
-            match tokio_postgres::connect(&uri.uri[..], NoTls{ }).await {
+            match tokio_postgres::connect(&uri.uri[..], tokio_postgres::NoTls{ }).await {
                 Ok((cli, conn)) => {
                     rt.spawn(conn);
                     Ok(cli)
@@ -137,7 +137,7 @@ impl PostgresConnection {
 
 }
 
-fn build_table(rows : &[postgres::Row], query : &str) -> StatementOutput {
+fn build_table(rows : &[tokio_postgres::Row], query : &str) -> StatementOutput {
     if rows.len() == 0 {
         if let Ok(cols) = crate::sql::parsing::parse_query_cols(query) {
             return StatementOutput::Valid(query.to_string(), Table::empty(cols));
