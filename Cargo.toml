@@ -31,9 +31,9 @@ anyhow = "1.0"
 ordinal = "0.2"
 base64 = "0.13.0"
 rand = "0.8.5"
-papyri = "0.1"
+papyri = { version = "0.1.1", features = ["gdk4", "gdk-pixbuf", "cairo-rs"] }
 stateful =  "0.1"
-archiver = { git="https://github.com/limads/archiver.git" }
+filecase = "0.1"
 
 [[bin]]
 name="queries"

@@ -12,7 +12,7 @@ use stateful::React;
 use crate::client::OpenedScripts;
 use super::QueriesContent;
 use crate::client::ActiveConnection;
-use archiver::MultiArchiverImpl;
+use filecase::MultiArchiverImpl;
 
 #[derive(Debug, Clone)]
 pub struct QueriesTitlebar {

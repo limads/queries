@@ -7,7 +7,7 @@ use gtk4::*;
 use stateful::React;
 use crate::ui::QueriesContent;
 use crate::client::OpenedScripts;
-use archiver::MultiArchiverImpl;
+use filecase::MultiArchiverImpl;
 
 #[derive(Debug, Clone)]
 pub struct MainMenu {

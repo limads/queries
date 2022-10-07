@@ -4,8 +4,8 @@ This work is licensed under the terms of the GPL v3.0 License.
 For a copy, see http://www.gnu.org/licenses.*/
 
 use std::mem;
-use archiver::MultiArchiverAction;
-use archiver::MultiArchiverImpl;
+use filecase::MultiArchiverAction;
+use filecase::MultiArchiverImpl;
 
 pub struct QueriesClient {
     pub conn_set : ConnectionSet,

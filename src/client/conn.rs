@@ -875,7 +875,6 @@ impl ActiveConnection {
                         let dur = Duration::from_secs(user_state.borrow().execution.execution_interval as u64);
                         glib::timeout_add_local(dur, {
                             let active_schedule = active_schedule.clone();
-                            let on_error = on_error.clone();
                             let listener = listener.clone();
                             let user_state = user_state.clone();
                             let send = send.clone();
@@ -904,7 +903,7 @@ impl ActiveConnection {
                                         Continue(should_continue)    
                                     },
                                     Err(e) => {
-                                        send.send(ActiveConnectionAction::Error(e));
+                                        send.send(ActiveConnectionAction::Error(e)).unwrap();
                                         Continue(false)
                                     }
                                 }
@@ -971,7 +970,7 @@ impl ActiveConnection {
                             on_error.call(error.clone());
                             
                             if *(active_schedule.borrow()) == true {
-                                send.send(ActiveConnectionAction::EndSchedule);
+                                send.send(ActiveConnectionAction::EndSchedule).unwrap();
                             }
                         
                         } else {
@@ -1039,7 +1038,7 @@ impl ActiveConnection {
                     ActiveConnectionAction::Error(e) => {
                         on_error.call(e.clone());
                         if *(active_schedule.borrow()) == true {
-                            send.send(ActiveConnectionAction::EndSchedule);
+                            send.send(ActiveConnectionAction::EndSchedule).unwrap();
                         }
                     }
                 }

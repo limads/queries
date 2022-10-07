@@ -13,7 +13,7 @@ use crate::ui::PackedImageLabel;
 use crate::ui::MainMenu;
 use crate::ui::FileList;
 
-use archiver::{MultiArchiver, MultiArchiverImpl, MultiArchiverAction};
+use filecase::{MultiArchiver, MultiArchiverImpl, MultiArchiverAction};
 
 // TODO At startup, remove script from scriptlist if its path does not exist anymore.
 

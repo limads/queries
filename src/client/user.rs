@@ -4,7 +4,7 @@ This work is licensed under the terms of the GPL v3.0 License.
 For a copy, see http://www.gnu.org/licenses.*/
 
 use super::{ConnectionSet, ConnectionInfo, OpenedScripts};
-use archiver::OpenedFile;
+use filecase::OpenedFile;
 use serde::{Serialize, Deserialize};
 use crate::ui::QueriesWindow;
 use std::cell::RefCell;
@@ -15,7 +15,7 @@ use gtk4::*;
 use gtk4::prelude::*;
 use crate::client::QueriesClient;
 use crate::ui::Certificate;
-use archiver::MultiArchiverImpl;
+use filecase::MultiArchiverImpl;
 use stateful::PersistentState;
 use std::thread::JoinHandle;
 
@@ -93,9 +93,9 @@ impl Default for ExecutionSettings {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct UserState {
 
-    pub paned : archiver::PanedState,
+    pub paned : filecase::PanedState,
 
-    pub window : archiver::WindowState,
+    pub window : filecase::WindowState,
 
     pub scripts : Vec<OpenedFile>,
     
@@ -142,8 +142,8 @@ impl Default for SharedUserState {
 
     fn default() -> Self {
         SharedUserState(Rc::new(RefCell::new(UserState {
-            paned : archiver::PanedState { primary : 280, secondary : 320 },
-            window : archiver::WindowState { width : 1024, height : 768 },
+            paned : filecase::PanedState { primary : 280, secondary : 320 },
+            window : filecase::WindowState { width : 1024, height : 768 },
             //selected_template : 0,
             ..Default::default()
         })))
@@ -230,8 +230,8 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
         // Window and paned
         win.window.connect_close_request(move |win| {
             let mut state = state.borrow_mut();
-            archiver::set_win_dims_on_close(&win, &mut state.window);
-            archiver::set_paned_on_close(&main_paned, &sidebar_paned, &mut state.paned);
+            filecase::set_win_dims_on_close(&win, &mut state.window);
+            filecase::set_paned_on_close(&main_paned, &sidebar_paned, &mut state.paned);
             gtk4::Inhibit(false)
         });
 
@@ -387,7 +387,7 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
 impl PersistentState<QueriesWindow> for SharedUserState {
 
     fn recover(path : &str) -> Option<SharedUserState> {
-        Some(SharedUserState(archiver::load_shared_serializable(path)?))
+        Some(SharedUserState(filecase::load_shared_serializable(path)?))
     }
 
     fn persist(&self, path : &str) -> JoinHandle<bool> {
@@ -411,7 +411,7 @@ impl PersistentState<QueriesWindow> for SharedUserState {
             s.scripts.iter_mut().for_each(|script| { script.content.as_mut().map(|c| c.clear() ); } );
             Ok(())
         });
-        archiver::save_shared_serializable(&self.0, path)
+        filecase::save_shared_serializable(&self.0, path)
     }
 
     fn update(&self, queries_win : &QueriesWindow) {

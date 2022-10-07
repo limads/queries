@@ -13,7 +13,7 @@ use crate::client::OpenedScripts;
 use sourceview5::View;
 use sourceview5::prelude::*;
 use crate::ui::ExecButton;
-use archiver::OpenedFile;
+use filecase::OpenedFile;
 use std::cell::RefCell;
 use std::rc::Rc;
 use sourceview5::{SearchContext, SearchSettings};
@@ -21,8 +21,7 @@ use sourceview5::Buffer;
 use crate::client::SharedUserState;
 use crate::ui::QueriesSettings;
 use crate::client::EditorSettings;
-
-use archiver::MultiArchiverImpl;
+use filecase::MultiArchiverImpl;
 
 #[derive(Debug, Clone)]
 pub struct QueriesEditor {
@@ -260,12 +259,12 @@ impl ScriptList {
 }
 
 #[derive(Debug, Clone)]
-pub struct SaveDialog(pub(crate) archiver::SaveDialog);
+pub struct SaveDialog(pub(crate) filecase::SaveDialog);
 
 impl SaveDialog {
 
     pub fn build() -> Self {
-        Self(archiver::SaveDialog::build("*.sql"))
+        Self(filecase::SaveDialog::build("*.sql"))
     }
 
 }
@@ -300,12 +299,12 @@ impl React<OpenedScripts> for SaveDialog {
 }
 
 #[derive(Debug, Clone)]
-pub struct OpenDialog(pub(crate) archiver::OpenDialog);
+pub struct OpenDialog(pub(crate) filecase::OpenDialog);
 
 impl OpenDialog {
 
     pub fn build() -> Self {
-        Self(archiver::OpenDialog::build("*.sql"))
+        Self(filecase::OpenDialog::build("*.sql"))
     }
 
 }

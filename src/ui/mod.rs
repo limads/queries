@@ -15,7 +15,7 @@ use crate::sql::object::{DBType};
 mod overview;
 use core::cell::RefCell;
 use std::rc::Rc;
-use archiver::MultiArchiverImpl;
+use filecase::MultiArchiverImpl;
 use crate::client::SharedUserState;
 
 // TODO set find/replace insensitive when workspace is selected.

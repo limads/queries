@@ -8,7 +8,7 @@ use gtk4::prelude::*;
 use crate::ui::PackedImageLabel;
 use crate::client::OpenedScripts;
 use stateful::React;
-use archiver::MultiArchiverImpl;
+use filecase::MultiArchiverImpl;
 use crate::client::ActiveConnection;
 
 #[derive(Debug, Clone)]

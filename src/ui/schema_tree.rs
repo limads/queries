@@ -49,7 +49,7 @@ pub struct SchemaTree {
     pub form : super::Form,
     pub import_dialog : ImportDialog,
     pub report_dialog : ReportDialog,
-    pub report_export_dialog : archiver::SaveDialog
+    pub report_export_dialog : filecase::SaveDialog
 }
 
 const ALL_TYPES : [DBType; 15] = [
@@ -85,7 +85,7 @@ impl SchemaTree {
 
         let schema_popover = PopoverMenu::builder().menu_model(&menu).build();
 
-        let mut icons = archiver::load_icons_as_pixbufs_from_resource(
+        let mut icons = filecase::load_icons_as_pixbufs_from_resource(
             "/com/github/limads/queries",
             &["table-symbolic", "db-symbolic", "fn-dark-symbolic", "clock-app-symbolic", "view-symbolic", "key-symbolic"]
         ).unwrap();
@@ -217,7 +217,7 @@ impl SchemaTree {
                 report_dialog.dialog.show();
             }
         });
-        let report_export_dialog = archiver::SaveDialog::build("*.html");
+        let report_export_dialog = filecase::SaveDialog::build("*.html");
         report_export_dialog.dialog.connect_response({
             let rendered_content = report_dialog.rendered_content.clone();
             move |dialog, resp| {
@@ -496,7 +496,7 @@ fn load_type_icons() -> Rc<HashMap<DBType, Pixbuf>> {
     for ty in ALL_TYPES.iter() {
         names.push(super::get_type_icon_name(ty));
     }
-    let pixbufs = archiver::load_icons_as_pixbufs_from_resource("/com/github/limads/queries", &names[..]).unwrap();
+    let pixbufs = filecase::load_icons_as_pixbufs_from_resource("/com/github/limads/queries", &names[..]).unwrap();
     let mut type_icons = HashMap::new();
     for ty in ALL_TYPES.iter() {
         type_icons.insert(ty.clone(), pixbufs[super::get_type_icon_name(ty)].clone());

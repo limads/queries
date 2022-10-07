@@ -8,7 +8,7 @@ use gtk4::*;
 use libadwaita;
 use std::env;
 use stateful::React;
-use archiver::MultiArchiverImpl;
+use filecase::MultiArchiverImpl;
 use stateful::PersistentState;
 use queries::*;
 use queries::client::*;
@@ -49,7 +49,7 @@ fn main() {
     register_resource();
     
     if let Err(e) = gtk4::init() {
-        log::error!("{}", e);
+        eprintln!("{}", e);
         return;
     }
 
@@ -60,11 +60,11 @@ fn main() {
     let style_manager = libadwaita::StyleManager::default();
     style_manager.set_color_scheme(libadwaita::ColorScheme::Default);
 
-    let user_state = if let Some(mut path) = archiver::get_datadir(queries::APP_ID) {
+    let user_state = if let Some(mut path) = filecase::get_datadir(queries::APP_ID) {
         path.push(queries::SETTINGS_FILE);
         SharedUserState::recover(&path.to_str().unwrap()).unwrap_or_default()
     } else {
-        log::warn!("Unable to get datadir for state recovery");
+        eprintln!("Unable to get datadir for state recovery");
         SharedUserState::default()
     };
     let client = QueriesClient::new(&user_state);
@@ -95,7 +95,7 @@ fn main() {
                 // theme.add_search_path("/home/diego/Software/gnome/queries/assets/icons");
                 theme.add_resource_path("/com/github/limads/queries/icons");
             } else {
-                log::warn!("Unable to get default GDK display");
+                eprintln!("Unable to get default GDK display");
             }
 
             // GTK4 widgets seem to be able to load them from the icon root. But the libadwaita
@@ -197,11 +197,11 @@ fn main() {
         user_state.clone()
     });
 
-    if let Some(mut path) = archiver::get_datadir(queries::APP_ID) {
+    if let Some(mut path) = filecase::get_datadir(queries::APP_ID) {
         path.push(queries::SETTINGS_FILE);
         user_state.persist(&path.to_str().unwrap());
     } else {
-        log::warn!("Unable to get datadir for state persistence");
+        eprintln!("Unable to get datadir for state persistence");
     }
 
 }
