@@ -1,5 +1,5 @@
 # This is required for vendored git dependencies.
-# cargo generate-lockfile --offline
+cargo generate-lockfile --offline
 
 GIT_PREFIX=https://github.com/limads
 
