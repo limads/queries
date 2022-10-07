@@ -8,10 +8,6 @@ cargo build --release --offline --verbose \
     --config "source.crates-io.replace-with = \"vendored-sources\"" \
     --config "source.\"${GIT_PREFIX}/archiver.git\".git = \"${GIT_PREFIX}/archiver.git\"" \
     --config "source.\"${GIT_PREFIX}/archiver.git\".replace-with = \"vendored-sources\"" \
-    --config "source.\"${GIT_PREFIX}/papyri.git\".git = \"${GIT_PREFIX}/papyri.git\"" \
-    --config "source.\"${GIT_PREFIX}/papyri.git\".replace-with = \"vendored-sources\"" \
-    --config "source.\"${GIT_PREFIX}/stateful.git\".git = \"${GIT_PREFIX}/stateful.git\"" \
-    --config "source.\"${GIT_PREFIX}/stateful.git\".replace-with = \"vendored-sources\"" \
 
 # [source.crates-io]
 # replace-with = "vendored-sources"
