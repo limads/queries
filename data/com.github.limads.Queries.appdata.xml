@@ -13,7 +13,9 @@
 	<description>
 	  <p>Queries is a workbench to interact with relational databases, with initial support for the Postgres
 	  database management system (DBMS).</p>
-	  <h2>Features</h2>
+	  
+	  <p>Features</p>
+	  
 	  <ul>
 	  <li>Feel at home: Establishing a database connection immediately shows all the relevant
 	  database contextual information (schemata, tables, views and columns) that
@@ -30,6 +32,7 @@
 	  using plain SQL, simply by aggregating your data according to a valid JSON specification.
 	  Export tables as plain CSV files and build dynamic HTML reports containing rich </li>
 	  </ul>
+	
 	</description>
 	
 	<categories>
