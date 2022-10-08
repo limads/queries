@@ -33,7 +33,7 @@ base64 = "0.13.0"
 rand = "0.8.5"
 papyri = { version = "0.1.1", features = ["gdk4", "gdk-pixbuf", "cairo-rs"] }
 stateful =  "0.1"
-filecase = "0.1"
+filecase = "0.1.1"
 
 [[bin]]
 name="queries"
