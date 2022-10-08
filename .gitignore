@@ -2,3 +2,5 @@
 .buildconfig
 .cargo
 /.flatpak-builder
+/vendored
+vendored.tar.gz

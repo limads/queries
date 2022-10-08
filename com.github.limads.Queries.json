@@ -35,14 +35,14 @@
 	        "builddir" : true,
 	        "buildsystem" : "simple",
 	        "build-commands" : [
-	            "sh ${FLATPAK_BUILDER_BUILDDIR}/build.sh"
-	        ],  
+	            "sh ${FLATPAK_BUILDER_BUILDDIR}/scripts/build.sh"
+	        ],
 	        "sources" : [
 	        
 	        {
 	            "type" : "archive",
 	            "url" : "file:///home/diego/Downloads/vendored.tar.gz",
-	            "sha256" : "5214fc6b4be35a2d9184603b6dbffd79fb3be9b8bcfefa79e7b86152cceb68ed"
+	            "sha256" : "0a6a8870b3794c8e0ced3da54d5e010582d8ed86ec08f6fe14185e8955528b01"
 	        },
 	        
 		    {
@@ -52,7 +52,7 @@
 		    
 	        ],
 	        "post-install" : [
-	        	"sh ${FLATPAK_BUILDER_BUILDDIR}/postinstall.sh"
+	        	"sh ${FLATPAK_BUILDER_BUILDDIR}/scripts/postinstall.sh"
 	        ]
 	    }
     ]
