@@ -1,5 +1,7 @@
 mkdir -p vendored 
 
+rm Cargo.lock
+
 cargo vendor vendored/deps
 
 tar -czvf vendored.tar.gz vendored

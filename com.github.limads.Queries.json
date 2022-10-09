@@ -41,13 +41,13 @@
 	        
 	        {
 	            "type" : "archive",
-	            "url" : "file:///home/diego/Downloads/vendored.tar.gz",
-	            "sha256" : "c58cbc8404cb4be79d42226b64fbd3009cf27b84e62c8f6cc6c5b3f776d65a99"
+	            "url" : "file:///home/diego/Downloads/queries/vendored.tar.gz",
+	            "sha256" : "7add2c5672450ad4e48fe1d84d921524260a2c0c27c826f6dc6b6727787410d8"
 	        },
 	        
 		    {
 		        "type" : "git",
-		        "url" : "file:///home/diego/Software/gnome/queries"
+		        "url" : "https://github.com/limads/queries.git"
 		    }
 		    
 	        ],
