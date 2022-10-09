@@ -47,7 +47,7 @@
 	        
 		    {
 		        "type" : "git",
-		        "url" : "https://github.com/limads/queries.git"
+		        "url" : "file:///home/diego/Software/gnome/queries"
 		    }
 		    
 	        ],
