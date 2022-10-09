@@ -41,7 +41,7 @@
 	        
 	        {
 	            "type" : "archive",
-	            "url" : "file:///home/diego/Downloads/queries/vendored.tar.gz",
+	            "url" : "https://github.com/limads/queries/releases/download/v0.1-beta/vendored.tar.gz",
 	            "sha256" : "7add2c5672450ad4e48fe1d84d921524260a2c0c27c826f6dc6b6727787410d8"
 	        },
 	        
