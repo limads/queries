@@ -118,6 +118,7 @@ where
                 
                 // If sequence has at least one non-query statement, default to synchronous exection.
                 let mut results = Vec::new();
+                
                 for any_stmt in stmts {
                     match any_stmt {
                         AnyStatement::Parsed(stmt, s) => match stmt {

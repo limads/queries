@@ -22,10 +22,13 @@ use crate::client::SharedUserState;
 use crate::ui::QueriesSettings;
 use crate::client::EditorSettings;
 use filecase::MultiArchiverImpl;
+use gtk4::glib::GString;
+
+const MAX_VIEWS : usize = 16;
 
 #[derive(Debug, Clone)]
 pub struct QueriesEditor {
-    pub views : [sourceview5::View; 16],
+    pub views : [sourceview5::View; MAX_VIEWS],
     pub script_list : ScriptList,
     pub stack : Stack,
 
@@ -50,8 +53,8 @@ impl QueriesEditor {
         let open_dialog = OpenDialog::build();
         let export_dialog = ExportDialog::build();
         stack.add_named(&script_list.bx, Some("list"));
-        let views : [sourceview5::View; 16]= Default::default();
-        for ix in 0..16 {
+        let views : [sourceview5::View; MAX_VIEWS]= Default::default();
+        for ix in 0..MAX_VIEWS {
             configure_view(&views[ix], &EditorSettings::default());
             let scroll = ScrolledWindow::new();
             scroll.set_child(Some(&views[ix]));
@@ -63,11 +66,19 @@ impl QueriesEditor {
     }
 
     pub fn configure(&self, settings : &EditorSettings) {
-        for ix in 0..16 {
+        for ix in 0..MAX_VIEWS {
             configure_view(&self.views[ix], &settings);
         }
     }
 
+}
+
+pub fn selected_editor_stack_index(stack : &Stack) -> Option<usize> {
+    if let Some(sel_name) = stack.visible_child_name() {
+        sel_name.trim_start_matches("editor").parse::<usize>().ok()
+    } else {
+        None
+    }
 }
 
 impl React<OpenedScripts> for QueriesEditor {
@@ -80,11 +91,9 @@ impl React<OpenedScripts> for QueriesEditor {
                 match opt_file {
                     Some(file) => {
                         stack.set_visible_child_name(&format!("editor{}", file.index));
-                        // opened.set_active_text(retrieve_statements_from_buffer(&views[ix]).unwrap());
                     },
                     None => {
                         stack.set_visible_child_name("list");
-                        // opened.set_active_text(None);
                     }
                 }
             }
@@ -103,10 +112,23 @@ impl React<OpenedScripts> for QueriesEditor {
             let stack = self.stack.clone();
             let views = self.views.clone();
             move |(old_file, n_left)| {
-                let buffer = views[old_file.index].buffer();
-                buffer.set_text("");
+            
+                let buf_removed = views[old_file.index].buffer();
+                buf_removed.set_text("");
+                for ix in old_file.index..(MAX_VIEWS-1) {
+                    let buf_right = views[ix+1].buffer();
+                    views[ix].set_buffer(Some(&buf_right));
+                }
+                views[MAX_VIEWS-1].set_buffer(Some(&buf_removed));
+                
                 if n_left == 0 {
                     stack.set_visible_child_name("list");
+                } else {
+                    if let Some(sel_ix) = selected_editor_stack_index(&stack) {
+                        if sel_ix > old_file.index {
+                            stack.set_visible_child_name(&format!("editor{}", sel_ix-1));
+                        }
+                    }
                 }
             }
         });
@@ -124,7 +146,19 @@ impl React<OpenedScripts> for QueriesEditor {
         });
         opened.connect_buffer_read_request({
             let views = self.views.clone();
+            let stack = self.stack.clone();
             move |ix : usize| -> String {
+                
+                if let Some(vis_name) = stack.visible_child_name() {
+                    if &vis_name[..] != &format!("editor{}", ix)[..] {
+                        eprintln!("Warning: Currently selected file is different than desired file index");
+                        return String::new();
+                    }
+                 } else {
+                    eprintln!("Warning: Currently selected file is different than desired file index");
+                    return String::new();
+                 }
+                
                 let buffer = views[ix].buffer();
                 buffer.text(
                     &buffer.start_iter(),
@@ -162,7 +196,7 @@ fn file_paths(list : &ListBox) -> Vec<String> {
 impl React<ExecButton> for QueriesEditor {
 
     fn react(&self, btn : &ExecButton) {
-        let weak_views : [glib::WeakRef<sourceview5::View>; 16] = self.views.clone().map(|view| view.downgrade() );
+        let weak_views : [glib::WeakRef<sourceview5::View>; MAX_VIEWS] = self.views.clone().map(|view| view.downgrade() );
         let exec_action = btn.exec_action.clone();
         btn.queue_exec_action.connect_activate(move |_, _| {
             let selected_view = exec_action.state().unwrap().get::<i32>().unwrap();
@@ -222,7 +256,7 @@ impl ScriptList {
         let scroll = ScrolledWindow::new();
         scroll.set_child(Some(&list));
         scroll.set_width_request(520);
-        scroll.set_height_request(220);
+        scroll.set_height_request(380);
         scroll.set_has_frame(false);
         list.set_activate_on_single_click(true);
         list.set_show_separators(true);
@@ -237,7 +271,6 @@ impl ScriptList {
         btn_bx.bx.set_halign(Align::End);
         bx.append(&title_bx);
 
-        // bx.append(&title_bx);
         bx.append(&scroll);
 
         bx.set_halign(Align::Center);
@@ -430,7 +463,6 @@ impl FindDialog {
         find_entry.set_placeholder_text(Some("Find"));
         let search_up_btn = Button::builder().icon_name("go-up-symbolic").build();
         let search_down_btn = Button::builder().icon_name("go-down-symbolic").build();
-        // find_bx.append(&Label::new(Some("Find")));
         find_bx.append(&find_entry);
         find_bx.append(&search_up_btn);
         find_bx.append(&search_down_btn);
@@ -442,7 +474,6 @@ impl FindDialog {
         let replace_entry = Entry::builder().primary_icon_name("edit-find-replace-symbolic").build();
         replace_entry.set_placeholder_text(Some("Replace"));
         replace_entry.set_hexpand(true);
-        // replace_bx.append(&Label::new(Some("Replace with")));
         replace_bx.append(&replace_entry);
         replace_bx.set_halign(Align::Fill);
         replace_bx.set_hexpand(true);

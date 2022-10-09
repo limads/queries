@@ -115,36 +115,44 @@ impl React<OpenedScripts> for FileList {
             let list = self.list.clone();
             move |(old_file, _n_remaining)| {
                 let row = list.row_at_index(old_file.index as i32).unwrap();
+                if let Some(sel_row) = list.selected_row() {
+                    if sel_row.index() == old_file.index as i32 {
+                        list.select_row(None::<&ListBoxRow>);
+                    }
+                }
                 list.remove(&row);
             }
         });
         opened.connect_file_changed({
             let list = self.list.clone();
             move |file| {
-                let lbl = get_label_child(&list, file.index);
-                let txt = lbl.label();
-                if !txt.starts_with(ITALIC_SPAN_END) && !txt.ends_with(ITALIC_SPAN_END) {
-                    lbl.set_label(&format!("{}{}{}", ITALIC_SPAN_START, txt, ITALIC_SPAN_END));
+                if let Some(lbl) = get_label_child(&list, file.index) {
+                    let txt = lbl.label();
+                    if !txt.starts_with(ITALIC_SPAN_END) && !txt.ends_with(ITALIC_SPAN_END) {
+                        lbl.set_label(&format!("{}{}{}", ITALIC_SPAN_START, txt, ITALIC_SPAN_END));
+                    }
                 }
             }
         });
         opened.connect_file_persisted({
             let list = self.list.clone();
             move |file| {
-                let lbl = get_label_child(&list, file.index);
-                let txt = lbl.label();
-                if txt.starts_with(ITALIC_SPAN_START) && txt.ends_with(ITALIC_SPAN_END) {
-                    let n_chars = txt.as_str().chars().count();
-                    let chars = txt.as_str().chars();
-                    lbl.set_label(&format!("{}", chars.skip(26).take(n_chars-26-7).collect::<String>()));
+                if let Some(lbl) = get_label_child(&list, file.index) {
+                    let txt = lbl.label();
+                    if txt.starts_with(ITALIC_SPAN_START) && txt.ends_with(ITALIC_SPAN_END) {
+                        let n_chars = txt.as_str().chars().count();
+                        let chars = txt.as_str().chars();
+                        lbl.set_label(&format!("{}", chars.skip(26).take(n_chars-26-7).collect::<String>()));
+                    }
                 }
             }
         });
         opened.connect_name_changed({
             let list = self.list.clone();
             move |(ix, name)| {
-                let lbl = get_label_child(&list, ix);
-                lbl.set_label(&name);
+                if let Some(lbl) = get_label_child(&list, ix) {
+                    lbl.set_label(&name);
+                }
             }
         });
     }
@@ -174,8 +182,11 @@ const ITALIC_SPAN_START : &'static str = "<span font_style=\"italic\">";
 
 const ITALIC_SPAN_END : &'static str = "</span>";
 
-pub fn get_label_child(list : &ListBox, ix : usize) -> Label {
-    let row = list.row_at_index(ix as i32).unwrap();
-    let bx = row.child().clone().unwrap().downcast::<Box>().unwrap();
-    super::get_child_by_index::<Label>(&bx, 1)
+pub fn get_label_child(list : &ListBox, ix : usize) -> Option<Label> {
+    if let Some(row) = list.row_at_index(ix as i32) {
+        let bx = row.child().clone().unwrap().downcast::<Box>().unwrap();
+        Some(super::get_child_by_index::<Label>(&bx, 1))
+    } else {
+        None
+    }
 }

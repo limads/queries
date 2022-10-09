@@ -228,6 +228,21 @@ impl React<OpenedScripts> for ExecButton {
                 queue_exec_action.set_enabled(false);
             }
         });
+        scripts.connect_closed({
+            let exec_action = self.exec_action.clone();
+            move |(old_file, remaining)| {
+                let curr_state = exec_action.state().unwrap().get::<i32>().unwrap();
+                if remaining > 0 {
+                    if curr_state == old_file.index as i32 {
+                        exec_action.set_state(&(-1i32).to_variant());
+                    } else if curr_state > old_file.index as i32 {
+                        exec_action.set_state(&(curr_state - 1).to_variant());
+                    }
+                } else {
+                    exec_action.set_state(&(-1i32).to_variant());
+                }
+            }
+        });
     }
 
 }

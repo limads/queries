@@ -150,10 +150,14 @@ impl React<FileList> for OpenedScripts {
 impl React<QueriesEditor> for OpenedScripts {
 
     fn react(&self, editor : &QueriesEditor) {
-        editor.views.iter().enumerate().for_each(|(ix, view)| {
+        editor.views.iter().for_each(|view| {
             let send = self.sender().clone();
-            view.buffer().connect_changed(move |_| {
-                send.send(MultiArchiverAction::SetSaved(ix, false)).unwrap();
+            let view = view.clone();
+            let stack = editor.stack.clone();
+            view.buffer().connect_end_user_action(move |_| {
+                if let Some(sel_ix) = crate::ui::selected_editor_stack_index(&stack) {
+                    send.send(MultiArchiverAction::SetSaved(sel_ix, false)).unwrap();
+                }
             });
         });
         editor.ignore_file_save_action.connect_activate({
