@@ -1,7 +1,7 @@
-![](https://github.com/limads/queries/blob/master/data/icons/hicolor/scalable/apps/com.github.limads.Queries.svg) # Queries
+![](https://github.com/limads/queries/blob/master/data/icons/hicolor/scalable/apps/com.github.limads.Queries.svg) 
 
-## About
-	
+# Queries
+
 Queries is a workbench to interact with relational databases, with initial support for Postgres.
 	
 ## Features
