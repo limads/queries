@@ -135,65 +135,7 @@ always contain the full query output. Any queries that result in data visualizat
 
 # Data visualization
 
-Queries can be used to visualize and export data in simple 2D graphs using 
-plain SQL syntax. Queries will render a plot any time a query return a single JSON object
-(i.e. a table with a single row and single column) satisfying the papyri JSON schema. 
-While you can generate the JSON using a combination of SQL literals combined with aggregate functions,
-it is more practical and less error-prone to use a few user defined functions (UDFs)
-that generate valid plot definitions. There are a few UDFs for such purpose 
-described below (remember that you should create the functions via other
-tool such as `psql`).
-
-```sql
-
-```
-
-The most minimal plot is done by calling the plot with default arguments:
-
-```sql
-plot()
-```
-
-The first argument to the plot function is an array of JSON objects, 
-where each object is a separate mapping. Each mapping in this array in turn, 
-can be created by the functions line(.), scatter(.) and bar(.). Those functions
-take arrays with the data to be plotted at the first arguments, and extra
-graphical properties at the remaining arguments.
-
-```sql
-select plot(array[line(array[1,2,3]]);
-```
-
-It is common to work with the array_agg builtin to generate the required
-data from a table:
-
-```sql
-select plot(line(array_agg(age), array_agg(bp))) from patients;
-```
-
-## Line plots 
-
-## Bar plots
-
-## Label plots
-
-## Interval plots 
-
-## Scatter plots
-
-## Panels
-
-Up to 4 plots can be arranged simultaneously using the panel(.)
-call. The first argument is an array of up to 4 plots, while the
-second is the layout() definition, and the third is a design()
-definition.
-
-## Real time graph updates
-
-Combined with the query schedule feature, queries can be used to monitor 
-database changes in real time from simple SQL scripts. The same
-script can contain queries returning tables and plots, and queries will
-arrange all the outputs in the same order the statements were called.
+See the data visualization guide.
 
 # Report generation
 
