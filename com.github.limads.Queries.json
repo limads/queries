@@ -1,7 +1,7 @@
 {
     "app-id" : "com.github.limads.Queries",
     "runtime" : "org.gnome.Platform",
-    "runtime-version" : "42",
+    "runtime-version" : "43",
     "sdk" : "org.gnome.Sdk",
     "sdk-extensions" : [
         "org.freedesktop.Sdk.Extension.rust-stable"
@@ -47,6 +47,7 @@
 	        
 		    {
 		        "type" : "git",
+		        "tag" : "v0.1-beta",
 		        "url" : "https://github.com/limads/queries.git"
 		    }
 		    
