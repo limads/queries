@@ -20,5 +20,5 @@ Queries is a workbench to interact with relational databases, with initial suppo
 
 ## Help
 
-See the project wiki for help with using the application.
+See the [project wiki](https://github.com/limads/queries/wiki) for help with using the application.
 

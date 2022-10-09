@@ -199,6 +199,8 @@ with regression as (
 ) from preds cross join data;
 ```
 
+![](https://limads.sfo3.cdn.digitaloceanspaces.com/queries-plots/plot1.svg)
+
 ## Bar + Interval + Label plot
 
 ```sql
@@ -250,6 +252,8 @@ with length_avgs as(
     
 ) from length_avgs;
 ```
+
+![](https://limads.sfo3.cdn.digitaloceanspaces.com/queries-plots/plot2.svg)
 
 # Real time graph updates
 

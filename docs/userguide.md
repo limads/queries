@@ -1,5 +1,3 @@
-# Queries user guide
-
 # Connecting to your database
 
 While Queries is being designed to be agnostic to database engine, the current implementation
@@ -135,7 +133,7 @@ always contain the full query output. Any queries that result in data visualizat
 
 # Data visualization
 
-See the data visualization guide.
+See the [visualization](https://github.com/limads/queries/wiki/Visualization) guide.
 
 # Report generation
 
