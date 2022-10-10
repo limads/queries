@@ -15,4 +15,4 @@ install -D ${FLATPAK_BUILDER_BUILDDIR}/data/${FLATPAK_ID}.gschema.xml ${FLATPAK_
 gzip ${FLATPAK_BUILDER_BUILDDIR}/data/${FLATPAK_ID}.appdata.xml --keep
 install -D ${FLATPAK_BUILDER_BUILDDIR}/data/${FLATPAK_ID}.appdata.xml.gz ${FLATPAK_DEST}/share/app-info/xmls
 # mkdir -p ${FLATPAK_DEST}/bin
-install -D ${CARGO_TARGET_PATH}/queries ${FLATPAK_DEST}/bin
+install -D ${CARGO_TARGET_PATH}/queries ${FLATPAK_DEST}/bin/queries
