@@ -4,6 +4,8 @@
 
 	<id>io.github.limads.Queries.desktop</id>
 	
+	<name>Queries</name>
+	
 	<metadata_license>CC0-1.0</metadata_license>
 	
 	<project_license>GPL-3.0-or-later</project_license>
@@ -50,7 +52,7 @@
       <image>https://limads.sfo3.digitaloceanspaces.com/queries-screenshots/screen4.png</image>
     </screenshot>
   </screenshots>
-  
+    
   <releases>
     <release version="0.1" date="2022-10-09">
      <description>
@@ -58,5 +60,7 @@
       </description>
     </release>
   </releases>
+  
+  <content_rating type="oars-1.1" />
   
 </component>
