@@ -59,8 +59,8 @@
             "post-install" : [
                 "install -D ${ICON_SRC}/scalable/apps/${FLATPAK_ID}.svg ${ICON_DST}/scalable/apps/${FLATPAK_ID}.svg",
                 "install -D ${ICON_SRC}/symbolic/apps/${FLATPAK_ID}-symbolic.svg ${ICON_DST}/symbolic/apps/${FLATPAK_ID}-symbolic.svg",
-                "install -Dm644 ${FLATPAK_BUILDER_BUILDDIR}/data/${FLATPAK_ID}.desktop -t ${FLATPAK_DEST}/share",
-                "install -Dm644 ${FLATPAK_BUILDER_BUILDDIR}/data/${FLATPAK_ID}.appdata.xml -t ${FLATPAK_DEST}/share/metainfo",
+                "install -Dm644 data/${FLATPAK_ID}.desktop -t ${FLATPAK_DEST}/share/applications",
+                "install -Dm644 data/${FLATPAK_ID}.appdata.xml -t ${FLATPAK_DEST}/share/metainfo",
                 "install -Dm755 ${CARGO_TARGET_PATH}/queries -t ${FLATPAK_DEST}/bin"
             ]
         }
