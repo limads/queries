@@ -145,24 +145,22 @@ should follow the rules described at the section below.
 
 2. Chose a table or view that will yield the report contents.
 Click under the table or view at the schema tree on the left
-sidebar and choose the "Report" item.
-
-For each row this table returns, the unique <section> tag on
-your template will be replicated, but edited to contain the table contents according
-to the rules described at the previous step.
+sidebar and choose the "Report" item. For each row this table returns, 
+the unique `<section>` tag on your template will be replicated, but edited 
+to contain the table contents according to the rules described at the previous step.
 
 3. Chose a destination to save the resulting HTML file.
 
 ## Template HTML files
 
-Templates for dynamic report generation are HTML files with a <body></body> and a
-single <section></section> nested within this body. 
+Templates for dynamic report generation are HTML files with a `<body>` and a
+single `<section>` nested within this body. 
 
-Any HTML inside the <body> but outside the unique <section> tag will appear
-once in the resulting report. Any HTML inside the <section>, however,
+Any HTML inside the `<body>` but outside the unique `<section>` tag will appear
+once in the resulting report. Any HTML inside the `<section>`, however,
 will be replicated for each row resulting
 from your query. To actually substitute the HTML with the query result, use
-`html <template>COLUMN_NAME</template>` Where <template> is the standard HTML 
+`html <template>COLUMN_NAME</template>` Where `<template>` is the standard HTML 
 template tag, and COLUMN_NAME is one of the columns returned by your query.
 
 Apart from JSON objects, the template tags will be substituted for any textual
@@ -174,7 +172,7 @@ Any JSON fields that satisfy the papyri schema will be substituted by an SVG tag
 containing the full plot embedded in the file.
 
 JSON fields not satisfying the schema will be rendered
-as HTML <table> tags if possible. JSON fields meant to be presented
+as HTML `<table>` tags if possible. JSON fields meant to be presented
 as tables must map each key of its keys to a JSON array. 
 The arrays might have heterogeneous types, but
 are expected to be of same length. If the "Transpose" switch is off, 
@@ -196,7 +194,7 @@ When you uninstall Queries, it is highly recommended to erase all
 user data as well, using:
 
 ```
-flatpak uninstall com.github.limads.Queries --delete-data
+flatpak uninstall io.github.limads.Queries --delete-data
 ```
 
 So that no authentication information is persisted to disk after

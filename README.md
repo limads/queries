@@ -1,4 +1,4 @@
-![](https://github.com/limads/queries/blob/master/data/icons/hicolor/scalable/apps/com.github.limads.Queries.svg) 
+![](https://github.com/limads/queries/blob/master/data/icons/hicolor/scalable/apps/io.github.limads.Queries.svg) 
 
 # Queries
 

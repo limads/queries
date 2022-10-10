@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <gresources>
-  <gresource prefix="/com/github/limads/queries">
+  <gresource prefix="/io/github/limads/queries">
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/clock-app-symbolic.svg">../icons/hicolor/symbolic/actions/clock-app-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/sidebar-symbolic.svg">../icons/hicolor/symbolic/actions/sidebar-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-boolean-symbolic.svg">../icons/hicolor/symbolic/actions/type-boolean-symbolic.svg</file>

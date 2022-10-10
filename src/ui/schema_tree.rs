@@ -86,7 +86,7 @@ impl SchemaTree {
         let schema_popover = PopoverMenu::builder().menu_model(&menu).build();
 
         let mut icons = filecase::load_icons_as_pixbufs_from_resource(
-            "/com/github/limads/queries",
+            "/io/github/limads/queries",
             &["table-symbolic", "db-symbolic", "fn-dark-symbolic", "clock-app-symbolic", "view-symbolic", "key-symbolic"]
         ).unwrap();
         
@@ -496,7 +496,7 @@ fn load_type_icons() -> Rc<HashMap<DBType, Pixbuf>> {
     for ty in ALL_TYPES.iter() {
         names.push(super::get_type_icon_name(ty));
     }
-    let pixbufs = filecase::load_icons_as_pixbufs_from_resource("/com/github/limads/queries", &names[..]).unwrap();
+    let pixbufs = filecase::load_icons_as_pixbufs_from_resource("/io/github/limads/queries", &names[..]).unwrap();
     let mut type_icons = HashMap::new();
     for ty in ALL_TYPES.iter() {
         type_icons.insert(ty.clone(), pixbufs[super::get_type_icon_name(ty)].clone());

@@ -21,18 +21,38 @@ like (color, trace width), and each have a default argument.
 ## Line mapping
 
 ```sql
-create or replace function line(anyarray,anyarray,text default '#000000',real default 1.0, integer default 1) 
-returns json as $$
-	select json_build_object('kind', 'line', 'map', json_build_object('x', $1, 'y', $2), 'color', $3, 'width', $4, 'spacing', $5);
+create or replace function line(
+    anyarray,
+    anyarray,
+    text default '#000000',
+    real default 1.0, 
+    integer default 1
+) returns json as $$
+	select json_build_object(
+	    'kind', 'line', 
+	    'map', json_build_object('x', $1, 'y', $2), 
+	    'color', $3, 
+	    'width', $4, 
+	    'spacing', $5
+	);
 $$ language sql;
 ```
 
 ## Scatter mapping 
 
 ```sql
-create or replace function scatter(anyarray,anyarray,text default '#d3d7cf',real default 10.0) 
-returns json as $$
-	select json_build_object('kind', 'scatter', 'map', json_build_object('x', $1, 'y', $2), 'color', $3, 'radius', $4);
+create or replace function scatter(
+    anyarray,
+    anyarray,
+    text default '#d3d7cf',
+    real default 10.0
+) returns json as $$
+	select json_build_object(
+	    'kind', 'scatter', 
+	    'map', json_build_object('x', $1, 'y', $2), 
+	    'color', $3, 
+	    'radius', $4
+    );
 $$ language sql;
 ```
 
@@ -265,8 +285,8 @@ arrange all the outputs in the same order the statements were called.
 # Workflow
 
 Since plot composition is done within aggregated queries, they can easily
-be wrapped in a create view statement, and then called from menu-based
+be wrapped in a CREATE VIEW statement, which can in turn be called from menu-based
 interactions. Any updates on the database tables will naturally reflect
-in the composed plot.
+on the composed plot.
 
 

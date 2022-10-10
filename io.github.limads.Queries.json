@@ -1,5 +1,5 @@
 {
-    "app-id" : "com.github.limads.Queries",
+    "app-id" : "io.github.limads.Queries",
     "runtime" : "org.gnome.Platform",
     "runtime-version" : "43",
     "sdk" : "org.gnome.Sdk",

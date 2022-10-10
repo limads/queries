@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist gettext-domain="Queries">
-	<schema id="com.github.limads.Queries" path="/com/github/limads/Queries/">
+	<schema id="io.github.limads.Queries" path="/io/github/limads/Queries/">
 	</schema>
 </schemalist>
