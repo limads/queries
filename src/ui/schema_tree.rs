@@ -156,6 +156,7 @@ impl SchemaTree {
         insert_action.set_enabled(false);
         import_action.set_enabled(false);
         call_action.set_enabled(false);
+        report_action.set_enabled(false);
         insert_action.connect_activate({
             let form = form.clone();
             move |action, _| {
@@ -394,11 +395,12 @@ impl React<ActiveConnection> for SchemaTree {
             let query_action = self.query_action.clone();
             let call_action = self.call_action.clone();
             let import_action = self.import_action.clone();
+            let report_action = self.report_action.clone();
             move |opt_obj| {
                 match &opt_obj {
                     Some(DBObject::Table { .. }) => {
                         let s = serde_json::to_string(&opt_obj.unwrap()).unwrap().to_variant();
-                        for action in [&insert_action, &query_action, &import_action] {
+                        for action in [&insert_action, &query_action, &import_action, &report_action] {
                             action.set_enabled(true);
                             action.set_state(&s);
                         }
@@ -408,6 +410,7 @@ impl React<ActiveConnection> for SchemaTree {
                     Some(DBObject::View { .. }) => {
                         let s = serde_json::to_string(&opt_obj.unwrap()).unwrap().to_variant();
                         query_action.set_enabled(true);
+                        report_action.set_enabled(true);
                         query_action.set_state(&s);
                         for action in [&insert_action, &import_action, &call_action] {
                             action.set_enabled(false);
@@ -415,14 +418,14 @@ impl React<ActiveConnection> for SchemaTree {
                         }
                     },
                     Some(DBObject::Schema { .. }) => {
-                        for action in [&insert_action, &query_action, &import_action, &call_action] {
+                        for action in [&insert_action, &query_action, &import_action, &call_action, &report_action] {
                             action.set_enabled(false);
                             action.set_state(&String::new().to_variant());
                         }
                     },
                     Some(DBObject::Function { .. }) => {
                         let s = serde_json::to_string(&opt_obj.unwrap()).unwrap().to_variant();
-                        for action in [&insert_action, &query_action, &import_action] {
+                        for action in [&insert_action, &query_action, &import_action, &report_action] {
                             action.set_enabled(false);
                             action.set_state(&String::new().to_variant());
                         }
@@ -430,7 +433,7 @@ impl React<ActiveConnection> for SchemaTree {
                         call_action.set_state(&s);
                     },
                     _ => {
-                        for action in [&insert_action, &query_action, &import_action, &call_action] {
+                        for action in [&insert_action, &query_action, &import_action, &call_action, &report_action] {
                             action.set_enabled(false);
                             action.set_state(&String::new().to_variant());
                         }

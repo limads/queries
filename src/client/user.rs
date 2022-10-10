@@ -81,7 +81,7 @@ impl Default for ExecutionSettings {
     fn default() -> Self {
         Self {
             row_limit : 500,
-            execution_interval : 1,
+            execution_interval : 5,
             statement_timeout : 5,
             accept_ddl : false,
             accept_dml : false
@@ -143,8 +143,7 @@ impl Default for SharedUserState {
     fn default() -> Self {
         SharedUserState(Rc::new(RefCell::new(UserState {
             paned : filecase::PanedState { primary : 280, secondary : 320 },
-            window : filecase::WindowState { width : 1024, height : 768 },
-            //selected_template : 0,
+            window : filecase::WindowState { width : 1440, height : 1080 },
             ..Default::default()
         })))
     }
@@ -467,7 +466,6 @@ pub fn set_client_state(user_state : &SharedUserState, client : &QueriesClient) 
     client.conn_set.add_connections(&state.conns);
     client.conn_set.add_certificates(&state.certs);
     client.scripts.add_files(&state.scripts);
-    // crate::log_debug_if_required("Client updated with user state");
 }
 
 // React to all common data structures, to persist state to filesystem.

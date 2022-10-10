@@ -168,10 +168,10 @@ impl React<QueriesEditor> for OpenedScripts {
                     if ix >= 0 {
                         send.send(MultiArchiverAction::CloseRequest(ix as usize, true)).unwrap();
                     } else {
-                        panic!("Ix is nonzero");
+                        eprintln!("Ix is nonzero");
                     }
                 } else {
-                    panic!("Action does not have parameter");
+                    eprintln!("Action does not have parameter");
                 }
             }
         });
