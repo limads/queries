@@ -52,7 +52,8 @@
 	            },
 		        {
 		            "type" : "git",
-		            "url" : "file:///home/diego/Software/gnome/queries"
+		            "url" : "https://github.com/limads/queries.git",
+		            "tag" : "v0.1"
 		        }
 	        ],
 	        "post-install" : [
