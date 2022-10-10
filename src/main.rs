@@ -103,8 +103,8 @@ fn main() {
             let window = ApplicationWindow::builder()
                 .application(app)
                 .title("Queries")
-                .default_width(1024)
-                .default_height(768)
+                .default_width(1440)
+                .default_height(1080)
                 .build();
             let queries_win = QueriesWindow::build(window, &user_state);
 
