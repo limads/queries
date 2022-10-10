@@ -47,7 +47,6 @@
 	        
 		    {
 		        "type" : "git",
-		        "commit" : "87ff1b691b88546320d754215d24cb47b40f1773",
 		        "url" : "https://github.com/limads/queries.git"
 		    }
 		    
