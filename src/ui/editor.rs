@@ -374,7 +374,6 @@ fn configure_view(view : &View, settings : &EditorSettings) {
     buffer.set_highlight_syntax(true);
     buffer.set_max_undo_levels(40);
     let provider = CssProvider::new();
-
     let font = format!("textview {{ font-family: \"{}\"; font-size: {}pt; }}", settings.font_family, settings.font_size);
     provider.load_from_data(font.as_bytes());
 
@@ -796,12 +795,15 @@ impl React<QueriesSettings> for QueriesEditor {
         settings.editor_bx.font_btn.connect_font_set({
             let editor = self.clone();
             move |btn| {
-                let s = btn.title();
-                let mut state = editor.user_state.borrow_mut();
-                if let Some((font_family, font_size)) = crate::ui::parse_font(&s[..]) {
-                    state.editor.font_family = font_family;
-                    state.editor.font_size = font_size;
-                    editor.configure(&state.editor);
+                if let Some(s) = btn.font() {
+                    let mut state = editor.user_state.borrow_mut();
+                    if let Some((font_family, font_size)) = crate::ui::parse_font(&s[..]) {
+                        state.editor.font_family = font_family;
+                        state.editor.font_size = font_size;
+                        editor.configure(&state.editor);
+                    } else {
+                        eprintln!("Could not parse font");
+                    }
                 }
             }
         });

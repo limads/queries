@@ -2,31 +2,31 @@
 
 <component type="desktop">
 
-	<id>io.github.limads.Queries.desktop</id>
-	
-	<name>Queries</name>
-	
-	<metadata_license>CC0-1.0</metadata_license>
-	
-	<project_license>GPL-3.0-or-later</project_license>
-	
-	<summary>A workbench to interact with relational databases.</summary>
-	
-	<description>
-	  <p>Queries is a workbench to interact with relational databases, with initial support for Postgres.</p>
-	  <p>Features</p>
-	  <ul>
-	  <li>View relevant contextual information (schemata, tables, views and columns) when writing SQL.</li>
-	  <li>SQL statements are parsed and verified at the client side before beingsent to the server, for immediate feedback and faster debugging.</li>
-	  <li>Support for encrypted connections via SSL and TLS, allowing you to interact safely with remote databases.</li>
-	  <li>Statements are executed asynchronously when possible, reducing execution time for long statement sequences.</li>
-	  <li>Build line, scatter and bar graphs without external tools using plain SQL, simply by aggregating your data according to a valid JSON specification.</li>
-	  <li>Export results as plain CSV files or build dynamic HTML reports from tables and views.</li>
-	  </ul>
-	
-	</description>
-	
-	<categories>
+    <id>io.github.limads.Queries.desktop</id>
+    
+    <name>Queries</name>
+    
+    <metadata_license>CC0-1.0</metadata_license>
+    
+    <project_license>GPL-3.0-or-later</project_license>
+    
+    <summary>A workbench to interact with relational databases.</summary>
+    
+    <description>
+      <p>Queries is a workbench to interact with relational databases, with initial support for Postgres.</p>
+      <p>Features</p>
+      <ul>
+      <li>View relevant contextual information (schemata, tables, views and columns) when writing SQL.</li>
+      <li>SQL statements are parsed and verified at the client side, for immediate feedback and faster debugging.</li>
+      <li>Support for encrypted connections via SSL and TLS, allowing you to interact safely with remote databases.</li>
+      <li>Statements are executed asynchronously when possible, reducing execution time for long statement sequences.</li>
+      <li>Build line, scatter and bar graphs without external tools using plain SQL, simply by aggregating your data according to a valid JSON specification.</li>
+      <li>Export results as plain CSV files or build dynamic HTML reports from tables and views.</li>
+      </ul>
+    
+    </description>
+    
+    <categories>
         <category>Office</category>
         <category>Development</category>
     </categories>
@@ -35,10 +35,10 @@
       <keyword translate="no">SQL</keyword>
       <keyword translate="no">Database</keyword>
       <keyword translate="no">Postgres</keyword>
-  </keywords>
+    </keywords>
   
-	<developer_name>Diego Lima</developer_name>
-	
+    <developer_name>Diego Lima</developer_name>
+    
     <url type="homepage">https://github.com/limads/queries</url>
     <url type="bugtracker">https://github.com/limads/queries/issues</url>
     <url type="donation">https://github.com/sponsors/limads</url>

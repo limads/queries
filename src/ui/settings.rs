@@ -149,11 +149,6 @@ impl EditorBox {
         font_btn.set_use_font(true);
         font_btn.set_use_size(true);
 
-        font_btn.connect_font_set(move |font_btn| {
-            font_btn.font_family();
-            font_btn.font_size();
-        });
-
         let manager = sourceview5::StyleSchemeManager::new();
         let scheme_combo = ComboBoxText::new();
         for id in manager.scheme_ids() {

@@ -299,11 +299,16 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
         win.settings.editor_bx.font_btn.connect_font_set({
             let state = self.clone();
             move |btn| {
-                let title = btn.title().to_string();
-                if let Some((family, sz)) = crate::ui::parse_font(&title) {
-                    let mut s = state.borrow_mut();
-                    s.editor.font_family = family;
-                    s.editor.font_size = sz;
+                if let Some(title) = btn.font() {
+                    if let Some((family, sz)) = crate::ui::parse_font(&title.to_string()) {
+                        let mut s = state.borrow_mut();
+                        s.editor.font_family = family;
+                        s.editor.font_size = sz;
+                    } else {
+                        eprintln!("Failed parsing font definition");
+                    }
+                } else {
+                    eprintln!("No font set");
                 }
             }
         });
@@ -449,7 +454,7 @@ impl PersistentState<QueriesWindow> for SharedUserState {
 
         let font = format!("{} {}", state.editor.font_family, state.editor.font_size);
         queries_win.settings.editor_bx.scheme_combo.set_active_id(Some(&state.editor.scheme));
-        queries_win.settings.editor_bx.font_btn.set_title(&font);
+        queries_win.settings.editor_bx.font_btn.set_font(&font);
         queries_win.settings.editor_bx.line_num_switch.set_active(state.editor.show_line_numbers);
         queries_win.settings.editor_bx.line_highlight_switch.set_active(state.editor.highlight_current_line);
         
