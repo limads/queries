@@ -351,19 +351,25 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
             move |_, param| {
                 if let Some(s) = param {
                     let cert_str = s.get::<String>().unwrap();
-                    let cert : Certificate = serde_json::from_str(&cert_str).unwrap();
+                    let new_cert : Certificate = serde_json::from_str(&cert_str).unwrap();
                     let mut state = state.borrow_mut();
 
+                    // Set this certificate to existing conns.
                     let mut conn_iter = state.conns
                         .iter_mut()
-                        .filter(|conn| &conn.host[..] == &cert.host[..] );
+                        .filter(|conn| &conn.host[..] == &new_cert.host[..] );
                     while let Some(conn) = conn_iter.next() {
-                        conn.cert = Some(cert.cert.clone());
-                        conn.is_tls = Some(cert.is_tls);
+                        conn.cert = Some(new_cert.cert.clone());
+                        conn.is_tls = Some(new_cert.is_tls);
+                        conn.mode = Some(new_cert.mode);
                     }
                     
-                    if state.certs.iter().find(|c| &c.cert[..] == &cert.cert[..] ).is_none() {
-                        state.certs.push(cert);
+                    // Set this certificate to the certificate vector.
+                    let no_duplicates = state.certs.iter()
+                        .find(|c| &c.cert[..] == &new_cert.cert[..] && &c.host[..] == &new_cert.host[..] )
+                        .is_none();
+                    if no_duplicates {
+                        state.certs.push(new_cert);
                     }
                     
                 }
@@ -378,10 +384,11 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
                     for conn in state.conns.iter_mut().filter(|c| c.host == cert.host ) {
                         conn.cert = None;
                         conn.is_tls = None;
+                        conn.mode = None;
                     }
 
                     for i in (0..state.certs.len()).rev() {
-                        if &state.certs[i].cert[..] == &cert.cert[..] {
+                        if &state.certs[i].cert[..] == &cert.cert[..] && &state.certs[i].host[..] == &cert.host[..] {
                             state.certs.remove(i);
                         }
                     }
@@ -432,6 +439,7 @@ impl PersistentState<QueriesWindow> for SharedUserState {
                 queries_win.settings.security_bx.exp_row.clone(),
                 &cert.host,
                 &cert.cert,
+                &cert.mode,
                 cert.is_tls,
                 &queries_win.settings.security_bx.rows,
                 &queries_win.settings.security_bx.cert_added,
@@ -448,10 +456,7 @@ impl PersistentState<QueriesWindow> for SharedUserState {
             queries_win.titlebar.sidebar_toggle.set_active(true);
         }
         
-        // TODO missing statement timeout (perhaps just disconnect when timeout is reached).
-        // let state = state.borrow();
         queries_win.settings.exec_bx.row_limit_spin.adjustment().set_value(state.execution.row_limit as f64);
-        // queries_win.settings.exec_bx.col_limit_spin.adjustment().set_value(state.execution.column_limit as f64);
         queries_win.settings.exec_bx.schedule_scale.adjustment().set_value(state.execution.execution_interval as f64);
         queries_win.settings.exec_bx.timeout_scale.adjustment().set_value(state.execution.statement_timeout as f64);
         queries_win.settings.exec_bx.dml_switch.set_active(state.execution.accept_dml);

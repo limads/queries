@@ -32,6 +32,7 @@ use crate::client::SharedUserState;
 use super::listener::ExecMode;
 use crate::tables::table::Table;
 use crate::ui::Certificate;
+use crate::ui::SSLMode;
 
 // The actual connection info that is persisted on disk (excludes password for obvious
 // security reasons).
@@ -57,6 +58,8 @@ pub struct ConnectionInfo {
     pub cert : Option<String>,
     
     pub is_tls : Option<bool>,
+    
+    pub mode : Option<SSLMode>,
 
     // When this connection was last established (datetime-formatted).
     pub dt : Option<String>
@@ -99,6 +102,7 @@ impl Default for ConnectionInfo {
             dt : None,
             // details : None,
             cert : None,
+            mode : None,
             is_tls : None
         }
     }
@@ -136,8 +140,6 @@ pub struct ConnectionSet {
     updated : Callbacks<(i32, ConnectionInfo)>,
 
     selected : Callbacks<Option<(i32, ConnectionInfo)>>,
-
-    // on_view : Callbacks<Vec<ConnectionInfo>>,
 
     pub(super) send : glib::Sender<ConnectionAction>
 
@@ -200,6 +202,7 @@ impl ConnectionSet {
                             if &conn.host[..] == &cert.host[..] {
                                 conn.is_tls = Some(cert.is_tls);
                                 conn.cert = Some(cert.cert.clone());
+                                conn.mode = Some(cert.mode);
                             }
                         }
                         certs.push(cert);
@@ -210,6 +213,7 @@ impl ConnectionSet {
                             if &conn.host[..] == &host[..] {
                                 conn.cert = None;
                                 conn.is_tls = None;
+                                conn.mode = None;
                             }
                         }
                         for i in (0..(certs.len())).rev() {
@@ -219,11 +223,6 @@ impl ConnectionSet {
                         }
                     },
                     ConnectionAction::Add(opt_conn) => {
-                        /*if let Some(conn) = &opt_conn {
-                            if !conn.is_like(&ConnectionInfo::default()) && conns.0.iter().find(|c| c.is_like(&conn) ).is_some() {
-                                return Continue(true);
-                            }
-                        }*/
 
                         // If the user clicked the 'plus' button, this will be None. If the connection
                         // was added from the settings file, there will be a valid value here.
@@ -322,6 +321,7 @@ fn update_certificate(conn : &mut ConnectionInfo, certs : &[Certificate]) {
         if let Some(cert) = certs.iter().find(|c| &c.host[..] == &conn.host[..] ) {
             conn.cert = Some(cert.cert.clone());
             conn.is_tls = Some(cert.is_tls);
+            conn.mode = Some(cert.mode);
         }
     }
 }
@@ -491,6 +491,24 @@ pub struct ConnURI {
     pub uri : String
 }
 
+const INVALID_HOST_PORT : &'static str = "Invalid host value (expected host:port format)\n(ex. 127.0.0.1:5432";
+
+pub fn split_host_port(host_with_port : &str) -> Result<(&str, &str), String> {
+    let split_port : Vec<&str> = host_with_port.split(":").collect();
+    let (host_prefix, port) = match split_port.len() {
+        2 => {
+            (split_port[0], split_port[1])
+        },
+        _n => {
+            return Err(format!("{}", INVALID_HOST_PORT));
+        }
+    };
+    if port.parse::<usize>().is_err() {
+        return Err(format!("{}", INVALID_HOST_PORT));
+    }
+    Ok((host_prefix, port))
+}
+
 impl ConnURI {
 
     /* Builds a connection URI from the GTK widgets */
@@ -517,31 +535,13 @@ impl ConnURI {
         uri += password;
 
         uri += "@";
-        let split_port : Vec<&str> = info.host.split(":").collect();
-        let (host_prefix, port) = match split_port.len() {
-            2 => {
-                (split_port[0], split_port[1])
-            },
-            _n => {
-                return Err(format!("Invalid host value (expected host:port format)\n(ex. 127.0.0.1:5432"));
-            }
-        };
+        let (host_prefix, port) = split_host_port(&info.host)?;
+        
         uri += host_prefix;
-        uri += ":";
-        // if let Some(p) = port {
-        //    uri += p;
-        // } else {
+        uri += ":";        
         uri += port;
-        // }
         uri += "/";
         uri += &info.database;
-        
-        /*// sslmode=verify-ca/verify-full
-        let local = is_local(&info)
-            .ok_or(String::from("Could not determine if host is local"))?;
-        if !local {
-            uri += "?sslmode=require";
-        }*/
         
         Ok(ConnURI { info, uri })
     }
@@ -726,24 +726,29 @@ impl ActiveConnection {
             let on_schema_update = on_schema_update.clone();
             let on_schema_invalidated = on_schema_invalidated.clone();
             let user_state = (*user_state).clone();
+            
+            let mut trying_connection = false;
+            
             move |action| {
                 match action {
 
                     // At this stage, the connection URI was successfully parsed, 
                     // but the connection hasn't been established yet. This URI is captured from
                     // the entries, so no certificate is associated with it yet.
-                    ActiveConnectionAction::ConnectRequest(mut uri) => {
+                    ActiveConnectionAction::ConnectRequest(uri) => {
 
+                        if trying_connection {
+                            on_error.call(format!("Previous connect attempt not finished yet"));
+                            return glib::source::Continue(true);
+                        }
+                        
+                        trying_connection = true;
+                        
                         // Spawn a thread that captures the database connection URI. The URI
                         // and the sensitive information (password) is forgotten when this thread dies.
                         thread::spawn({
                             let send = send.clone();
                             let us = user_state.borrow();
-                            if let Some(cert) = us.certs.iter().find(|cert| &cert.host[..] == &uri.info.host[..] ) {
-                                uri.info.cert = Some(cert.cert.clone());
-                                uri.info.is_tls = Some(cert.is_tls);
-                            }
-                            
                             let timeout_secs = us.execution.statement_timeout;
                             move || {
                                 match PostgresConnection::try_new(uri.clone()) {
@@ -778,19 +783,18 @@ impl ActiveConnection {
                     // forgotten.
                     ActiveConnectionAction::ConnectAccepted(conn, db_info) => {
                         
+                        trying_connection = false;
                         schema = db_info.as_ref().map(|info| info.schema.clone() );
                         selected_obj = None;
                         let info = conn.conn_info();
                         if let Err(e) = listener.update_engine(conn) {
                             eprintln!("{}", e);
                         }
-                        // if let Some(info) = &mut db_info {
-                        //    info.info.dt = Some(Local::now().to_string());
-                        // }
                         on_connected.call((info, db_info));
                     },
                     
                     ActiveConnectionAction::Disconnect => {
+                        trying_connection = false;
                         schema = None;
                         selected_obj = None;
                         active_schedule.replace(false);
@@ -1030,9 +1034,12 @@ impl ActiveConnection {
                         }
                         on_object_selected.call(selected_obj.clone());
                     },
+                    
                     ActiveConnectionAction::ConnectFailure(info, e) => {
+                        trying_connection = false;
                         on_conn_failure.call((info, e.clone()));
                     },
+                    
                     ActiveConnectionAction::Error(e) => {
                         on_error.call(e.clone());
                         if *(active_schedule.borrow()) == true {
@@ -1144,6 +1151,10 @@ impl ActiveConnection {
 
 }
 
+const NO_CERT : &'static str = "No SSL certificate associated with this host.\nConfigure one at the security settings";
+
+const MANY_CERTS : &'static str = "Multiple SSL certificates associated with this host.\nRemove the duplicates at the security settings";
+
 impl React<ConnectionBox> for ActiveConnection {
 
     fn react(&self, conn_bx : &ConnectionBox) {
@@ -1155,14 +1166,36 @@ impl React<ConnectionBox> for ActiveConnection {
             conn_bx.password.entry.clone()
         );
         let send = self.send.clone();
+        let user_state = self.user_state.clone();
         conn_bx.switch.connect_state_set(move |switch, _state| {
-
             if switch.is_active() {
-                
                 match generate_conn_uri_from_entries(&host_entry, &db_entry, &user_entry, &password_entry) {
-                    Ok(uri) => {
-
-                        send.send(ActiveConnectionAction::ConnectRequest(uri)).unwrap();
+                    Ok(mut uri) => {
+                        let local = is_local(&uri.info).unwrap_or(false);
+                        if local {
+                            send.send(ActiveConnectionAction::ConnectRequest(uri)).unwrap();
+                        } else {
+                            let us = user_state.borrow();
+                            let matching_certs : Vec<_> = us.certs.iter()
+                                .filter(|cert| &cert.host[..] == &uri.info.host[..] )
+                                .collect();
+                            match matching_certs.len() {
+                                0 => {
+                                    send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(), NO_CERT.to_string())).unwrap();
+                                },
+                                1 => {
+                                    let cert = &matching_certs[0];
+                                    uri.info.cert = Some(cert.cert.clone());
+                                    uri.info.is_tls = Some(cert.is_tls);
+                                    uri.info.mode = Some(cert.mode);
+                                    uri.uri += &format!("?sslmode={}", cert.mode.to_string());
+                                    send.send(ActiveConnectionAction::ConnectRequest(uri)).unwrap();
+                                },
+                                _ => {
+                                    send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(), MANY_CERTS.to_string())).unwrap();
+                                }
+                            }
+                        }
                     },
                     Err(e) => {
                         let info = extract_conn_info(&host_entry, &db_entry, &user_entry).unwrap_or_default();

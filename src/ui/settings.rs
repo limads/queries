@@ -333,11 +333,37 @@ impl EditableCombo {
 
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy, Hash)]
+pub enum SSLMode {
+
+    #[serde(rename="require")]
+    Require,
+    
+    #[serde(rename="verify-ca")]
+    VerifyCA,
+    
+    #[serde(rename="verify-full")]
+    VerifyFull
+}
+
+impl std::string::ToString for SSLMode {
+
+    fn to_string(&self) -> String {
+        match self {
+            Self::Require => format!("require"),
+            Self::VerifyCA => format!("verify-ca"),
+            Self::VerifyFull => format!("verify-full")
+        }
+    }
+    
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Certificate {
     pub host : String,
     pub cert : String,
-    pub is_tls : bool
+    pub is_tls : bool,
+    pub mode : SSLMode
 }
 
 #[derive(Debug, Clone)]
@@ -348,6 +374,7 @@ pub struct SecurityBox {
     pub cert_removed : gio::SimpleAction,
     pub exp_row : libadwaita::ExpanderRow,
     pub save_switch : Switch,
+    pub mode_combo : ComboBoxText,
    
     // pub ssl_switch : Switch,
 
@@ -360,7 +387,7 @@ pub struct SecurityBox {
 
 }
 
-fn validate((host, cert) : &(String, String), rows : &[ListBoxRow]) -> bool {
+fn validate((host, cert, _mode) : &(String, String, SSLMode), rows : &[ListBoxRow]) -> bool {
 
     for row in rows.iter() {
         let bx = row.child().unwrap().clone().downcast::<Box>().unwrap();
@@ -379,6 +406,7 @@ pub fn append_certificate_row(
     exp_row : libadwaita::ExpanderRow, 
     host : &str, 
     cert : &str, 
+    mode : &SSLMode,
     is_tls : bool, 
     rows : &Rc<RefCell<Vec<ListBoxRow>>>,
     cert_added : &gio::SimpleAction,
@@ -387,9 +415,9 @@ pub fn append_certificate_row(
 
     let mut cert_str = cert.to_string();
     if is_tls {
-        cert_str += " (TLS)";
+        cert_str += &format!(" (TLS; {})", mode.to_string());
     } else {
-        cert_str += " (SSL)";
+        cert_str += &format!(" (SSL; {})", mode.to_string());
     }
     
     let lbl_host = Label::new(Some(host));
@@ -403,6 +431,7 @@ pub fn append_certificate_row(
     super::set_margins(&cert_img, 12, 0);
 
     let row = ListBoxRow::new();
+    row.set_selectable(false);
     let bx = Box::new(Orientation::Horizontal, 0);
     
     let bx_top = Box::new(Orientation::Horizontal, 0);
@@ -438,7 +467,7 @@ pub fn append_certificate_row(
     // Account for exclude btn space
     lbl_cert.set_margin_end(34);
     exclude_btn.set_visible(false);
-
+    
     ev.connect_enter({
         let exclude_btn = exclude_btn.clone();
         let lbl_cert = lbl_cert.clone();
@@ -462,6 +491,7 @@ pub fn append_certificate_row(
         let rows = rows.clone();
         let host = host.to_string();
         let cert = cert.to_string();
+        let mode = mode.clone();
         let cert_removed = cert_removed.clone();
         move |_| {
             exp_row.remove(&row);
@@ -474,13 +504,14 @@ pub fn append_certificate_row(
                 Some(&serde_json::to_string(&Certificate {
                     host : host.clone(),
                     cert : cert.clone(),
-                    is_tls
+                    is_tls,
+                    mode
                 }).unwrap().to_variant())
             );
         }
     });
     
-    cert_added.activate(Some(&serde_json::to_string(&Certificate { host : host.to_string(), is_tls, cert : cert.to_string() }).unwrap().to_variant()));
+    cert_added.activate(Some(&serde_json::to_string(&Certificate { host : host.to_string(), is_tls, cert : cert.to_string(), mode : *mode }).unwrap().to_variant()));
 }
 
 fn set_all_not_selectable(list : &ListBox) {
@@ -501,6 +532,10 @@ impl SecurityBox {
 
         let _combo_bx = EditableCombo::build();
 
+        // TODO just get lisboxrows from list, or else certificates added at startup won't count.
+        let rows : Rc<RefCell<Vec<ListBoxRow>>> = Rc::new(RefCell::new(Vec::new()));
+        let cert = Rc::new(RefCell::new((String::new(), String::new(), SSLMode::Require)));
+        
         let save_switch = Switch::new();
         let save_row = ListBoxRow::new();
         save_row.set_selectable(false);
@@ -508,6 +543,8 @@ impl SecurityBox {
         save_row.set_child(Some(&save_bx.bx));
 
         let exp_row = libadwaita::ExpanderRow::new();
+        exp_row.set_selectable(false);
+        
         exp_row.set_title("Certificates");
         exp_row.set_subtitle("Associate TLS/SSL certificates to\ndatabase cluster hosts");
 
@@ -530,38 +567,84 @@ impl SecurityBox {
         tls_toggle.set_label("TLS");
         let ssl_toggle = ToggleButton::new();
         ssl_toggle.set_label("SSL");
-        tls_toggle.set_active(true);
+        ssl_toggle.set_active(true);
         ssl_toggle.set_group(Some(&tls_toggle));
         
         let add_bx_top = Box::new(Orientation::Horizontal, 0);
+        let add_bx_middle = Box::new(Orientation::Horizontal, 0);
         let add_bx_bottom = Box::new(Orientation::Horizontal, 0);
         
-        add_bx_top.append(&host_entry);
-        add_bx_bottom.append(&cert_entry);
-        add_bx_bottom.append(&tls_toggle);
-        add_bx_bottom.append(&ssl_toggle);
-        let add_bx_left = Box::new(Orientation::Vertical, 0);
-        add_bx_left.append(&add_bx_top);
-        add_bx_left.append(&add_bx_bottom);
-        add_bx.append(&add_bx_left);
-        add_bx_top.style_context().add_class("linked");
-        add_bx_bottom.style_context().add_class("linked");
-        add_bx.style_context().add_class("linked");
-
         let add_btn = Button::new();
+        add_btn.set_sensitive(false);
         add_btn.style_context().add_class("flat");
         add_btn.set_icon_name("list-add-symbolic");
         add_btn.set_sensitive(false);
+        add_btn.set_margin_start(6);
         super::set_margins(&add_bx, 12, 12);
         add_btn.set_halign(Align::End);
         add_btn.set_hexpand(false);
+        
+        let mode_combo = ComboBoxText::new();
+        for (id, mode) in [("full", "Verify Full"), ("ca", "Verify CA"), ("require", "Require")] {
+            mode_combo.append(Some(id), mode);
+        }
+        mode_combo.connect_changed({
+            let add_btn = add_btn.clone();
+            let cert = cert.clone();
+            move |mode_combo| {
+                let active_txt = mode_combo.active_text();
+                add_btn.set_sensitive(active_txt.is_some());
+                if let Some(txt) = active_txt {
+                    match &txt[..] {
+                        "Verify Full" => {
+                            cert.borrow_mut().2 = SSLMode::VerifyFull;
+                        },
+                        "Verify CA" => {
+                            cert.borrow_mut().2 = SSLMode::VerifyCA;
+                        },
+                        "Require" => {
+                            cert.borrow_mut().2 = SSLMode::Require;
+                        },
+                        _ => { 
+                            cert.borrow_mut().2 = SSLMode::Require;
+                        }
+                    }
+                } else {
+                    cert.borrow_mut().2 = SSLMode::Require;
+                }
+            }
+        });
+        mode_combo.set_active_id(Some("require"));
+        
+        add_bx_top.append(&host_entry);
+        add_bx_middle.append(&cert_entry);
+        tls_toggle.set_hexpand(true);
+        ssl_toggle.set_hexpand(true);
+        mode_combo.set_hexpand(true);
+        tls_toggle.set_margin_end(12);
+        ssl_toggle.set_margin_start(12);
+        
+        add_bx_bottom.append(&ssl_toggle);
+        add_bx_bottom.append(&tls_toggle);
+        add_bx_bottom.set_margin_top(6);
+        
+        // TODO add this if/when postgres allow verify-ca or verify-full modes.
+        // add_bx_bottom.append(&mode_combo);
+        
+        let add_bx_left = Box::new(Orientation::Vertical, 0);
+        add_bx_left.append(&add_bx_top);
+        add_bx_left.append(&add_bx_middle);
+        add_bx_left.append(&add_bx_bottom);
+        add_bx.append(&add_bx_left);
+        add_bx_top.style_context().add_class("linked");
+        add_bx_middle.style_context().add_class("linked");
+        add_bx_bottom.style_context().add_class("linked");
+        add_bx.style_context().add_class("linked");
+
         add_bx_left.set_hexpand(true);
         add_bx_left.set_halign(Align::Fill);
-        add_bx.append(&add_btn);
-
-        // TODO just get lisboxrows from list, or else certificates added at startup won't count.
-        let rows : Rc<RefCell<Vec<ListBoxRow>>> = Rc::new(RefCell::new(Vec::new()));
-        let cert = Rc::new(RefCell::new((String::new(), String::new())));
+        add_bx_bottom.append(&add_btn);
+        
         host_entry.connect_changed({
             let cert = cert.clone();
             let add_btn = add_btn.clone();
@@ -569,7 +652,7 @@ impl SecurityBox {
             let rows = rows.clone();
             move |entry| {
                 let txt = entry.buffer().text().to_string();
-                if txt.is_empty() {
+                if txt.is_empty() || crate::client::split_host_port(&txt[..]).is_err() {
                     add_btn.set_sensitive(false);
                 } else {
                     let mut cert = cert.borrow_mut();
@@ -619,11 +702,11 @@ impl SecurityBox {
                 host_entry.set_text("");
                 cert_entry.set_text("");
                 let is_tls = tls_toggle.is_active();
-                append_certificate_row(exp_row.clone(), &cert.0, &cert.1, is_tls, &rows, &cert_added, &cert_removed);
-                let _c = Certificate { host : cert.0.clone(), cert : cert.1.clone(), is_tls };
+                append_certificate_row(exp_row.clone(), &cert.0, &cert.1, &cert.2, is_tls, &rows, &cert_added, &cert_removed);
                 btn.set_sensitive(false);
                 cert.0 = String::new();
                 cert.1 = String::new();
+                cert.2 = SSLMode::Require;
             }
         });
 
@@ -635,7 +718,7 @@ impl SecurityBox {
 
         set_all_not_selectable(&list);
         
-        Self { list, cert_added, cert_removed, exp_row, rows, save_switch, tls_toggle, ssl_toggle, scrolled }
+        Self { list, cert_added, cert_removed, exp_row, rows, save_switch, tls_toggle, ssl_toggle, scrolled, mode_combo }
     }
 }
 
