@@ -56,7 +56,7 @@ pub fn add_file(list : &ListBox, path : &str) {
         let row = row.clone();
         move |btn| {
             if let Err(e) = btn.activate_action("win.close_file", Some(&row.index().to_variant())) {
-                println!("{}", e);
+                eprintln!("{}", e);
             }
         }
     });

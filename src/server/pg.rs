@@ -3,7 +3,6 @@
 This work is licensed under the terms of the GPL v3.0 License.  
 For a copy, see http://www.gnu.org/licenses.*/
 
-// use postgres;
 use crate::sql::{*, object::*};
 use std::error::Error;
 use crate::tables::table::{Table};
@@ -14,7 +13,6 @@ use std::collections::HashMap;
 use std::fs::{self};
 use std::convert::{TryFrom, TryInto};
 use std::str::FromStr;
-// use postgres::NoTls;
 use tokio_postgres::Client;
 use crate::client::ConnectionInfo;
 use crate::client::{ConnURI, ConnConfig};
@@ -312,15 +310,6 @@ impl Connection for PostgresConnection {
     }
     
     fn exec(&mut self, stmt : &AnyStatement, _subs : &HashMap<String, String>) -> StatementOutput {
-        // let final_stmt = substitute_if_required(&s, subs);
-
-        // TODO The postgres driver panics when the number of arguments differ from the number of required
-        // substitutions with $. Must reject any query/statements containing those outside literal strings,
-        // which can be verified with the sqlparse tokenizer. This will happen, e.g. when the user attempts
-        // to create a function with non-named arguments, which are refered in the body with $1, $2, etc.
-        // Perhaps we can use the client.simple_query or client.batch_execute in those cases, but we should
-        // parse away create function statements to do this call instead of query and execute. But sqlparser
-        // does not recognize create function for now.
 
         self.rt.as_ref().unwrap().block_on(async {
             let ans = match stmt {
@@ -328,7 +317,6 @@ impl Connection for PostgresConnection {
                     self.client.execute(&s[..], &[]).await
                 },
                 AnyStatement::Raw(_, s, _) => {
-                    // let final_statement = substitute_if_required(&s, subs);
                     self.client.execute(&s[..], &[]).await
                 },
                 AnyStatement::Local(_) => {
@@ -383,7 +371,6 @@ impl Connection for PostgresConnection {
         all_queries.extend(rel_queries);
         all_queries.extend(view_queries);
         all_queries.extend(fn_queries);
-        assert!(fn_range.end == all_queries.len());
         
         let out = self.query_async(&all_queries[..]);
         let col_outs : Vec<&Table> = out[col_range].iter().map(|o| o.table().unwrap() ).collect();
@@ -445,13 +432,8 @@ impl Connection for PostgresConnection {
     
         let cols = tbl.names();
         
-        println!("{:?}", tbl);
-        println!("{:?}", cols);
-        
         let sql = tbl.sql_table_insertion(&dst, &cols)?;
-        println!("{}", sql);
         
-        // TODO use copy protocol instead.
         let stmt = AnyStatement::from_sql(&sql)
             .ok_or(String::from("Invalid insertion SQL"))?;
         let out = self.exec(&stmt, &HashMap::new());
@@ -467,6 +449,7 @@ impl Connection for PostgresConnection {
             }
         }
         
+        // TODO use copy protocol instead.
         /*self.rt.as_ref().unwrap().block_on(async {
             let client = &mut self.client;
             let copy_stmt = match cols.len() {
@@ -627,7 +610,6 @@ fn retrieve_functions(fn_info : &Table, schema : &str) -> Option<Vec<DBObject>> 
     let names = Vec::<String>::try_from(fn_info.get_column(0).unwrap().clone()).ok()?;
     let full_args = Vec::<String>::try_from(fn_info.get_column(1).unwrap().clone()).ok()?;
     let rets = Vec::<String>::try_from(fn_info.get_column(2).unwrap().clone()).ok()?;
-    //let fn_iter = names.iter().zip(arg_names.iter().zip(arg_types.iter().zip(ret.iter())));
     for (name, (arg, ret)) in names.iter().zip(full_args.iter().zip(rets.iter())) {
 
         let mut func_arg_names = Vec::new();
@@ -636,8 +618,6 @@ fn retrieve_functions(fn_info : &Table, schema : &str) -> Option<Vec<DBObject>> 
         if !arg.is_empty() {
             for arg_str in arg.split(",") {
                 split_arg = arg_str.split(" ").filter(|s| !s.is_empty() ).collect::<Vec<_>>();
-
-                // println!("Func: '{}', Full: '{}'; Split: {:?}", name, arg, split_arg);
 
                 // Some SQL types such as double precision and timestamp with time zone have spaces,
                 // which is why the name is the first field, the type the second..last.
@@ -723,11 +703,11 @@ fn retrieve_schemata(table : &Table) -> Option<HashMap<String, Vec<String>>> {
             }
             Some(schem_hash)
         } else {
-            println!("Could not load table names to String vector");
+            eprintln!("Could not load table names to String vector");
             None
         }
     } else {
-        println!("Could not load schema column to String vector");
+        eprintln!("Could not load schema column to String vector");
         None
     }
 }

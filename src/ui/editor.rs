@@ -22,7 +22,6 @@ use crate::client::SharedUserState;
 use crate::ui::QueriesSettings;
 use crate::client::EditorSettings;
 use filecase::MultiArchiverImpl;
-use gtk4::glib::GString;
 
 const MAX_VIEWS : usize = 16;
 

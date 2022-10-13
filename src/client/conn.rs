@@ -119,11 +119,9 @@ pub enum ConnectionAction {
     UpdateUser(String),
     UpdateDB(String),
     EraseCertificate(String),
-    // QueryCertificate(String),
     AddCertificate(Certificate),
     Remove(i32),
     CloseWindow
-    // ViewState(Vec<ConnectionInfo>)
 }
 
 // TODO rename to ConnectionHistory.

@@ -14,34 +14,10 @@ use queries::*;
 use queries::client::*;
 use queries::ui::*;
 
-// TODO views with a homonimous table are not being shown at the schema tree.
-
 fn register_resource() {
     let bytes = glib::Bytes::from_static(include_bytes!(concat!(env!("OUT_DIR"), "/", "compiled.gresource")));
     let resource = gio::Resource::from_data(&bytes).unwrap();
     gio::resources_register(&resource);
-}
-
-fn _glib_logger() {
-
-    /*static glib_logger: glib::GlibLogger = glib::GlibLogger::new(
-        glib::GlibLoggerFormat::Plain,
-        glib::GlibLoggerDomain::CrateTarget,
-    );
-
-    log::set_logger(&glib_logger);
-    log::set_max_level(log::LevelFilter::Debug);
-    log::info!("This line will get logged by glib");*/
-
-    // glib::log_set_handler(None, glib::LogLevels::all(), false, true, |_, level, msg| {
-    // });
-
-}
-
-fn _systemd_logger() {
-    // Alternatively, use simple_logger
-    // systemd_journal_logger::init();
-    // log::set_max_level(log::LevelFilter::Info);
 }
 
 fn main() {
@@ -96,9 +72,6 @@ fn main() {
             } else {
                 eprintln!("Unable to get default GDK display");
             }
-
-            // GTK4 widgets seem to be able to load them from the icon root. But the libadwaita
-            // widgets expect them to be under icons/hicolor/scalable/actions.
 
             let window = ApplicationWindow::builder()
                 .application(app)

@@ -58,7 +58,8 @@ use copy::*;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SafetyLock {
     pub accept_ddl : bool,
-    pub accept_dml : bool
+    pub accept_dml : bool,
+    pub enable_async : bool
 }
 
 fn safety_msg(stmt : &str) -> Result<(), String> {

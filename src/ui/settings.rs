@@ -177,7 +177,8 @@ pub struct ExecutionBox {
     pub schedule_scale : Scale,
     pub timeout_scale : Scale,
     pub dml_switch : Switch,
-    pub ddl_switch : Switch
+    pub ddl_switch : Switch,
+    pub async_switch : Switch
 }
 
 impl ExecutionBox {
@@ -216,13 +217,15 @@ impl ExecutionBox {
         
         let dml_switch = Switch::new();
         let ddl_switch = Switch::new();
+        let async_switch = Switch::new();
 
         list.append(&NamedBox::new("Enable UPDATE and DELETE", Some("Allow execution of potentially destructive \ndata modification statements\n"), dml_switch.clone()).bx);
         list.append(&NamedBox::new("Enable ALTER, DROP and TRUNCATE", Some("Allow execution of potentially destructive \ndata definition statements\n"), ddl_switch.clone()).bx);
+        list.append(&NamedBox::new("Enable asynchronous queries", Some("Execute SELECT statements asynchronously when possible"), async_switch.clone()).bx);
 
         set_all_not_selectable(&list);
         
-        Self { list, row_limit_spin, /*col_limit_spin*/ schedule_scale, timeout_scale, dml_switch, ddl_switch }
+        Self { list, row_limit_spin, /*col_limit_spin*/ schedule_scale, timeout_scale, dml_switch, ddl_switch, async_switch }
     }
 
 }

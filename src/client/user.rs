@@ -73,7 +73,9 @@ pub struct ExecutionSettings {
     pub accept_ddl  : bool,
     
     // Whether to execute destructive dml statements
-    pub accept_dml : bool
+    pub accept_dml : bool,
+    
+    pub enable_async : bool
 }
 
 impl Default for ExecutionSettings {
@@ -84,7 +86,8 @@ impl Default for ExecutionSettings {
             execution_interval : 5,
             statement_timeout : 5,
             accept_ddl : false,
-            accept_dml : false
+            accept_dml : false,
+            enable_async : false
         }
     }
 
@@ -119,7 +122,8 @@ impl UserState {
     pub fn safety(&self) -> SafetyLock {
         SafetyLock {
             accept_dml : self.execution.accept_dml,
-            accept_ddl : self.execution.accept_ddl
+            accept_ddl : self.execution.accept_ddl,
+            enable_async : self.execution.enable_async
         }
     }
     
@@ -286,6 +290,13 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
                 Inhibit(false)
             }
         });
+        win.settings.exec_bx.async_switch.connect_state_set({
+            let state = self.clone();
+            move|switch, _| {
+                state.borrow_mut().execution.enable_async = switch.is_active();
+                Inhibit(false)
+            }
+        });
 
         // Editor
         win.settings.editor_bx.scheme_combo.connect_changed({
@@ -343,20 +354,14 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
                     let cert : Certificate = serde_json::from_str(&cert_str).unwrap();
                     let mut state = state.borrow_mut();
 
-                    // let mut updated = false;
-                    
                     let mut conn_iter = state.conns
                         .iter_mut()
                         .filter(|conn| &conn.host[..] == &cert.host[..] );
                     while let Some(conn) = conn_iter.next() {
                         conn.cert = Some(cert.cert.clone());
                         conn.is_tls = Some(cert.is_tls);
-                        // updated = true;
                     }
                     
-                    // if !updated {
-                    //    state.unmatched_certs.push(cert);
-                    // }
                     if state.certs.iter().find(|c| &c.cert[..] == &cert.cert[..] ).is_none() {
                         state.certs.push(cert);
                     }
@@ -451,6 +456,7 @@ impl PersistentState<QueriesWindow> for SharedUserState {
         queries_win.settings.exec_bx.timeout_scale.adjustment().set_value(state.execution.statement_timeout as f64);
         queries_win.settings.exec_bx.dml_switch.set_active(state.execution.accept_dml);
         queries_win.settings.exec_bx.ddl_switch.set_active(state.execution.accept_ddl);
+        queries_win.settings.exec_bx.async_switch.set_active(state.execution.enable_async);
 
         let font = format!("{} {}", state.editor.font_family, state.editor.font_size);
         queries_win.settings.editor_bx.scheme_combo.set_active_id(Some(&state.editor.scheme));

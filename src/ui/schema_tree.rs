@@ -52,6 +52,8 @@ pub struct SchemaTree {
     pub report_export_dialog : filecase::SaveDialog
 }
 
+// TODO views with a homonimous table are not being shown at the schema tree.
+
 const ALL_TYPES : [DBType; 15] = [
     DBType::Bool,
     DBType::I16,

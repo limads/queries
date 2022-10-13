@@ -41,8 +41,6 @@ impl QueriesClient {
         client
     }
 
-    // pub fn update(&self, state : &SharedUserState) { 
-    // }
 
 }
 
@@ -69,4 +67,30 @@ pub use user::*;
 mod exec;
 
 pub use exec::*;
+
+/* TODO enable custom logging
+
+fn _glib_logger() {
+
+    /*static glib_logger: glib::GlibLogger = glib::GlibLogger::new(
+        glib::GlibLoggerFormat::Plain,
+        glib::GlibLoggerDomain::CrateTarget,
+    );
+
+    log::set_logger(&glib_logger);
+    log::set_max_level(log::LevelFilter::Debug);
+    log::info!("This line will get logged by glib");*/
+
+    // glib::log_set_handler(None, glib::LogLevels::all(), false, true, |_, level, msg| {
+    // });
+
+}
+
+fn _systemd_logger() {
+    // Alternatively, use simple_logger
+    // systemd_journal_logger::init();
+    // log::set_max_level(log::LevelFilter::Info);
+}
+*/
+
 

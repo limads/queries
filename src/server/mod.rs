@@ -112,7 +112,7 @@ where
                 }
                 
                 // If sequence is exclusively composed of query statements, perform asysnchronous execution.
-                if all_queries {
+                if all_queries && lock.enable_async {
                     return Ok(self.query_async(&stmts[..]));
                 }
                 

@@ -17,10 +17,10 @@
       <p>Features</p>
       <ul>
       <li>View relevant contextual information (schemata, tables, views and columns) when writing SQL.</li>
-      <li>SQL statements are parsed and verified at the client side, for immediate feedback and faster debugging.</li>
+      <li>SQL statements are parsed and verified at the client side for immediate feedback and faster debugging.</li>
       <li>Support for encrypted connections via SSL and TLS, allowing you to interact safely with remote databases.</li>
       <li>Statements are executed asynchronously when possible, reducing execution time for long statement sequences.</li>
-      <li>Build line, scatter and bar graphs without external tools using plain SQL, simply by aggregating your data according to a valid JSON specification.</li>
+      <li>Build line, scatter and bar graphs without external tools using plain SQL by aggregating your data according to a JSON specification.</li>
       <li>Export results as plain CSV files or build dynamic HTML reports from tables and views.</li>
       </ul>
     
