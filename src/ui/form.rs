@@ -15,15 +15,18 @@ pub struct Form {
     pub entries : [Entry; MAX_ENTRIES],
     pub btn_cancel : Button,
     pub btn_ok : Button,
-    pub dialog : Dialog
+    pub dialog : Dialog,
+    pub err_lbl : Label
 }
 
 impl Form {
 
     pub fn new() -> Self {
         let bx = Box::new(Orientation::Vertical, 0);
-
+        let err_lbl = Label::new(Some("Target should have at most 32 elements"));
+        err_lbl.set_visible(false);
         let entries_bx = Box::new(Orientation::Vertical, 0);
+        entries_bx.append(&err_lbl);
         let entries : [Entry; MAX_ENTRIES] = Default::default();
         for ix in 0..MAX_ENTRIES {
             entries_bx.append(&entries[ix]);
@@ -44,55 +47,75 @@ impl Form {
         btn_ok.style_context().add_class("suggested-action");
         btn_bx.append(&btn_cancel);
         btn_bx.append(&btn_ok);
-        // btn_bx.style_context().add_class("linked");
         bx.append(&btn_bx);
         super::set_margins(&btn_bx, 64,  16);
         super::set_margins(&bx, 32,  32);
         let dialog = Dialog::new();
         super::configure_dialog(&dialog);
         dialog.set_child(Some(&bx));
+        
         dialog.connect_close({
             let entries = entries.clone();
             move |_dialog| {
                 entries.iter().for_each(|e| e.set_text("") );
             }
         });
-        Self { bx, entries, btn_cancel, btn_ok, dialog }
+        Self { bx, entries, btn_cancel, btn_ok, dialog, err_lbl }
     }
 
-    pub fn update_from_table(&self, tbl : &DBObject) {
+    pub fn update_from_table(&self, tbl : &DBObject) -> bool {
         self.entries.iter().for_each(|e| e.set_visible(false) );
         match tbl {
             DBObject::Table { name, cols, .. } => {
-                self.dialog.set_title(Some(&format!("Insert ({})", name)));
-                for (ix, col) in cols.iter().enumerate() {
-                    self.entries[ix].set_visible(true);
-                    self.entries[ix].set_primary_icon_name(Some(super::get_type_icon_name(&col.1)));
-                    self.entries[ix].set_placeholder_text(Some(&col.0));
+                if cols.len() > MAX_ENTRIES {
+                    self.err_lbl.set_visible(true);
+                    self.btn_ok.set_sensitive(false);
+                    false
+                } else {
+                    self.err_lbl.set_visible(false);
+                    self.btn_ok.set_sensitive(true);
+                    self.dialog.set_title(Some(&format!("Insert ({})", name)));
+                    for (ix, col) in cols.iter().enumerate() {
+                        self.entries[ix].set_visible(true);
+                        self.entries[ix].set_primary_icon_name(Some(super::get_type_icon_name(&col.1)));
+                        self.entries[ix].set_placeholder_text(Some(&col.0));
+                    }
+                    self.bx.grab_focus();
+                    self.btn_ok.set_label("Insert");
+                    true
                 }
-                self.bx.grab_focus();
-                self.btn_ok.set_label("Insert");
             },
-            _ => { }
+            _ => { 
+                false
+            }
         }
     }
 
-    pub fn update_from_function(&self, func  : &DBObject) {
+    pub fn update_from_function(&self, func  : &DBObject) -> bool {
         self.entries.iter().for_each(|e| e.set_visible(false) );
         match func {
             DBObject::Function { name, args, arg_names, .. } => {
                 self.dialog.set_title(Some(&format!("Call ({})", name)));
-                for (ix, arg) in args.iter().enumerate() {
-                    self.entries[ix].set_visible(true);
-                    self.entries[ix].set_primary_icon_name(Some(super::get_type_icon_name(&arg)));
-                    if let Some(names) = &arg_names {
-                        self.entries[ix].set_placeholder_text(Some(&names[ix]));
+                if args.len() > MAX_ENTRIES {
+                    self.err_lbl.set_visible(true);
+                    self.btn_ok.set_sensitive(false);
+                    false
+                } else {
+                    self.err_lbl.set_visible(false);
+                    self.btn_ok.set_sensitive(true);
+                    for (ix, arg) in args.iter().enumerate() {
+                        self.entries[ix].set_visible(true);
+                        self.entries[ix].set_primary_icon_name(Some(super::get_type_icon_name(&arg)));
+                        if let Some(names) = &arg_names {
+                            self.entries[ix].set_placeholder_text(Some(&names[ix]));
+                        }
                     }
+                    self.bx.grab_focus();
+                    self.btn_ok.set_label("Call");
+                    true
                 }
-                self.bx.grab_focus();
-                self.btn_ok.set_label("Call");
             },
-            _ => { }
+            _ => false
         }
     }
 

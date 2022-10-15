@@ -22,6 +22,23 @@ use std::thread::JoinHandle;
 use crate::sql::SafetyLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConnSettings {
+    pub timeout : i32,
+    pub app_name : String
+}
+
+impl Default for ConnSettings {
+
+    fn default() -> Self {
+        Self {
+            timeout : 10,
+            app_name : String::from("Queries")
+        }
+    }
+    
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EditorSettings {
     pub scheme : String,
     pub font_family : String,
@@ -100,13 +117,12 @@ pub struct UserState {
 
     pub window : filecase::WindowState,
 
+    pub conn : ConnSettings,
+    
     pub scripts : Vec<OpenedFile>,
     
-    // #[serde(serialize_with = "ser_conns")]
-    // #[serde(deserialize_with = "deser_conns")]
     pub conns : Vec<ConnectionInfo>,
 
-    // #[serde(skip)]
     pub certs : Vec<Certificate>,
 
     pub editor : EditorSettings,
@@ -237,19 +253,22 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
             filecase::set_paned_on_close(&main_paned, &sidebar_paned, &mut state.paned);
             gtk4::Inhibit(false)
         });
-
-        // Report
-        /*win.settings.report_bx.entry.connect_changed({
+        
+        // Connection
+        win.settings.conn_bx.app_name_entry.connect_changed({
             let state = self.clone();
             move|entry| {
-                let path = entry.text().as_str().to_string();
-                if !path.is_empty() {
-                    let mut state = state.borrow_mut();
-                    state.templates.clear();
-                    state.templates.push(path);
-                }
+                let name = entry.text().as_str().to_string();
+                let mut state = state.borrow_mut();
+                state.conn.app_name = name;
             }
-        });*/
+        });
+        win.settings.conn_bx.timeout_scale.adjustment().connect_value_changed({
+            let state = self.clone();
+            move |adj| {
+                state.borrow_mut().conn.timeout = adj.value() as i32;
+            }
+        });
 
         // Execution
         win.settings.exec_bx.row_limit_spin.adjustment().connect_value_changed({
@@ -258,12 +277,6 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
                 state.borrow_mut().execution.row_limit = adj.value() as i32;
             }
         }); 
-        /*win.settings.exec_bx.col_limit_spin.adjustment().connect_value_changed({
-            let state = self.clone();
-            move |adj| {
-                state.borrow_mut().execution.column_limit = adj.value() as i32;
-            }
-        });*/
         win.settings.exec_bx.schedule_scale.adjustment().connect_value_changed({
             let state = self.clone();
             move |adj| {
@@ -360,8 +373,7 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
                         .filter(|conn| &conn.host[..] == &new_cert.host[..] );
                     while let Some(conn) = conn_iter.next() {
                         conn.cert = Some(new_cert.cert.clone());
-                        conn.is_tls = Some(new_cert.is_tls);
-                        conn.mode = Some(new_cert.mode);
+                        conn.min_tls_version = Some(new_cert.min_version);
                     }
                     
                     // Set this certificate to the certificate vector.
@@ -383,8 +395,7 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
                     let mut state = state.borrow_mut();
                     for conn in state.conns.iter_mut().filter(|c| c.host == cert.host ) {
                         conn.cert = None;
-                        conn.is_tls = None;
-                        conn.mode = None;
+                        conn.min_tls_version = None;
                     }
 
                     for i in (0..state.certs.len()).rev() {
@@ -439,8 +450,7 @@ impl PersistentState<QueriesWindow> for SharedUserState {
                 queries_win.settings.security_bx.exp_row.clone(),
                 &cert.host,
                 &cert.cert,
-                &cert.mode,
-                cert.is_tls,
+                cert.min_version,
                 &queries_win.settings.security_bx.rows,
                 &queries_win.settings.security_bx.cert_added,
                 &queries_win.settings.security_bx.cert_removed
@@ -455,6 +465,9 @@ impl PersistentState<QueriesWindow> for SharedUserState {
         } else {
             queries_win.titlebar.sidebar_toggle.set_active(true);
         }
+        
+        queries_win.settings.conn_bx.timeout_scale.adjustment().set_value(state.conn.timeout as f64);
+        queries_win.settings.conn_bx.app_name_entry.set_text(&state.conn.app_name);
         
         queries_win.settings.exec_bx.row_limit_spin.adjustment().set_value(state.execution.row_limit as f64);
         queries_win.settings.exec_bx.schedule_scale.adjustment().set_value(state.execution.execution_interval as f64);
@@ -483,7 +496,4 @@ pub fn set_client_state(user_state : &SharedUserState, client : &QueriesClient) 
     client.conn_set.add_certificates(&state.certs);
     client.scripts.add_files(&state.scripts);
 }
-
-// React to all common data structures, to persist state to filesystem.
-// impl React<ActiveConnection> for UserState { }
 

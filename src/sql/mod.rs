@@ -15,7 +15,7 @@ use std::str::FromStr;
 use either::Either;
 use std::iter::Peekable;
 use sqlparser::dialect::{PostgreSqlDialect};
-use sqlparser::ast::{Statement, SetExpr, TableFactor, JoinOperator, ObjectType};
+use sqlparser::ast::{Statement, SetExpr, TableFactor, JoinOperator, ObjectType, Expr, SelectItem, FunctionArgExpr, FunctionArg};
 use sqlparser::parser::{Parser, ParserError};
 use sqlparser::dialect::keywords::Keyword;
 use sqlparser::tokenizer::{Token};
@@ -63,7 +63,7 @@ pub struct SafetyLock {
 }
 
 fn safety_msg(stmt : &str) -> Result<(), String> {
-    Err(format!("Cannot execute {} statement (disabled at settings)", stmt))
+    Err(format!("Cannot execute {} statement\n(currently disabled at settings)", stmt))
 }
 
 impl SafetyLock {
@@ -71,20 +71,20 @@ impl SafetyLock {
     pub fn accepts(&self, stmt : &Statement) -> Result<(), String> {
         match (stmt, self.accept_dml) {
             (Statement::Delete { .. }, false) => {
-                safety_msg("delete")
+                safety_msg("DELETE")
             },
             (Statement::Update { .. }, false) => {
-                safety_msg("update")
+                safety_msg("UPDATE")
             },
             (other, _) => match (other, self.accept_ddl) { 
                 (Statement::Truncate { .. }, false) => {
-                    safety_msg("truncate")
+                    safety_msg("TRUNCATE")
                 },
                 (Statement::Drop { .. }, false) => {
-                    safety_msg("drop")
+                    safety_msg("DROP")
                 },
                 (Statement::AlterTable { .. }, false) => {
-                    safety_msg("alter")
+                    safety_msg("ALTER")
                 },
                 _ => {
                     Ok(())
@@ -304,6 +304,109 @@ pub fn make_query(query : &str) -> String {
     sql2table(crate::sql::parse_sql(query, &HashMap::new()))
 }
 
+pub fn require_insert_n_from_sql(stmt : &str, ncols : usize, nrows : usize) -> Result<(), String> {
+    let stmt = crate::sql::AnyStatement::from_sql(stmt)
+        .ok_or(format!("Invalid INSERT statement generated."))?;
+    require_insert_n(&stmt, ncols, nrows)
+}
+
+pub fn require_single_fn_select_from_sql(sql : &str) -> Result<(), String> {
+    let stmt = crate::sql::AnyStatement::from_sql(sql)
+        .ok_or(format!("Invalid SELECT statement generated."))?;
+    require_single_fn_select(&stmt)
+}
+
+pub fn require_single_fn_select(stmt : &AnyStatement) -> Result<(), String> {
+    match stmt {
+        AnyStatement::Parsed(Statement::Query(query), _) => {
+            match &*query.body {
+                SetExpr::Select(select) => {
+                
+                    let projs = &select.projection;
+                    if projs.len() != 1 {
+                        return Err(format!("Invalid select for function call."));
+                    }
+                    
+                    match &projs[0] {
+                        SelectItem::UnnamedExpr(expr) => {
+                            match expr {
+                                Expr::Function(f) => {
+                                    for a in &f.args {
+                                        match a {
+                                            FunctionArg::Unnamed(unn) => {
+                                                match unn {
+                                                    FunctionArgExpr::Expr(e) => {
+                                                        match e {
+                                                            Expr::Value(_) => { },
+                                                            _ => {
+                                                                return Err(format!("Function call contains non-literal expression"));
+                                                            }
+                                                        }
+                                                    },
+                                                    _ => {
+                                                        return Err(format!("Invalid select for function call."));            
+                                                    }
+                                                }
+                                            },
+                                            _ => {
+                                                return Err(format!("Invalid select for function call."));
+                                            }
+                                        }
+                                    }
+                                    Ok(())
+                                },
+                                _ => {
+                                    Err(format!("Invalid select for function call."))
+                                }
+                            }
+                        },
+                        _ => Err(format!("Invalid select for function call."))
+                    }   
+                },
+                _ => {
+                    Err(format!("Expected select in function body"))
+                }
+            }
+        },
+        _ => Err(format!("Invalid statement"))
+    }
+}
+
+pub fn require_insert_n(stmt : &AnyStatement, ncols : usize, nrows : usize) -> Result<(), String> {
+    match stmt {
+        AnyStatement::Parsed(Statement::Insert { columns, source, .. }, _) => {
+            if columns.len() != ncols {
+                return Err(format!("Invalid number of columns in insert statement\n(expected {}, but got {}", ncols, columns.len()));
+            }
+            match &*source.body {
+                SetExpr::Values(values) => {
+                    if values.0.len() == nrows {
+                        for tuple in &values.0   {
+                            for expr in tuple {
+                                match expr {
+                                    Expr::Value(_) => { },
+                                    _ => {
+                                        return Err(String::from("Non-literal SQL expression in insert clause"));
+                                    }
+                                }
+                            }
+                        }
+                        Ok(())
+                    } else {
+                        Err(format!("Invalid number of insertion rows\n(expected {}, but got {}", nrows, values.0.len()))
+                    }
+                },
+                _ => {
+                    Err(String::from("Invalid insertion SQL"))
+                }
+            }
+        },
+        _ => {
+            Err(String::from("Invalid insertion SQL"))
+        }
+    }
+}
+
 pub fn build_statement_result(any_stmt : &AnyStatement, n : usize) -> StatementOutput {
     match any_stmt {
         AnyStatement::Parsed(stmt, _) => match stmt {
@@ -348,8 +451,6 @@ pub fn build_statement_result(any_stmt : &AnyStatement, n : usize) -> StatementO
             StatementOutput::Statement(format!("Transaction executed ({} statements, {} rows modified)", stmts.len(), n))
         },
         AnyStatement::Raw(_, s, _) => {
-
-            // Process statements that make sense to PostgreSQL but for some reason were not parsed by sqlparser.
 
             let mut prefix : (Option<String>, Option<String>, Option<String>) = (None, None, None);
             let mut split = s.split_whitespace();

@@ -32,7 +32,7 @@ use crate::client::SharedUserState;
 use super::listener::ExecMode;
 use crate::tables::table::Table;
 use crate::ui::Certificate;
-use crate::ui::SSLMode;
+use crate::ui::TlsVersion;
 
 // The actual connection info that is persisted on disk (excludes password for obvious
 // security reasons).
@@ -57,10 +57,8 @@ pub struct ConnectionInfo {
     // Optional path to certificate
     pub cert : Option<String>,
     
-    pub is_tls : Option<bool>,
+    pub min_tls_version : Option<TlsVersion>,
     
-    pub mode : Option<SSLMode>,
-
     // When this connection was last established (datetime-formatted).
     pub dt : Option<String>
 
@@ -100,10 +98,8 @@ impl Default for ConnectionInfo {
             user : String::from(DEFAULT_USER),
             database : String::from(DEFAULT_DB),
             dt : None,
-            // details : None,
             cert : None,
-            mode : None,
-            is_tls : None
+            min_tls_version : None
         }
     }
 
@@ -200,9 +196,8 @@ impl ConnectionSet {
                     ConnectionAction::AddCertificate(cert) => {
                         for conn in &mut conns.0[..] {
                             if &conn.host[..] == &cert.host[..] {
-                                conn.is_tls = Some(cert.is_tls);
+                                conn.min_tls_version = Some(cert.min_version);
                                 conn.cert = Some(cert.cert.clone());
-                                conn.mode = Some(cert.mode);
                             }
                         }
                         certs.push(cert);
@@ -212,8 +207,7 @@ impl ConnectionSet {
                         for conn in &mut conns.0[..] {
                             if &conn.host[..] == &host[..] {
                                 conn.cert = None;
-                                conn.is_tls = None;
-                                conn.mode = None;
+                                conn.min_tls_version = None;
                             }
                         }
                         for i in (0..(certs.len())).rev() {
@@ -320,8 +314,7 @@ fn update_certificate(conn : &mut ConnectionInfo, certs : &[Certificate]) {
     if !conn.is_default() {
         if let Some(cert) = certs.iter().find(|c| &c.host[..] == &conn.host[..] ) {
             conn.cert = Some(cert.cert.clone());
-            conn.is_tls = Some(cert.is_tls);
-            conn.mode = Some(cert.mode);
+            conn.min_tls_version = Some(cert.min_version);
         }
     }
 }
@@ -491,7 +484,7 @@ pub struct ConnURI {
     pub uri : String
 }
 
-const INVALID_HOST_PORT : &'static str = "Invalid host value (expected host:port format)\n(ex. 127.0.0.1:5432";
+const INVALID_HOST_PORT : &'static str = "Invalid host value (expected host:port format)\n(ex. 127.0.0.1:5432)";
 
 pub fn split_host_port(host_with_port : &str) -> Result<(&str, &str), String> {
     let split_port : Vec<&str> = host_with_port.split(":").collect();
@@ -521,10 +514,6 @@ impl ConnURI {
             return Err(String::from("User field cannot contain ':' character"));
         }
         
-        // if info.host.chars().any(|c| c == ':' ) {
-        //    return Err(String::from("Host field cannot contain ':' character"));
-        // }
-
         let mut uri = "postgresql://".to_owned();
         uri += &info.user;
         uri += ":";
@@ -1155,6 +1144,20 @@ const NO_CERT : &'static str = "No SSL certificate associated with this host.\nC
 
 const MANY_CERTS : &'static str = "Multiple SSL certificates associated with this host.\nRemove the duplicates at the security settings";
 
+const CONN_NAME_ERR : &'static str = "Application name at settings contain non-alphanumeric characters";
+
+fn augment_uri(uri : &mut String, extra_args : &[String]) {
+    let n = extra_args.len();
+    if n >= 1 {
+        *uri += "?";
+        for arg in extra_args.iter().take(n-1) {
+            *uri += &arg[..];
+            *uri += ",";
+        }
+        *uri += &extra_args[n-1][..];
+    }
+}
+
 impl React<ConnectionBox> for ActiveConnection {
 
     fn react(&self, conn_bx : &ConnectionBox) {
@@ -1171,11 +1174,27 @@ impl React<ConnectionBox> for ActiveConnection {
             if switch.is_active() {
                 match generate_conn_uri_from_entries(&host_entry, &db_entry, &user_entry, &password_entry) {
                     Ok(mut uri) => {
+                    
+                        let mut extra_args = Vec::new();
+                        let us = user_state.borrow();
+                        
+                        let app_name = &us.conn.app_name;
+                        if !app_name.is_empty() {
+                            if app_name.chars().any(|c| !c.is_alphanumeric() ) {
+                                send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(), format!("{}", CONN_NAME_ERR))).unwrap();
+                                return Inhibit(false);
+                            } else {
+                                extra_args.push(format!("application_name={}", app_name));
+                            }
+                        }
+                        
+                        extra_args.push(format!("connect_timeout={}", us.conn.timeout));
+                        
                         let local = is_local(&uri.info).unwrap_or(false);
                         if local {
+                            augment_uri(&mut uri.uri, &extra_args[..]);
                             send.send(ActiveConnectionAction::ConnectRequest(uri)).unwrap();
                         } else {
-                            let us = user_state.borrow();
                             let matching_certs : Vec<_> = us.certs.iter()
                                 .filter(|cert| &cert.host[..] == &uri.info.host[..] )
                                 .collect();
@@ -1186,9 +1205,9 @@ impl React<ConnectionBox> for ActiveConnection {
                                 1 => {
                                     let cert = &matching_certs[0];
                                     uri.info.cert = Some(cert.cert.clone());
-                                    uri.info.is_tls = Some(cert.is_tls);
-                                    uri.info.mode = Some(cert.mode);
-                                    uri.uri += &format!("?sslmode={}", cert.mode.to_string());
+                                    uri.info.min_tls_version = Some(cert.min_version);
+                                    extra_args.push(format!("sslmode=require"));
+                                    augment_uri(&mut uri.uri, &extra_args[..]);
                                     send.send(ActiveConnectionAction::ConnectRequest(uri)).unwrap();
                                 },
                                 _ => {
@@ -1343,18 +1362,23 @@ impl React<SchemaTree> for ActiveConnection {
                 };
                 let _values = entries.iter().map(|e| e.text().to_string() ).collect::<Vec<_>>();
                 let obj : DBObject = serde_json::from_str(&state_str[..]).unwrap();
-                //match form_action {
-                //    FormAction::Table(obj) => {
 
                 match obj {
                     DBObject::Table { schema, name, cols, .. } => {
-
+                        let names : Vec<String> = cols.iter().map(|col| col.0.clone() ).collect();
                         let tys : Vec<DBType> = cols.iter().map(|col| col.1 ).collect();
-                        match sql_literal_tuple(&entries, &tys) {
+                        match sql_literal_tuple(&entries, Some(&names), &tys) {
                             Ok(tuple) => {
-                                let insert_stmt = format!("insert into {}.{} values {};", schema, name, tuple);
-
-                                send.send(ActiveConnectionAction::ExecutionRequest(insert_stmt)).unwrap();
+                                let tpl_names = crate::tables::table::insertion_tuple(&names);
+                                let insert_stmt = format!("insert into {}.{} {} values {};", schema, name, tpl_names, tuple);
+                                match crate::sql::require_insert_n_from_sql(&insert_stmt, tys.len(), 1) {
+                                    Ok(_) => {
+                                        send.send(ActiveConnectionAction::ExecutionRequest(insert_stmt)).unwrap();
+                                    },
+                                    Err(e) => {
+                                        send.send(ActiveConnectionAction::Error(e)).unwrap();
+                                    }
+                                }
                             },
                             Err(e) => {
                                 send.send(ActiveConnectionAction::Error(e)).unwrap();
@@ -1362,36 +1386,36 @@ impl React<SchemaTree> for ActiveConnection {
                         }
                     },
                     DBObject::Function { schema, name, args, ret, .. } => {
-                        if args.len() == 0 {
-                            let call_stmt = if ret.is_some() {
-                                format!("select {}.{}();", schema, name)
+                        if ret.is_some() {
+                            let tuple = if args.len() == 0 {
+                                String::from("()")
                             } else {
-                                format!("call {}.{}();", schema, name)
+                                match sql_literal_tuple(&entries, None, &args) {
+                                    Ok(tpl) => tpl,
+                                    Err(e) => {
+                                        send.send(ActiveConnectionAction::Error(e)).unwrap();
+                                        return;
+                                    }
+                                }
                             };
-                            send.send(ActiveConnectionAction::ExecutionRequest(call_stmt)).unwrap();
-                        } else {
-                            match sql_literal_tuple(&entries, &args) {
-                                Ok(tuple) => {
-                                    let call_stmt = if ret.is_some() {
-                                        format!("select {}.{}{};", schema, name, tuple)
-                                    } else {
-                                        format!("call {}.{}{};", schema, name, tuple)
-                                    };
-                                    send.send(ActiveConnectionAction::ExecutionRequest(call_stmt)).unwrap();
+                            let stmt = format!("select {}.{}{};", schema, name, tuple);
+                            match crate::sql::require_single_fn_select_from_sql(&stmt) {
+                                Ok(_) => {
+                                    send.send(ActiveConnectionAction::ExecutionRequest(stmt)).unwrap();
                                 },
                                 Err(e) => {
                                     send.send(ActiveConnectionAction::Error(e)).unwrap();
                                 }
                             }
+                        } else {
+                            send.send(ActiveConnectionAction::Error(format!("Cannot call procedure via menu."))).unwrap();
                         }
                     },
                     _ => {
 
                     }
                 }
-
                 entries.iter().for_each(|e| e.set_text("") );
-
             }
         });
 
@@ -1411,17 +1435,21 @@ impl React<SchemaTree> for ActiveConnection {
     }
 }
 
-fn sql_literal_tuple(entries : &[Entry], tys : &[DBType]) -> Result<String, String> {
+fn sql_literal_tuple(entries : &[Entry], names : Option<&[String]>, tys : &[DBType]) -> Result<String, String> {
     let mut ix = 0;
     let mut tuple = String::from("(");
     for (entry, col) in entries.iter().zip(tys) {
-
         match text_to_sql_literal(&entry, &col) {
             Ok(txt) => {
                 tuple += &txt;
             },
             Err(e) => {
-                return Err(format!("Error at {} field ({})", ordinal::Ordinal(ix), e));
+                let e = if let Some(names) = names {
+                    format!("Error at {} value ({}):\n{}", ordinal::Ordinal(ix), names[ix], e)
+                } else {
+                    format!("Error at {} argument:\n{}", ordinal::Ordinal(ix), e)
+                };
+                return Err(e);
             }
         }
         if ix == tys.len() - 1 {
@@ -1438,40 +1466,43 @@ fn text_to_sql_literal(entry : &Entry, ty : &DBType) -> Result<String, String> {
     use sqlparser::tokenizer::{Token};
     let entry_s = entry.text();
     let entry_s = entry_s.as_str();
+    if entry_s.contains("'") {
+        return Err(String::from("Invalid character (')"));
+    }
+    
     if entry_s.is_empty() {
-        return Ok("null".to_string())
+        return Ok("NULL".to_string())
     } else {
+    
+        // Quote literals from types in the first branch, do not
+        // quote literals from types in the second branch.
         let desired_lit = match ty {
             DBType::Text | DBType::Date | DBType::Time | DBType::Bytes |
             DBType::Json | DBType::Xml | DBType::Array | DBType::Bool => {
-
-                if entry_s.contains("'") {
-                    return Err(String::from("Invalid character (') at entry"));
-                }
-
-                format!("'{}'", entry_s)
+                format!("'{}'", entry_s.trim())
             },
-            _ => format!("{}", entry_s)
+            _ => format!("{}", entry_s.trim())
         };
+        
         let dialect = sqlparser::dialect::PostgreSqlDialect{};
-        let mut tkn = sqlparser::tokenizer::Tokenizer::new(&dialect, desired_lit.trim());
+        let mut tkn = sqlparser::tokenizer::Tokenizer::new(&dialect, &desired_lit[..]);
         match tkn.tokenize() {
             Ok(tokens) => {
                 if tokens.len() == 1 {
                     match &tokens[0] {
                         Token::Number(_, _) | Token::SingleQuotedString(_) => {
-                            Ok(desired_lit.trim().to_string())
+                            Ok(desired_lit)
                         },
                         _ => {
-                            Err(format!("Invalid literal"))
+                            Err(format!("Invalid literal (expected integer, decimal or quoted literal)"))
                         }
                     }
                 } else {
-                    Err(format!("Invalid literal"))
+                    Err(format!("Invalid literal (multiple tokens parsed)"))
                 }
             },
             Err(_e) => {
-                Err(format!("Invalid literal"))
+                Err(format!("Invalid literal (not valid SQL token)"))
             }
         }
     }

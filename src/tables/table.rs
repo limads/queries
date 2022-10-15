@@ -148,6 +148,10 @@ pub enum HTMLTag {
 
 impl Table {
 
+    pub fn ncols(&self) -> usize {
+        self.cols.len()
+    }
+    
     pub fn nrows(&self) -> usize {
         self.cols.get(0).map(|c| c.len() ).unwrap_or(0)
     }
@@ -620,16 +624,7 @@ impl Table {
         if cols.len() == 0 {
             stmt += &format!("insert into {} values ", name)[..];
         } else {
-            let mut tuple = String::new();
-            tuple += "(";
-            for name in cols.iter().take(cols.len().saturating_sub(1)) {
-                tuple += &name[..];
-                tuple += ",";
-            }
-            if let Some(lst) = cols.last() {
-                tuple += &lst[..];
-                tuple += ")";
-            }
+            let tuple = insertion_tuple(&cols);
             stmt += &format!("insert into {} {} values ", name, tuple)[..];
         }
         
@@ -908,6 +903,20 @@ impl Display for Table {
         write!(f, "{}", content)
     }
 
+}
+
+pub fn insertion_tuple(cols : &[String]) -> String {
+    let mut tuple = String::new();
+    tuple += "(";
+    for name in cols.iter().take(cols.len().saturating_sub(1)) {
+        tuple += &name[..];
+        tuple += ",";
+    }
+    if let Some(lst) = cols.last() {
+        tuple += &lst[..];
+        tuple += ")";
+    }
+    tuple
 }
 
 #[derive(Debug)]

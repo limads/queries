@@ -135,8 +135,6 @@ where
     }
 }
 
-// TODO SQL parser is not accepting PostgreSQL double precision types
-// Use this if client-side parsing is desired.
 pub fn parse_sql(sql : &str, _subs : &HashMap<String, String>) -> Result<Vec<Statement>, String> {
     
     let dialect = PostgreSqlDialect {};
@@ -433,36 +431,10 @@ pub fn fully_parse_sql(
         },
         
         Err(e) => {
-            // let raw_stmt = define_raw_statement(token_group)
-            //    .map_err(|_| SQLError::Parsing(format!("{}", e)) )?;
-            // any_stmts.push(raw_stmt);
             return Err(SQLError::Parsing(format!("{}", e)));
         }
     }
     
-    /*let split_tokens = split_statement_tokens(tokens)
-        .map_err(|e| SQLError::Lexing(e) )?;
-    for token_group in split_tokens {
-        match Parser::new(token_group.clone(), &dialect).parse_statement() {
-            Ok(stmt) => {
-                match stmt {
-                    Statement::Copy{ .. } => {
-                        return Err(SQLError::Unsupported(format!("Unsupported statement (copy)")));
-                    },
-                    other_stmt => { 
-                        let orig = join_tokens(&token_group[..]);
-                        any_stmts.push(AnyStatement::Parsed(other_stmt.clone(), orig));
-                    }
-                }
-            },
-            Err(e) => {
-                // let raw_stmt = define_raw_statement(token_group)
-                //    .map_err(|_| SQLError::Parsing(format!("{}", e)) )?;
-                // any_stmts.push(raw_stmt);
-                SQLError::Parsing(format!("{}", e))
-            }
-        }
-    }*/
     
     Ok(any_stmts)
 }
@@ -487,20 +459,6 @@ pub fn partially_parse_sql(
     let mut any_stmts = Vec::new();
     for token_group in split_tokens {
 
-        /*// Make substitutions ONLY on the current token group string
-        // We need to make this sutitution or else sqlparser won't be able
-        // to parse the substitution tokens.
-        let sub = substitute_if_required(&orig, subs);*/
-
-        // TODO group begin ... commit; together here, since we separated
-        // tokens at ; before parsing.
-
-        // TODO prohibit copy statements inside begin..end transaction blocks. Since the command
-        // might fail due to a local command execution error, the behavior for the full transaction block
-        // is left undefined, since by definition it should be cancelled only if there is a server-side
-        // error, which does not happen in this case.
-
-        // let mut parser = Parser::new(token_group, &dialect::PostgreSqlDialect{});
         match Parser::new(token_group.clone(), &dialect).parse_statement() {
             Ok(stmt) => {
 

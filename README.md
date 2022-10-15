@@ -14,7 +14,7 @@ Queries is a workbench to interact with relational databases, with initial suppo
 
 - SQL statements are parsed and verified at the client side for immediate feedback and faster debugging.
 
-- Support for encrypted connections via SSL and TLS, allowing you to interact safely with remote databases.
+- Support for encrypted connections via SSL/TLS, allowing you to interact safely with remote databases.
 
 - Statements are executed asynchronously when possible, reducing execution time for long statement sequences.
 

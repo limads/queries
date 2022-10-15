@@ -19,6 +19,7 @@ use crate::client::{ConnURI, ConnConfig};
 use sqlparser::ast::Statement;
 use futures::future;
 use std::ops::Range;
+use crate::ui::TlsVersion;
 
 pub struct PostgresConnection {
 
@@ -40,65 +41,66 @@ async fn connect(
     uri : &ConnURI
 ) -> Result<tokio_postgres::Client, String> {
 
-    // If a TLS certificate is configured, assume the client wants to connect
-    // via TLS.
     if let Some(cert) = uri.info.cert.as_ref() {
 
-        match uri.info.is_tls {
-            Some(true) => {
-            
-                use native_tls::{Certificate, TlsConnector};
-                use postgres_native_tls::MakeTlsConnector;
-
-                let cert_content = fs::read(cert).map_err(|e| format!("{}", e) )?;
-                let cert = Certificate::from_pem(&cert_content)
-                    .map_err(|e| format!("{}", e) )?;
-                let connector = TlsConnector::builder()
-                    .add_root_certificate(cert)
-                    .build().map_err(|e| format!("{}", e) )?;
-                
-                let connector = MakeTlsConnector::new(connector);
-                match tokio_postgres::connect(&uri.uri[..], connector).await {
-                    Ok((cli, conn)) => {
-                        rt.spawn(conn);
-                        Ok(cli)
-                    },
-                    Err(e) => {
-                        let mut e = e.to_string();
-                        format_pg_string(&mut e);
-                        Err(e)
-                    }
-                }
+        use native_tls::{Certificate, TlsConnector};
+        use postgres_native_tls::MakeTlsConnector;
+        
+        let min_version = match uri.info.min_tls_version {
+            Some(TlsVersion { major : 1, minor : 0 }) => {
+                native_tls::Protocol::Tlsv10
             },
-            Some(false) => {
-            
-                use openssl::ssl::{SslConnector, SslMethod};
-                use postgres_openssl::MakeTlsConnector;
-                
-                let mut builder = SslConnector::builder(SslMethod::tls())
-                    .map_err(|e| format!("{}", e) )?;
-                builder.set_ca_file(&cert)
-                    .map_err(|e| format!("{}", e) )?;
-                let connector = MakeTlsConnector::new(builder.build());
-                match tokio_postgres::connect(&uri.uri[..], connector).await {
-                    Ok((cli, conn)) => {
-                        rt.spawn(conn);
-                        Ok(cli)
-                    },
-                    Err(e) => {
-                        let mut e = e.to_string();
-                        format_pg_string(&mut e);
-                        Err(e)
-                    }
-                }
+            Some(TlsVersion { major : 1, minor : 1 }) => {
+                native_tls::Protocol::Tlsv11
+            },
+            Some(TlsVersion { major : 1, minor : 2 }) => {
+                native_tls::Protocol::Tlsv12
+            },
+            Some(TlsVersion { major, minor }) => {
+                return Err(format!("Unrecognized TLS version: {}.{}", major, minor));
             },
             None => {
-                Err(format!("Secure connection modality unspecified"))
+                return Err(format!("Unspecified TLS minimum version"));
+            }
+        };
+        let cert_content = fs::read(cert)
+            .map_err(|e| format!("Could not read certificate: {}", e) )?;
+        let cert = Certificate::from_pem(&cert_content)
+            .map_err(|e| format!("{}", e) )?;
+        let connector = TlsConnector::builder()
+            .add_root_certificate(cert)
+            .use_sni(true)
+            .disable_built_in_roots(false)
+            .min_protocol_version(Some(min_version))
+            .build()
+            .map_err(|e| format!("Error establishing TLS connector: {}", e) )?;
+        
+        let connector = MakeTlsConnector::new(connector);
+        if !uri.uri.ends_with("sslmode=require") {
+            return Err(format!("Tried to connect without TLS mode 'require'"));
+        }
+        
+        match tokio_postgres::connect(&uri.uri[..], connector).await {
+            Ok((cli, conn)) => {
+                rt.spawn(conn);
+                Ok(cli)
+            },
+            Err(e) => {
+                let mut e = e.to_string();
+                format_pg_string(&mut e);
+                Err(e)
             }
         }
+     
     } else {
+    
+        // Only connect without SSL/TLS when the client is local.
         if crate::client::is_local(&uri.info)  == Some(true) {
-            // Only connect without SSL/TLS when the client is local.
+            
+            if uri.uri.ends_with("sslmode=require") {
+                return Err(format!("Tried to connect without TLS, but connection requires it."));
+            }
+            
             match tokio_postgres::connect(&uri.uri[..], tokio_postgres::NoTls{ }).await {
                 Ok((cli, conn)) => {
                     rt.spawn(conn);
@@ -168,11 +170,11 @@ async fn query_multiple(
                 if crate::sql::is_like_query(&stmt) {
                     query_futures.push(client.query(sql, &[]));
                 } else {
-                    panic!("Only queries can be executed asynchronously")
+                    eprintln!("Only queries can be executed asynchronously")
                 }
             },
             _other => {
-                panic!("Only queries can be executed asynchronously")
+                eprintln!("Only queries can be executed asynchronously")
             }
         }
     }
@@ -269,12 +271,16 @@ impl Connection for PostgresConnection {
                                     StatementOutput::Invalid(format!("Transaction wasn't commited"), false)
                                 },
                                 Err(e) => {
-                                    StatementOutput::Invalid(format!("{}",e), false)
+                                    let mut e = format!("{}", e);
+                                    format_pg_string(&mut e);
+                                    StatementOutput::Invalid(e, false)
                                 }
                             }
                         },
                         Err(e) => {
-                            StatementOutput::Invalid(format!("{}",e), false)    
+                            let mut e = format!("{}", e);
+                            format_pg_string(&mut e);
+                            StatementOutput::Invalid(e, false)
                         }
                     }
                 },
@@ -304,7 +310,9 @@ impl Connection for PostgresConnection {
             },
             Err(e) => {
                 self.rt = Some(rt);
-                vec![StatementOutput::Invalid(e.to_string(), false)]
+                let mut e = format!("{}", e);
+                format_pg_string(&mut e);
+                vec![StatementOutput::Invalid(e, false)]
             }
         }
     }
@@ -436,6 +444,9 @@ impl Connection for PostgresConnection {
         
         let stmt = AnyStatement::from_sql(&sql)
             .ok_or(String::from("Invalid insertion SQL"))?;
+
+        crate::sql::require_insert_n(&stmt, tbl.ncols(), tbl.nrows())?;
+        
         let out = self.exec(&stmt, &HashMap::new());
         match out {
             StatementOutput::Statement(_) => {
@@ -811,7 +822,53 @@ fn format_pg_string(e : &mut String) {
         }
     }
     *e = e.clone().trim().to_string();
-    let fst_char = e[0..1].to_uppercase().to_string();
-    e.replace_range(0..1, &fst_char);
+    if e.len() >= 1 {
+        let fst_char = e[0..1].to_uppercase().to_string();
+        e.replace_range(0..1, &fst_char);
+    }
+    break_string(e, 80);
+}
+
+fn break_string(content : &mut String, line_length : usize) {
+    let mut break_next = false;
+    let mut last_break = 0;
+    let mut break_pos = Vec::new();
+    for (i, c) in content.chars().enumerate() {
+        if c == '\n' {
+            last_break = i;
+            break_next = false;
+        }
+        if c == ' ' && break_next {
+            break_pos.push(i);
+            break_next = false;
+            last_break = i;
+        }
+        if i - last_break > line_length && !break_next {
+            break_next = true;
+        }
+    }
+
+    if break_pos.len() == 0 {
+        return;
+    }
+
+    let mut broken = String::with_capacity(content.len() + 4);
+    let mut chars = content.chars();
+    while break_pos.len() > 0 {
+        let mut count = 0;
+        while let Some(c) = chars.next() {
+            broken.push(c);
+            count += 1;
+            if count == break_pos[0] {
+                broken += "\n";
+                break_pos.remove(0);
+                if break_pos.len() == 0 {
+                    break;
+                }
+            }
+        }
+    }
+    broken.extend(chars);
+    *content = broken;
 }
 

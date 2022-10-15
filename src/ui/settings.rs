@@ -122,6 +122,31 @@ impl<W: IsA<Widget>> NamedBox<W> {
 }
 
 #[derive(Debug, Clone)]
+pub struct ConnBox {
+    list : ListBox,
+    pub app_name_entry : Entry,
+    pub timeout_scale : Scale
+}
+
+impl ConnBox {
+
+    pub fn build() -> Self {
+        let timeout_scale = Scale::with_range(Orientation::Horizontal, 10.0, 60.0, 1.0);
+        timeout_scale.set_width_request(240);
+        timeout_scale.set_draw_value(true);
+        timeout_scale.set_value_pos(PositionType::Top);
+        let app_name_entry = Entry::new();
+        let list = ListBox::new();
+        configure_list(&list);
+        list.append(&NamedBox::new("Application name", Some("Name used to identify the client application\nto the server."), app_name_entry.clone()).bx);
+        list.append(&NamedBox::new("Connection timeout", Some("Maximum number of seconds to wait for a server\nreply when establishing connections"), timeout_scale.clone()).bx);
+        set_all_not_selectable(&list);
+        Self { app_name_entry, timeout_scale, list }
+    }
+    
+}
+
+#[derive(Debug, Clone)]
 pub struct EditorBox {
     pub list : ListBox,
     pub scheme_combo : ComboBoxText,
@@ -358,12 +383,25 @@ impl std::string::ToString for SSLMode {
     
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct TlsVersion {
+    pub major : usize,
+    pub minor : usize
+}
+
+impl std::string::ToString for TlsVersion {
+
+    fn to_string(&self) -> String {
+        format!("{}.{}", self.major, self.minor)
+    }
+    
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Certificate {
     pub host : String,
     pub cert : String,
-    pub is_tls : bool,
-    pub mode : SSLMode
+    pub min_version : TlsVersion
 }
 
 #[derive(Debug, Clone)]
@@ -374,20 +412,18 @@ pub struct SecurityBox {
     pub cert_removed : gio::SimpleAction,
     pub exp_row : libadwaita::ExpanderRow,
     pub save_switch : Switch,
-    pub mode_combo : ComboBoxText,
+    pub version_combo : ComboBoxText,
    
     // pub ssl_switch : Switch,
 
     // TODO remove the rows list if/when libadwaita API allows recovering the ExpanderRow rows.
     // While this is not possible, we must keep a shared reference to the rows to remove
     // them.
-    pub rows : Rc<RefCell<Vec<ListBoxRow>>>,
-    pub tls_toggle : ToggleButton,
-    pub ssl_toggle : ToggleButton
+    pub rows : Rc<RefCell<Vec<ListBoxRow>>>
 
 }
 
-fn validate((host, cert, _mode) : &(String, String, SSLMode), rows : &[ListBoxRow]) -> bool {
+fn validate((host, cert, _mode) : &(String, String, TlsVersion), rows : &[ListBoxRow]) -> bool {
 
     for row in rows.iter() {
         let bx = row.child().unwrap().clone().downcast::<Box>().unwrap();
@@ -406,19 +442,14 @@ pub fn append_certificate_row(
     exp_row : libadwaita::ExpanderRow, 
     host : &str, 
     cert : &str, 
-    mode : &SSLMode,
-    is_tls : bool, 
+    min_version : TlsVersion, 
     rows : &Rc<RefCell<Vec<ListBoxRow>>>,
     cert_added : &gio::SimpleAction,
     cert_removed : &gio::SimpleAction
 ) {
 
     let mut cert_str = cert.to_string();
-    if is_tls {
-        cert_str += &format!(" (TLS; {})", mode.to_string());
-    } else {
-        cert_str += &format!(" (SSL; {})", mode.to_string());
-    }
+    cert_str += &format!(" (≥ TLS {})", min_version.to_string());
     
     let lbl_host = Label::new(Some(host));
     let lbl_cert = Label::new(Some(&cert_str));
@@ -491,7 +522,6 @@ pub fn append_certificate_row(
         let rows = rows.clone();
         let host = host.to_string();
         let cert = cert.to_string();
-        let mode = mode.clone();
         let cert_removed = cert_removed.clone();
         move |_| {
             exp_row.remove(&row);
@@ -504,23 +534,28 @@ pub fn append_certificate_row(
                 Some(&serde_json::to_string(&Certificate {
                     host : host.clone(),
                     cert : cert.clone(),
-                    is_tls,
-                    mode
+                    min_version
                 }).unwrap().to_variant())
             );
         }
     });
     
-    cert_added.activate(Some(&serde_json::to_string(&Certificate { host : host.to_string(), is_tls, cert : cert.to_string(), mode : *mode }).unwrap().to_variant()));
+    cert_added.activate(Some(&serde_json::to_string(&Certificate { host : host.to_string(), min_version, cert : cert.to_string() }).unwrap().to_variant()));
 }
 
-fn set_all_not_selectable(list : &ListBox) {
+pub fn set_all_not_selectable(list : &ListBox) {
     let mut ix = 0;
     while let Some(r) = list.row_at_index(ix) {
         r.set_selectable(false);
         ix += 1;
     }
 }
+
+const TLS_V10 : &'static str = "≥ TLS 1.0";
+
+const TLS_V11 : &'static str = "≥ TLS 1.1";
+
+const TLS_V12 : &'static str = "≥ TLS 1.2";
 
 impl SecurityBox {
 
@@ -534,7 +569,7 @@ impl SecurityBox {
 
         // TODO just get lisboxrows from list, or else certificates added at startup won't count.
         let rows : Rc<RefCell<Vec<ListBoxRow>>> = Rc::new(RefCell::new(Vec::new()));
-        let cert = Rc::new(RefCell::new((String::new(), String::new(), SSLMode::Require)));
+        let cert = Rc::new(RefCell::new((String::new(), String::new(), TlsVersion { major : 1, minor : 0 })));
         
         let save_switch = Switch::new();
         let save_row = ListBoxRow::new();
@@ -546,9 +581,10 @@ impl SecurityBox {
         exp_row.set_selectable(false);
         
         exp_row.set_title("Certificates");
-        exp_row.set_subtitle("Associate TLS/SSL certificates to\ndatabase cluster hosts");
+        exp_row.set_subtitle("Associate SSL/TLS certificates to\ndatabase cluster hosts");
 
         let add_row = ListBoxRow::new();
+        add_row.set_selectable(false);
         let add_bx = Box::new(Orientation::Horizontal, 0);
         add_row.set_child(Some(&add_bx));
         let host_entry = Entry::new();
@@ -559,16 +595,9 @@ impl SecurityBox {
 
         let cert_entry = Entry::new();
         cert_entry.set_primary_icon_name(Some("application-certificate-symbolic"));
-        cert_entry.set_placeholder_text(Some("Certificate path (.crt or .pem file)"));
+        cert_entry.set_placeholder_text(Some("Root certificate path (.crt or .pem file)"));
         cert_entry.set_hexpand(true);
         cert_entry.set_halign(Align::Fill);
-
-        let tls_toggle = ToggleButton::new();
-        tls_toggle.set_label("TLS");
-        let ssl_toggle = ToggleButton::new();
-        ssl_toggle.set_label("SSL");
-        ssl_toggle.set_active(true);
-        ssl_toggle.set_group(Some(&tls_toggle));
         
         let add_bx_top = Box::new(Orientation::Horizontal, 0);
         let add_bx_middle = Box::new(Orientation::Horizontal, 0);
@@ -579,57 +608,54 @@ impl SecurityBox {
         add_btn.style_context().add_class("flat");
         add_btn.set_icon_name("list-add-symbolic");
         add_btn.set_sensitive(false);
-        add_btn.set_margin_start(6);
+        add_btn.set_width_request(32);
         super::set_margins(&add_bx, 12, 12);
         add_btn.set_halign(Align::End);
         add_btn.set_hexpand(false);
         
-        let mode_combo = ComboBoxText::new();
-        for (id, mode) in [("full", "Verify Full"), ("ca", "Verify CA"), ("require", "Require")] {
-            mode_combo.append(Some(id), mode);
+        let version_combo = ComboBoxText::new();
+        
+        for (id, mode) in [("0", TLS_V10), ("1", TLS_V11), ("2", TLS_V12)] {
+            version_combo.append(Some(id), mode);
         }
-        mode_combo.connect_changed({
+        version_combo.connect_changed({
             let add_btn = add_btn.clone();
             let cert = cert.clone();
-            move |mode_combo| {
-                let active_txt = mode_combo.active_text();
+            move |version_combo| {
+                let active_txt = version_combo.active_text();
                 add_btn.set_sensitive(active_txt.is_some());
                 if let Some(txt) = active_txt {
                     match &txt[..] {
-                        "Verify Full" => {
-                            cert.borrow_mut().2 = SSLMode::VerifyFull;
+                        TLS_V10 => {
+                            cert.borrow_mut().2 = TlsVersion { major : 1, minor : 0 };
                         },
-                        "Verify CA" => {
-                            cert.borrow_mut().2 = SSLMode::VerifyCA;
+                        TLS_V11 => {
+                            cert.borrow_mut().2 = TlsVersion { major : 1, minor : 1 };
                         },
-                        "Require" => {
-                            cert.borrow_mut().2 = SSLMode::Require;
+                        TLS_V12 => {
+                            cert.borrow_mut().2 = TlsVersion { major : 1, minor : 2 };
                         },
                         _ => { 
-                            cert.borrow_mut().2 = SSLMode::Require;
+                            cert.borrow_mut().2 = TlsVersion { major : 1, minor : 0 };
                         }
                     }
                 } else {
-                    cert.borrow_mut().2 = SSLMode::Require;
+                    cert.borrow_mut().2 = TlsVersion { major : 1, minor : 0 };
                 }
             }
         });
-        mode_combo.set_active_id(Some("require"));
-        
+        version_combo.set_active_id(Some("0"));
+        version_combo.set_halign(Align::End);
+        add_btn.set_halign(Align::End);
         add_bx_top.append(&host_entry);
+        // add_bx_top.set_margin_bottom(12);
         add_bx_middle.append(&cert_entry);
-        tls_toggle.set_hexpand(true);
-        ssl_toggle.set_hexpand(true);
-        mode_combo.set_hexpand(true);
-        tls_toggle.set_margin_end(12);
-        ssl_toggle.set_margin_start(12);
+        // version_combo.set_hexpand(true);
+        // add_bx_bottom.set_margin_top(6);
         
-        add_bx_bottom.append(&ssl_toggle);
-        add_bx_bottom.append(&tls_toggle);
-        add_bx_bottom.set_margin_top(6);
-        
-        // TODO add this if/when postgres allow verify-ca or verify-full modes.
-        // add_bx_bottom.append(&mode_combo);
+        // add_bx_middle.append(&Label::new(Some("Minimum TLS version")));
+        add_bx_middle.append(&version_combo);
+        add_bx_middle.append(&add_btn);
         
         let add_bx_left = Box::new(Orientation::Vertical, 0);
         add_bx_left.append(&add_bx_top);
@@ -643,7 +669,6 @@ impl SecurityBox {
 
         add_bx_left.set_hexpand(true);
         add_bx_left.set_halign(Align::Fill);
-        add_bx_bottom.append(&add_btn);
         
         host_entry.connect_changed({
             let cert = cert.clone();
@@ -695,18 +720,16 @@ impl SecurityBox {
             let (host_entry, cert_entry) = (host_entry.clone(), cert_entry.clone());
             let cert_added = cert_added.clone();
             let rows = rows.clone();
-            let tls_toggle = tls_toggle.clone();
             let cert_removed = cert_removed.clone();
             move |btn| {
                 let mut cert = cert.borrow_mut();
                 host_entry.set_text("");
                 cert_entry.set_text("");
-                let is_tls = tls_toggle.is_active();
-                append_certificate_row(exp_row.clone(), &cert.0, &cert.1, &cert.2, is_tls, &rows, &cert_added, &cert_removed);
+                append_certificate_row(exp_row.clone(), &cert.0, &cert.1, cert.2, &rows, &cert_added, &cert_removed);
                 btn.set_sensitive(false);
                 cert.0 = String::new();
                 cert.1 = String::new();
-                cert.2 = SSLMode::Require;
+                cert.2 = TlsVersion { major : 1, minor : 0 };
             }
         });
 
@@ -718,7 +741,7 @@ impl SecurityBox {
 
         set_all_not_selectable(&list);
         
-        Self { list, cert_added, cert_removed, exp_row, rows, save_switch, tls_toggle, ssl_toggle, scrolled, mode_combo }
+        Self { list, cert_added, cert_removed, exp_row, rows, save_switch, scrolled, version_combo }
     }
 }
 
@@ -743,24 +766,27 @@ impl ReportingBox {
 #[derive(Debug, Clone)]
 pub struct QueriesSettings {
     pub settings : SettingsWindow,
+    pub conn_bx : ConnBox,
     pub exec_bx : ExecutionBox,
     pub editor_bx : EditorBox,
     pub security_bx : SecurityBox
 }
 
-const SETTINGS : [&'static str; 3] = ["Editor", "Execution", "Security"];
+const SETTINGS : [&'static str; 4] = ["Connection", "Editor", "Execution", "Security"];
 
 impl QueriesSettings {
 
     pub fn build() -> Self {
         let settings = SettingsWindow::build(&SETTINGS[..]);
+        let conn_bx = ConnBox::build();
         let editor_bx = EditorBox::build();
         let exec_bx = ExecutionBox::build();
         let security_bx = SecurityBox::build();
-        settings.stack.add_named(&editor_bx.list, Some(SETTINGS[0]));
-        settings.stack.add_named(&exec_bx.list, Some(SETTINGS[1]));
-        settings.stack.add_named(&security_bx.scrolled, Some(SETTINGS[2]));
-        Self { settings, editor_bx, exec_bx, security_bx, /*report_bx*/ }
+        settings.stack.add_named(&conn_bx.list, Some(SETTINGS[0]));
+        settings.stack.add_named(&editor_bx.list, Some(SETTINGS[1]));
+        settings.stack.add_named(&exec_bx.list, Some(SETTINGS[2]));
+        settings.stack.add_named(&security_bx.scrolled, Some(SETTINGS[3]));
+        Self { settings, conn_bx, editor_bx, exec_bx, security_bx }
     }
 
 }

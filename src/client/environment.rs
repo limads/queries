@@ -77,8 +77,6 @@ impl Environment {
         let mut tables = Tables::new();
         let mut plots = Plots::new();
         let on_tbl_update : Callbacks<Vec<Table>> = Default::default();
-        // Replace by on_export_success and on_export_error. Exporting thread is spanwed and
-        // result message is sent back to user.
         let on_export_error : Callbacks<String> = Default::default();
         let on_tbl_error : Callbacks<String> = Default::default();
         let mut selected : Option<usize> = None;
@@ -229,18 +227,16 @@ impl React<QueriesWorkspace> for Environment {
 impl React<ExportDialog> for Environment {
 
     fn react(&self, dialog : &ExportDialog) {
-        // If table, set default to csv. If plot, set default to svg.
-        /*self.connect_selected(move |path| {
-            let _ = dialog.set_file(&gio::File::for_path(path));
-            dialog.show();
-        });*/
-
         let send = self.send.clone();
         dialog.dialog.connect_response(move |dialog, resp| {
             match resp {
                 ResponseType::Accept => {
                     if let Some(path) = dialog.file().and_then(|f| f.path() ) {
-                        send.send(EnvironmentAction::ExportRequest(path.to_str().unwrap().to_string())).unwrap();
+                        if let Some(p) = path.to_str() {
+                            send.send(EnvironmentAction::ExportRequest(p.to_string())).unwrap();
+                        } else {
+                            eprintln!("Path is not valid UTF-8")
+                        }
                     }
                 },
                 _ => { }
@@ -250,63 +246,38 @@ impl React<ExportDialog> for Environment {
 
 }
 
-/*impl React<QueriesSettings> for Environment {
-
-    fn react(&self, settings : &QueriesSettings) {
-        settings.report_bx.entry.connect_changed({
-            let send = self.send.clone();
-            move |entry| {
-                let txt = entry.text().as_str().to_string();
-                send.send(EnvironmentAction::ChangeTemplate(txt)).unwrap();
-            }
-        });
-    }
-
-}*/
-
 fn export_to_path(item : ExportItem, path : &Path, _template_path : Option<String>) -> Result<(), String> {
-    let mut f = File::create(path).map_err(|e| format!("{}", e) )?;
     let ext = path.extension().map(|ext| ext.to_str().unwrap_or("") );
-
-    // Verify if table is csv/fodt/html
-    // Verify if plot is svg/png
-    // Verify if format agrees with export item modality.
-
     match item {
         ExportItem::Table(tbl) => {
-            // let opt_fmt : Option<TableSettings> = None;
-            // tbl.update_format(fmt);
-
             match ext {
                 Some("csv") => {
+                    let mut f = File::create(path).map_err(|e| format!("Error creating export file: {}", e) )?;
                     let s = tbl.to_string();
-                    f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )
+                    f.write_all(s.as_bytes()).map_err(|e| format!("Error writing to export file: {}", e) )
                 },
                 Some("md") => {
+                    let mut f = File::create(path).map_err(|e| format!("Error creating export file: {}", e) )?;
                     let s = tbl.to_markdown();
-                    f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )
+                    f.write_all(s.as_bytes()).map_err(|e| format!("Error writing to export file: {}", e) )
                 },
                 Some("tex") => {
+                    let mut f = File::create(path).map_err(|e| format!("Error creating export file: {}", e) )?;
                     let s = tbl.to_tex();
-                    f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )
+                    f.write_all(s.as_bytes()).map_err(|e| format!("Error writing to export file: {}", e) )
                 },
-                Some("fodt") => {
-                    /* let s = crate::report::ooxml::substitute_ooxml(&tbl, &read_template(template_path)?)
-                        .map_err(|e| format!("{}", e) )?;
-                    f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) ) */
-                    Err(format!("Invalid extension"))
-                },
-                Some("html") => {
-                    /*let s = monday::report::html::substitute_html(&tbl, &read_template(template_path)?)
-                        .map_err(|e| format!("{}", e) )?;
-                    f.write_all(s.as_bytes()).map_err(|e| format!("{}", e) )*/
-                    Err(format!("Invalid format"))
-                },
-                _ => Err(format!("Invalid extension"))
+                _ => Err(format!("Invalid file extension for table export (expected .csv, .md or .tex)"))
             }
         },
         ExportItem::Panel(mut panel) => {
-            panel.draw_to_file(path.to_str().unwrap()).map_err(|e| format!("{e}") )
+            match ext {
+                Some("png") | Some("eps") | Some("svg") => {
+                    panel.draw_to_file(path.to_str().unwrap()).map_err(|e| format!("{e}") )
+                },
+                _ => {
+                    Err(format!("Invalid file extension for plot export (expected .png, .eps or .svg)"))
+                }
+            }
         }
     }
 }
@@ -374,7 +345,7 @@ impl Plots {
             if let Some(val) = tbl.single_json_field() {
                 match val {
                     serde_json::Value::Object(ref map) => {
-                        let is_panel = map.contains_key("elements") && map.contains_key("layout") && map.contains_key("design");
+                        let is_panel = map.contains_key("plots");
                         let is_plot = map.contains_key("x") && map.contains_key("y") && map.contains_key("mappings");
                         if is_panel || is_plot {
                             match Panel::new_from_json(&val.to_string()) {
@@ -383,7 +354,7 @@ impl Plots {
                                     self.panels.push(panel);
                                 },
                                 Err(e) => {
-                                    return Err(format!("{}", e));
+                                    return Err(format!("Error in plot definition: {}", e));
                                 }
                             }
                         }
@@ -399,13 +370,6 @@ impl Plots {
 
 pub struct Tables {
 
-    // source : EnvironmentSource,
-
-    // SQL substitutions
-    // subs : HashMap<String, String>,
-
-    // listener : SqlListener,
-
     /// Stores tables that returned successfully. 1:1 correspondence
     /// with self.queries
     tables : Vec<Table>,
@@ -420,9 +384,6 @@ pub struct Tables {
 
     history : Vec<EnvironmentUpdate>,
 
-
-
-    // loader : Arc<Mutex<FunctionLoader>>,
 }
 
 impl Tables {
@@ -560,37 +521,6 @@ impl Tables {
     pub fn queries(&self) -> &[String] {
         &self.queries[..]
     }
-
-    /*pub fn set_new_postgre_engine(
-        &mut self,
-        conn_str : String
-    ) -> Result<(), String> {
-        match SqlEngine::try_new_postgre(conn_str) {
-            Ok(engine) => { self.update_engine(engine)?; Ok(()) },
-            Err(msg) => Err(msg)
-        }
-    }
-
-    pub fn set_new_sqlite3_engine(
-        &mut self,
-        path : Option<PathBuf>
-    ) -> Result<(), String> {
-        match SqlEngine::try_new_sqlite3(path, &self.loader) {
-            Ok(engine) => {
-                self.update_engine(engine)?;
-                Ok(())
-            },
-            Err(msg) => Err(msg)
-        }
-    }
-
-    pub fn disable_engine(&mut self) {
-        if let Ok(mut engine) = self.listener.engine.lock() {
-            *engine = SqlEngine::Inactive;
-        } else {
-            println!("Could not acquire lock over SQL engine");
-        }
-    }*/
 
     pub fn current_hist_index(&self) -> usize {
         self.history.len() - 1

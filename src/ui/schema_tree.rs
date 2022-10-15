@@ -76,8 +76,6 @@ impl SchemaTree {
 
     pub fn build() -> Self {
         let type_icons = load_type_icons();
-        
-        // let schema_popover = SchemaPopover::build(&builder);
         let menu = gio::Menu::new();
         menu.append(Some("Query"), Some("win.query"));
         menu.append(Some("Report"), Some("win.report"));
@@ -125,10 +123,6 @@ impl SchemaTree {
         // schema_popover.set_parent(&tree_view);
         schema_popover.set_parent(&scroll);
 
-        // (queries4:28811): Gtk-CRITICAL **: 22:05:39.730: gtk_css_node_insert_after: assertion 'previous_sibling == NULL || previous_sibling->parent == parent' failed
-        // https://gitlab.gnome.org/GNOME/gtk/-/issues/3561
-        // popover.set_parent(&tree_view);
-
         let gesture_click = GestureClick::builder().build();
         gesture_click.set_button(gdk::BUTTON_SECONDARY);
         tree_view.add_controller(&gesture_click);
@@ -139,9 +133,6 @@ impl SchemaTree {
             move |_gesture, _n_press, x, y| {
                 if let Some((Some(opt_path), Some(opt_col), _, _)) = tree_view.path_at_pos(x as i32, y as i32) {
                     let area = tree_view.cell_area(Some(&opt_path), Some(&opt_col));
-                    // let alloc = scroll.parent().unwrap().allocation();
-                    // area.width = alloc.width.min(area.width);
-                    // area.height = alloc.height.min(area.height);
                     schema_popover.set_pointing_to(Some(&area));
                     schema_popover.popup();
                 }
@@ -165,14 +156,9 @@ impl SchemaTree {
                 if let Some(state) = action.state() {
                     let s = state.get::<String>().unwrap();
                     if !s.is_empty() {
-                        let obj : DBObject = serde_json::from_str(&s[..]).unwrap();
-                        //match form_action {
-                        //    FormAction::Insert(obj) => {
-                            form.update_from_table(&obj);
-                            form.dialog.show();
-                        //    },
-                        //    _ => { }
-                        // }
+                        let obj : DBObject = serde_json::from_str(&s[..]).unwrap();                        
+                        form.update_from_table(&obj);
+                        form.dialog.show();
                     }
                 }
             }
@@ -274,8 +260,6 @@ impl SchemaTree {
         }
     }
 
-    // grow_tree<T>(obj : T) for T : Display + Iterator<Item=&Self>
-    // and receive a HashMap<&str, Pixbuf> which maps the Display key to a Pixbuf living at this hash.
     fn grow_tree(&self, model : &TreeStore, parent : Option<&TreeIter>, obj : DBObject) {
         match obj {
             DBObject::Schema{ name, children } => {
@@ -311,14 +295,9 @@ impl SchemaTree {
                     model.set(&col_pos, &[(0, icon), (1, &name.to_value())]);
                 }
             },
-            DBObject::Function { name, args, ret, .. } => {
+            DBObject::Function { name, .. } => {
                 let schema_pos = model.append(parent);
-                let args_str = args.iter().map(|a| a.to_string() ).collect::<Vec<_>>().join(",");
-                let sig = if let Some(ret) = &ret {
-                    format!("{}({}) {}", name, args_str, ret)
-                } else {
-                    format!("{}({})", name, args_str)
-                };
+                let sig = format!("{}", name);
                 model.set(&schema_pos, &[(0, &self.fn_icon.to_value()), (1, &sig.to_value())]);
             },
             DBObject::View { name, .. } => {
@@ -586,6 +565,7 @@ impl ReportDialog {
         dialog.set_title(Some("Report generation"));
         crate::ui::configure_dialog(&dialog);
         let template_combo = ComboBoxText::new();
+        template_combo.set_margin_start(12);
         let list = ListBox::new();
         crate::ui::settings::configure_list(&list);
         list.append(&NamedBox::new("Template", Some("Save HTML templates under ~/Templates\nto load them here"), template_combo.clone()).bx);
@@ -597,10 +577,12 @@ impl ReportDialog {
         let transpose_switch = Switch::new();
         list.append(&NamedBox::new("Transpose tables", Some("Arrange JSON key-value pairs horizontally instead of vertically"), transpose_switch.clone()).bx);
 
+        crate::ui::set_all_not_selectable(&list);
+        
         // TODO append when feature is ready.
         let png_switch = Switch::new();
         // list.append(&NamedBox::new("Rasterize graphics", Some("Embed graphics as PNG (base64-encoded)\ninstead of Svg (vectorized)"), png_switch.clone()).bx);
-                
+        
         // Figure format (Svg / Png (embedded)
         // ( ) Include table headers
         // ( ) Include row count.
