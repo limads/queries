@@ -47,8 +47,8 @@
             "sources" : [
                 {
                     "type" : "archive",
-                    "url" : "https://limads.sfo3.cdn.digitaloceanspaces.com/queries-vendored/v0.1/vendored.tar.gz",
-                    "sha256" : "7add2c5672450ad4e48fe1d84d921524260a2c0c27c826f6dc6b6727787410d8"
+                    "url" : "https://limads.sfo3.cdn.digitaloceanspaces.com/queries-vendored/v0.1.4/vendored.tar.gz",
+                    "sha256" : "30c3d851b51f1e5e6dd270c6b4e5a453fbee9115b7148b5bb811edba669e1a67"
                 },
                 {
                     "type" : "git",
