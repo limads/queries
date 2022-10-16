@@ -1,6 +1,6 @@
 [package]
 name = "queries"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2018"
 
 [dependencies]
@@ -30,13 +30,12 @@ base64 = "0.13.0"
 rand = "0.8.5"
 papyri = { version = "0.1.2", features = ["gdk4", "gdk-pixbuf", "cairo-rs"] }
 stateful =  "0.1"
-# filecase = "0.1.3"
-filecase = { path="../filecase" }
+filecase = "0.1.4"
 
 [[bin]]
 name="queries"
 path="src/main.rs"
 
 [build-dependencies]
-gtk4 = "0.4"
+gtk4 = "0.4.8"
 

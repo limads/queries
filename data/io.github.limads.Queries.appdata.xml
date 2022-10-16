@@ -54,6 +54,13 @@
     </screenshots>
     
     <releases>
+    
+        <release version="0.1.4" date="2022-10-16">
+            <description>
+                <p>Bugfix release</p>
+            </description>
+        </release>
+        
         <release version="0.1.3" date="2022-10-15">
             <description>
                 <p>Bugfix release</p>
