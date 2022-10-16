@@ -4,7 +4,7 @@ This work is licensed under the terms of the GPL v3.0 License.
 For a copy, see http://www.gnu.org/licenses.*/
 
 use super::column::*;
-use tokio_postgres::types::{ToSql, FromSql};
+use tokio_postgres::types::{ToSql   };
 use std::marker::Sync;
 use std::convert::{TryFrom, TryInto};
 use std::borrow::Cow;
@@ -48,9 +48,7 @@ impl<'a> NullableColumn {
     }
 
     pub fn from_col(col : Column) -> Self {
-        let n = col.ref_content().len();
-        // let mut valid_ix = Vec::new();
-        // valid_ix.extend((0..n).map(|i| i ));
+        let n = col.len();
         let mut valid_ixs = HashMap::new();
         for ix in 0..n {
             valid_ixs.insert(ix, ix);
@@ -58,21 +56,7 @@ impl<'a> NullableColumn {
         Self{ col, valid_ixs, n }
     }
 
-    pub fn display_content_at_index(&'a self, row_ix : usize, prec : usize) -> Cow<'a, str> {
-        /*let mut n_ix = 0;
-        let mut i = 0;
-        while i < row_ix {
-            // TODO thread 'main' panicked at 'index out of bounds: the len is 8 but the index is 8', src/tables/nullable_column.rs:37:26
-            if let Some(null_ix) = self.null_ix.get(n_ix).map(|ix| ix == row_ix).unwrap_or(false) {
-                return Cow::Borrowed(Self::NULL);
-            }
-            if n_ix < self.null_ix.len() && i == self.null_ix[n_ix] {
-                n_ix += 1;
-            }
-            i+=1;
-        }
-
-        self.col.display_content_at_index(i - n_ix, prec)*/
+    pub fn display_content_at_index(&'a self, row_ix : usize, prec : Option<usize>) -> Cow<'a, str> {
         if let Some(dense_ix) = self.valid_ixs.get(&row_ix) {
             self.col.display_content_at_index(*dense_ix, prec)
         } else {
@@ -80,25 +64,7 @@ impl<'a> NullableColumn {
         }
     }
 
-    pub fn display_content(&self, prec : usize) -> Vec<String> {
-        /*if let Column::Nullable(_) = self.col {
-            println!("Recursive nullable column identified");
-            return Vec::new()
-        }
-        let valid_content = self.col.display_content(prec);
-        let mut content = Vec::new();
-        let mut n_ix = 0;
-        for i in 0..self.n {
-            if n_ix < self.null_ix.len() && i == self.null_ix[n_ix] {
-                content.push(String::from(Self::NULL));
-                n_ix += 1;
-            } else {
-                // TODO thread 'main' panicked at 'index out of bounds: the len is 200 but
-                // the index is 200', src/tables/nullable_column.rs:46:30
-                content.push(valid_content[i - n_ix].clone());
-            }
-        }
-        content*/
+    pub fn display_content(&self, prec : Option<usize>) -> Vec<String> {
         let mut content = Vec::new();
         for ix in 0..self.n {
             content.push(self.display_content_at_index(ix, prec).to_string());
@@ -110,7 +76,7 @@ impl<'a> NullableColumn {
     /// variant otherwise.
     pub fn to_column(self) -> Column {
         if let Column::Nullable(_) = self.col {
-            println!("Recursive nullable column identified");
+            eprintln!("Recursive nullable column identified");
         }
         if self.valid_ixs.len() == self.n {
             self.col
@@ -119,11 +85,10 @@ impl<'a> NullableColumn {
         }
     }
 
-    pub fn ref_content(&'a self) -> Vec<&'a (dyn ToSql + Sync)>
+    /*pub fn ref_content(&'a self) -> Vec<&'a (dyn ToSql + Sync)>
         where &'a str : FromSql<'a>
     {
         /*if let Column::Nullable(_) = self.col {
-            println!("Recursive nullable column identified");
             return Vec::new()
         }
         let valid_refs = self.col.ref_content();
@@ -144,7 +109,7 @@ impl<'a> NullableColumn {
     pub fn truncate(&mut self, _n : usize) {
         //self.col.truncate(n);
         unimplemented!()
-    }
+    }*/
 
 }
 

@@ -3,18 +3,12 @@
 This work is licensed under the terms of the GPL v3.0 License.  
 For a copy, see http://www.gnu.org/licenses.*/
 
-use tokio_postgres::types::ToSql;
-use std::marker::Sync;
 use rust_decimal::Decimal;
 use super::nullable_column::*;
-
 use super::field::Field;
 use serde_json::Value;
 use std::borrow::Cow;
 use serde_json;
-
-// TODO create Array<Column> for N-D Postgre arrays, that carries a vector of Columns
-// and a dimensionality metadata.
 
 /// Densely packed column, where each variant is a vector of some
 /// element that implements postgres::types::ToSql.
@@ -104,11 +98,11 @@ impl<'a> Column {
         }
     }*/
 
-    fn to_ref_dyn<'b, T>(v : &'b Vec<T>) -> Vec<&'b (dyn ToSql + Sync)>
+    /*fn to_ref_dyn<'b, T>(v : &'b Vec<T>) -> Vec<&'b (dyn ToSql + Sync)>
     where T : ToSql + Sync
     {
         v.iter().map(|e| e as &'b (dyn ToSql + Sync)).collect()
-    }
+    }*/
 
     /// Returns a string field carrying Field::String(missing.unwrap_or("null")) if value is not present;
     /// or None if ix is outside the column range.
@@ -148,7 +142,7 @@ impl<'a> Column {
         }
     }
 
-    pub fn ref_content(&'a self) -> Vec<&(dyn ToSql + Sync)> {
+    /*pub fn ref_content(&'a self) -> Vec<&(dyn ToSql + Sync)> {
         match self {
             Column::Bool(v) => Self::to_ref_dyn(v),
             Column::I8(v) => Self::to_ref_dyn(v),
@@ -164,23 +158,52 @@ impl<'a> Column {
             Column::Bytes(v) => Self::to_ref_dyn(v),
             Column::Nullable(col) => col.ref_content()
         }
-    }
+    }*/
 
-    fn display_with_precision(value : f64, prec : usize) -> String {
+    fn display_with_precision(value : f64, prec : Option<usize>) -> String {
         match prec {
-            1 => format!("{:.1}", value),
-            2 => format!("{:.2}", value),
-            3 => format!("{:.3}", value),
-            4 => format!("{:.4}", value),
-            5 => format!("{:.5}", value),
-            6 => format!("{:.6}", value),
-            7 => format!("{:.7}", value),
-            8 => format!("{:.8}", value),
-            _ => format!("{}", value)
+            Some(prec) => match prec {
+                1 => format!("{:.1}", value),
+                2 => format!("{:.2}", value),
+                3 => format!("{:.3}", value),
+                4 => format!("{:.4}", value),
+                5 => format!("{:.5}", value),
+                6 => format!("{:.6}", value),
+                7 => format!("{:.7}", value),
+                8 => format!("{:.8}", value),
+                9 => format!("{:.9}", value),
+                10 => format!("{:.10}", value),
+                11 => format!("{:.11}", value),
+                12 => format!("{:.12}", value),
+                13 => format!("{:.13}", value),
+                14 => format!("{:.14}", value),
+                15 => format!("{:.15}", value),
+                16 => format!("{:.16}", value),
+                17 => format!("{:.17}", value),
+                18 => format!("{:.18}", value),
+                19 => format!("{:.19}", value),
+                20 => format!("{:.20}", value),
+                21 => format!("{:.21}", value),
+                22 => format!("{:.22}", value),
+                23 => format!("{:.23}", value),
+                24 => format!("{:.24}", value),
+                25 => format!("{:.25}", value),
+                26 => format!("{:.26}", value),
+                27 => format!("{:.27}", value),
+                28 => format!("{:.28}", value),
+                29 => format!("{:.29}", value),
+                30 => format!("{:.30}", value),
+                31 => format!("{:.31}", value),
+                32 => format!("{:.32}", value),
+                _ => format!("{}", value)
+            },
+            None => {
+                format!("{}", value)
+            }
         }
     }
     
-    pub fn display_content_at_index(&'a self, row_ix : usize, prec : usize) -> Cow<'a, str> {
+    pub fn display_content_at_index(&'a self, row_ix : usize, prec : Option<usize>) -> Cow<'a, str> {
         match &self {
             Column::Str(v) => Cow::Borrowed(&v[row_ix]),
             Column::Bool(v) => Cow::Owned(v[row_ix].to_string()),
@@ -190,17 +213,18 @@ impl<'a> Column {
             Column::U32(v) => Cow::Owned(v[row_ix].to_string()),
             Column::I64(v) => Cow::Owned(v[row_ix].to_string()),
 
-            // TODO panic
             Column::F32(v) => Cow::Owned(Self::display_with_precision(v[row_ix] as f64, prec)),
             Column::F64(v) => Cow::Owned(Self::display_with_precision(v[row_ix] as f64, prec)),
             Column::Numeric(v) => Cow::Owned(v[row_ix].to_string()),
-            Column::Json(v) => Cow::Owned(v[row_ix].to_string()),
+            Column::Json(v) => {
+                Cow::Owned(json_to_string(&v[row_ix]))
+            },
             Column::Bytes(v) => Cow::Owned(format!("Binary ({} bytes)", v[row_ix].len())),
             Column::Nullable(col) => col.display_content_at_index(row_ix, prec)
         }
     }
 
-    pub fn display_content(&'a self, prec : usize) -> Vec<String> {
+    pub fn display_content(&'a self, prec : Option<usize>) -> Vec<String> {
         match self {
             Column::Bool(v) => v.iter().map(|e| e.to_string() ).collect(),
             Column::I8(v) => v.iter().map(|e| e.to_string() ).collect(),
@@ -212,7 +236,7 @@ impl<'a> Column {
             Column::F64(v) => v.iter().map(|e| Self::display_with_precision(*e as f64, prec) ).collect(),
             Column::Numeric(v) => v.iter().map(|d| d.to_string() ).collect(),
             Column::Str(v) => v.clone(),
-            Column::Json(v) => v.iter().map(|e| e.to_string() ).collect(),
+            Column::Json(v) => v.iter().map(|e| json_to_string(e) ).collect(),
             Column::Bytes(v) => v.iter().map(|e| format!("Binary ({} bytes)", e.len()) ).collect(),
             Column::Nullable(col) => col.display_content(prec)
         }
@@ -227,7 +251,7 @@ impl<'a> Column {
         }
     }
 
-    pub fn truncate(&mut self, n : usize) {
+    /*pub fn truncate(&mut self, n : usize) {
         match self {
             Column::Bool(v) => v.truncate(n),
             Column::I8(v) => v.truncate(n),
@@ -243,8 +267,24 @@ impl<'a> Column {
             Column::Bytes(v) => v.truncate(n),
             Column::Nullable(col) => col.truncate(n)
         }
-    }
+    }*/
 
+}
+
+pub fn json_to_string(v : &serde_json::Value) -> String {
+
+    let mut v_str = v.to_string();
+    
+    // Iterpret top-level JSON arrays as following postgres array syntax (since this
+    // is how they are represeted in the client tables).
+    match v {
+        serde_json::Value::Array(_) => {
+            v_str = format!("{{{}}}", v_str.trim_start_matches("[").trim_end_matches("]"));
+        },
+        _ => { }
+    }
+    
+    v_str
 }
 
 pub mod from {

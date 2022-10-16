@@ -184,7 +184,7 @@ impl Table {
         }
     }
     
-    pub fn display_content_at<'a>(&'a self, row_ix : usize, col_ix : usize, precision : usize) -> Option<Cow<'a, str>> {
+    pub fn display_content_at<'a>(&'a self, row_ix : usize, col_ix : usize, precision : Option<usize>) -> Option<Cow<'a, str>> {
         Some(self.cols.get(col_ix)?.display_content_at_index(row_ix, precision))
     }
     
@@ -526,7 +526,7 @@ impl Table {
         }
     }
 
-    pub fn flatten<'a>(&'a self) -> Result<Vec<Vec<&'a (dyn ToSql+Sync)>>, &'static str> {
+    /*pub fn flatten<'a>(&'a self) -> Result<Vec<Vec<&'a (dyn ToSql+Sync)>>, &'static str> {
         let dyn_cols : Vec<_> = self.cols.iter().map(|c| c.ref_content()).collect();
         if dyn_cols.len() == 0 {
             return Err("Query result is empty");
@@ -541,10 +541,14 @@ impl Table {
             dyn_rows.push(dyn_r);
         }
         Ok(dyn_rows)
-    }
+    }*/
 
     /// Show all content as text (including column header)
-    pub fn text_rows<'a>(&'a self, max_nrows : Option<usize>, max_ncols : Option<usize>) -> Vec<std::boxed::Box<dyn RowIterator + 'a>> {
+    pub fn text_rows<'a>(
+        &'a self,
+        max_nrows : Option<usize>, 
+        max_ncols : Option<usize>
+    ) -> Vec<std::boxed::Box<dyn RowIterator + 'a>> {
         let sz = self.nrows + 1;
         let mut rows : Vec<std::boxed::Box<dyn RowIterator>> = Vec::with_capacity(sz);
 
@@ -553,7 +557,13 @@ impl Table {
 
         rows.push(Box::new(self.names.iter().take(ncols).map(|n| Cow::Borrowed(&n[..]) )) as Box<dyn RowIterator + 'a> );
         for row_ix in 0..(self.nrows.min(nrows)) {
-            rows.push(Box::new(self.cols.iter().take(ncols).map(move |col| col.display_content_at_index(row_ix, self.format.prec))) as Box<dyn RowIterator + 'a> );
+            rows.push(
+                Box::new(
+                    self.cols.iter()
+                        .take(ncols)
+                        .map(move |col| col.display_content_at_index(row_ix, self.format.prec) )
+                ) as Box<dyn RowIterator + 'a>
+            );
         }
         rows
     }
@@ -683,7 +693,6 @@ impl Table {
                     if i >= 1 {
                         content += ",";
                     }
-
                     // Assume type is text when appending the first (header) field.
                     // Verify the type for the remaining (non-header) fields.
                     if row_ix == 0 {
@@ -852,13 +861,13 @@ impl Table {
         self.cols
     }
 
-    /// If self has more rows than n, trim it. Pass self unchanged otherwise
+    /*/// If self has more rows than n, trim it. Pass self unchanged otherwise
     pub fn truncate(mut self, n : usize) -> Self {
         for col in self.cols.iter_mut() {
             col.truncate(n);
         }
         self
-    }
+    }*/
 
     pub fn update_format(&mut self, settings : TableSettings) {
         self.format = settings;
@@ -898,7 +907,7 @@ impl Display for Table {
         let content = match self.format.format {
             Format::Csv => self.to_csv(),
             Format::Markdown => self.to_markdown(),
-            Format::Html => unimplemented!()
+            Format::Html => self.to_html()
         };
         write!(f, "{}", content)
     }
@@ -1134,7 +1143,7 @@ pub struct TableSettings {
     pub align : Align,
     pub bool_field : BoolField,
     pub null_field : NullField,
-    pub prec : usize,
+    pub prec : Option<usize>,
     pub show_only : Option<Vec<String>>
 }
 
@@ -1146,7 +1155,7 @@ impl Default for TableSettings {
             align : Align::Left,
             bool_field : BoolField::Word,
             null_field : NullField::Omit,
-            prec : 8,
+            prec : Some(8),
             show_only : None
         }
     }
@@ -1164,7 +1173,7 @@ pub fn full_csv_display(tbl : &mut Table, cols : Vec<String>) -> String {
         align : Align::Left,
         bool_field : BoolField::Char,
         null_field : NullField::WordUpper,
-        prec : 12,
+        prec : None,
         show_only : show
     };
     tbl.update_format(fmt);
@@ -1436,7 +1445,7 @@ where
     if let Some(v) = v {
         Some(serde_json::Value::from(v))
     } else {
-        Some(serde_json::Value::String(String::from("NULL")))
+        None
     }
 }
 

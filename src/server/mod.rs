@@ -130,11 +130,16 @@ where
                                 results.push(self.exec(&AnyStatement::Parsed(stmt.clone(), format!("{}", s)), &subs));
                             }
                         },
-                        AnyStatement::ParsedTransaction(stmts, s) => {
-                            for stmt in &stmts {
+                        AnyStatement::ParsedTransaction { begin, middle, end, raw } => {
+                            for stmt in &middle {
                                 lock.accepts(&stmt)?;
                             }
-                            results.push(self.exec_transaction(&AnyStatement::ParsedTransaction(stmts.clone(), format!("{}", s))));
+                            results.push(self.exec_transaction(&AnyStatement::ParsedTransaction { 
+                                begin : begin.clone(), 
+                                end : end.clone(), 
+                                middle : middle.clone(), 
+                                raw : raw.clone() 
+                            }));
                         },
                         AnyStatement::Local(_local) => {
                             // Self::run_local_statement(&local, conn, exec, &mut results)?;

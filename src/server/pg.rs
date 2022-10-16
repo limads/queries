@@ -64,7 +64,7 @@ async fn connect(
             }
         };
         let cert_content = fs::read(cert)
-            .map_err(|e| format!("Could not read certificate: {}", e) )?;
+            .map_err(|e| format!("Could not read certificate:\n{}", e) )?;
         let cert = Certificate::from_pem(&cert_content)
             .map_err(|e| format!("{}", e) )?;
         let connector = TlsConnector::builder()
@@ -73,7 +73,7 @@ async fn connect(
             .disable_built_in_roots(false)
             .min_protocol_version(Some(min_version))
             .build()
-            .map_err(|e| format!("Error establishing TLS connector: {}", e) )?;
+            .map_err(|e| format!("Error establishing TLS connector:\n{}", e) )?;
         
         let connector = MakeTlsConnector::new(connector);
         if !uri.uri.ends_with("sslmode=require") {
@@ -114,6 +114,122 @@ async fn connect(
             }
         } else {
             Err(format!("{}", CERT_ERR))
+        }
+    }
+}
+
+async fn run_transaction(client : &mut tokio_postgres::Client, any_stmt : &AnyStatement) -> StatementOutput {
+
+    /* There is an early return for any queries or executions that fail from within
+    the transactiton. We rely on the implicit rollback issued when the transaction goes out
+    of scope for those situations (see docs for tokio_postgres::Transaction). */
+    
+    match any_stmt {
+        AnyStatement::ParsedTransaction { middle, end, .. } => {
+            match client.transaction().await {
+                Ok(tr) => {
+                    let mut total_changed = 0;
+                    for stmt in middle {
+                        match stmt {
+                            
+                            // Extra safety check: those statements cannot be in the middle of a transaction.
+                            // savepoint/begin cannot exist at all; commit and rollback can only exist at the end.
+                            Statement::StartTransaction{ .. } | 
+                                Statement::Commit { .. } | 
+                                Statement::Rollback { .. } | 
+                                Statement::Savepoint { .. } => 
+                            {
+                                match tr.rollback().await {
+                                    Ok(_) => {
+                                        let mut e = format!("Invalid statement in the middle of transaction ({}).", stmt);
+                                        format_pg_string(&mut e);
+                                        return StatementOutput::Invalid(e, false);
+                                    },
+                                    Err(e) => {
+                                        let mut e = format!("{}", e);
+                                        format_pg_string(&mut e);
+                                        return StatementOutput::Invalid(e, false);
+                                    }
+                                }
+                            },
+                            
+                            Statement::Query(_) => {
+                                match tr.query(&format!("{}", stmt), &[]).await {
+                                    Ok(_) => {
+                                        // Queries inside transactions are not shown for now. But they
+                                        // might rollback the transaction when they fail.
+                                    },
+                                    Err(e) => {
+                                        let mut e = e.to_string();
+                                        format_pg_string(&mut e);
+                                        return StatementOutput::Invalid(e, true);
+                                    }
+                                }
+                            },
+                            
+                            _other_stmt => {
+                                match tr.execute(&format!("{}", stmt), &[]).await {
+                                    Ok(n) => {
+                                        total_changed += n;
+                                    },
+                                    Err(e) => {
+                                        let mut e = e.to_string();
+                                        format_pg_string(&mut e);
+                                        return StatementOutput::Invalid(e, true);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    match end {
+                        Statement::Commit{ .. } => {
+                            match tr.commit().await {
+                                Ok(_) => {
+                                    StatementOutput::Committed(
+                                        format!("Transaction commited ({} statements; {} total rows changed)", 
+                                            middle.len(), 
+                                            total_changed as usize
+                                        ), 
+                                        middle.len()
+                                    )
+                                },
+                                Err(e) => {
+                                    let mut e = e.to_string();
+                                    format_pg_string(&mut e);
+                                    StatementOutput::Invalid(e, true)
+                                }
+                            }
+                        },
+                        other => {
+                            match tr.rollback().await {
+                                Ok(_) => {
+                                    match other {
+                                        Statement::Rollback { .. } => {
+                                            StatementOutput::RolledBack(format!("Transaction rolled back"))
+                                        },
+                                        _not_rollback_stmt => {
+                                            StatementOutput::RolledBack(format!("Transaction rolled back (invalid end statement)"))
+                                        }
+                                    }
+                                },
+                                Err(e) => {
+                                    let mut e = format!("{}", e);
+                                    format_pg_string(&mut e);
+                                    StatementOutput::Invalid(e, false)
+                                }
+                            }
+                        }
+                    }
+                },
+                Err(e) => {
+                    let mut e = format!("{}", e);
+                    format_pg_string(&mut e);
+                    StatementOutput::Invalid(e, false)
+                }
+            }
+        },
+        _ => {
+            StatementOutput::Invalid(format!("Expected transaction"), false)
         }
     }
 }
@@ -217,77 +333,7 @@ impl Connection for PostgresConnection {
     fn exec_transaction(&mut self, any_stmt : &AnyStatement) -> StatementOutput {
         let rt = self.rt.take().unwrap();
         let out = rt.block_on(async {
-            match any_stmt {
-                AnyStatement::ParsedTransaction(stmts, _) => {
-                    match self.client.transaction().await {
-                        Ok(tr) => {
-                            let mut total_changed = 0;
-                            for stmt in stmts {
-                                match &stmt {
-                                    Statement::Commit{ .. } => {
-                                        match tr.commit().await {
-                                            Ok(_) => {
-                                                return crate::sql::build_statement_result(any_stmt, total_changed as usize);
-                                            },
-                                            Err(e) => {
-                                                let mut e = e.to_string();
-                                                format_pg_string(&mut e);
-                                                return StatementOutput::Invalid(e, true);
-                                            }
-                                        }
-                                    },
-                                    Statement::Query(_) => {
-                                        match tr.query(&format!("{}", stmt), &[]).await {
-                                            Ok(_) => {
-                                                // Queries inside transactions are not shown for now.
-                                            },
-                                            Err(e) => {
-                                                let mut e = e.to_string();
-                                                format_pg_string(&mut e);
-                                                return StatementOutput::Invalid(e, true);
-                                            }
-                                        }
-                                    },
-                                    _other_stmt => {
-                                        match tr.execute(&format!("{}", stmt), &[]).await {
-                                            Ok(n) => {
-                                                total_changed += n;
-                                            },
-                                            Err(e) => {
-                                                let mut e = e.to_string();
-                                                format_pg_string(&mut e);
-                                                return StatementOutput::Invalid(e, true);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            
-                            // Won't really be called, if the statement set returns early on a commit statement
-                            // (guaranteed at the parsing stage). But this guarantees that commit isn't called automatically
-                            // when tr goes out of scope and its destructor is called.
-                            match tr.rollback().await {
-                                Ok(_) => {
-                                    StatementOutput::Invalid(format!("Transaction wasn't commited"), false)
-                                },
-                                Err(e) => {
-                                    let mut e = format!("{}", e);
-                                    format_pg_string(&mut e);
-                                    StatementOutput::Invalid(e, false)
-                                }
-                            }
-                        },
-                        Err(e) => {
-                            let mut e = format!("{}", e);
-                            format_pg_string(&mut e);
-                            StatementOutput::Invalid(e, false)
-                        }
-                    }
-                },
-                _ => {
-                    StatementOutput::Invalid(format!("Expected transaction"), false)
-                }
-            }
+            run_transaction(&mut self.client, any_stmt).await
         });
         self.rt = Some(rt);
         out
@@ -298,6 +344,7 @@ impl Connection for PostgresConnection {
         let res = rt.block_on(async {
             query_multiple(&mut self.client, stmts).await
         });
+        self.rt = Some(rt);
         match res {
             Ok(vec_rows) => {
                 let mut out = Vec::new();
@@ -305,11 +352,9 @@ impl Connection for PostgresConnection {
                 for i in 0..stmts.len() {
                     out.push(build_table(&vec_rows[i], stmts[i].sql()));
                 }
-                self.rt = Some(rt);
                 out
             },
             Err(e) => {
-                self.rt = Some(rt);
                 let mut e = format!("{}", e);
                 format_pg_string(&mut e);
                 vec![StatementOutput::Invalid(e, false)]
@@ -318,25 +363,27 @@ impl Connection for PostgresConnection {
     }
     
     fn exec(&mut self, stmt : &AnyStatement, _subs : &HashMap<String, String>) -> StatementOutput {
-
         self.rt.as_ref().unwrap().block_on(async {
-            let ans = match stmt {
-                AnyStatement::Parsed(_, s) | AnyStatement::ParsedTransaction(_, s) => {
-                    self.client.execute(&s[..], &[]).await
+            match &stmt {
+                AnyStatement::Parsed(_, s) => {
+                    let ans = self.client.execute(&s[..], &[]).await;
+                    match ans {
+                        Ok(n) => crate::sql::build_statement_result(&stmt, n as usize),
+                        Err(e) => {
+                            let mut e = e.to_string();
+                            format_pg_string(&mut e);
+                            StatementOutput::Invalid(e, true)
+                        }
+                    }
                 },
-                AnyStatement::Raw(_, s, _) => {
-                    self.client.execute(&s[..], &[]).await
+                AnyStatement::ParsedTransaction { .. } => {
+                     StatementOutput::Invalid(format!("Tried to execute transaction on single exec call."), false)
+                },
+                AnyStatement::Raw(_, _, _) => {
+                    StatementOutput::Invalid(format!("Tried to execute unparsed statement"), false)
                 },
                 AnyStatement::Local(_) => {
-                    panic!("Tried to execute local statement remotely")
-                }
-            };
-            match ans {
-                Ok(n) => crate::sql::build_statement_result(&stmt, n as usize),
-                Err(e) => {
-                    let mut e = e.to_string();
-                    format_pg_string(&mut e);
-                    StatementOutput::Invalid(e, true)
+                    StatementOutput::Invalid(format!("Tried to execute unsupported statement"), false)
                 }
             }
         })
@@ -481,11 +528,10 @@ impl Connection for PostgresConnection {
             // TODO filter cols
             /*if !crate::sql::object::schema_has_table(dst, schema) {
                 let create = tbl.sql_table_creation(dst, cols).unwrap();
-                println!("Creating new table with {}", create);
                 client.execute(&create[..], &[])
                     .map_err(|e| format!("{}", e) )?;
             } else {
-                println!("Uploading to existing table");
+
             }*/
 
             /*let mut writer = client.copy_in(&copy_stmt[..]).await
@@ -526,21 +572,20 @@ fn query_db_details(cli : &mut PostgresConnection, dbname : &str) -> Result<DBDe
         AnyStatement::from_sql(&SIZE_QUERY.replace("$DBNAME", dbname)).unwrap(),
         AnyStatement::from_sql(UPTIME_QUERY).unwrap()
     ]);
-    let version = out[0].table_or_error()?.display_content_at(0, 0, 1)
+    let version = out[0].table_or_error()?.display_content_at(0, 0, None)
         .ok_or(format!("Missing version"))?;
     let version_number = version.split(" ").next()
         .ok_or(format!("Missing version number"))?;
     details.server = format!("Postgres {}", version_number);
-    
     details.locale = out[1].table_or_error()?
-        .display_content_at(0, 0, 1)
+        .display_content_at(0, 0, None)
         .ok_or(format!("Missing locale"))?.to_string();
     details.size = out[2].table_or_error()?
-        .display_content_at(0, 0, 1)
+        .display_content_at(0, 0, None)
         .ok_or(format!("Missing size"))?.to_string();
     
     details.uptime = out[3].table_or_error()?
-        .display_content_at(0, 0, 1)
+        .display_content_at(0, 0, None)
         .ok_or(format!("Missing uptime"))?.to_string();
     
     Ok(details)

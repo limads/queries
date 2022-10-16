@@ -4,23 +4,20 @@ version = "0.1.3"
 edition = "2018"
 
 [dependencies]
-gtk4 = "0.4"
-sourceview5 = { version = "0.4" }
-libadwaita = "0.1.0-beta-1"
-postgres-openssl = "0.5.0"
+gtk4 = "0.4.8"
+sourceview5 = { version = "0.4.2" }
+libadwaita = "0.1.1"
 postgres-native-tls = "0.5.0"
 tokio = { version = "1.21.1", features=["rt", "rt-multi-thread"] }
 tokio-postgres = { version = "0.7.7", features = ["with-chrono-0_4", "with-serde_json-1"] }
 futures = "0.3.24"
-futures-util="0.3"
-openssl = "0.10.41"
-native-tls = "0.2"
+native-tls = "0.2.10"
 sqlparser = "0.25.0"
-regex = { version = "1.4.2" }
-rust_decimal = { version = "1.10.1", features = ["db-postgres"] }
-serde = { version="1.0.130", features=["derive"] }
-serde_json = "1.0.68"
-itertools = "0.10"
+regex = { version = "1.6.0" }
+rust_decimal = { version = "1.26.1", features = ["db-postgres"] }
+serde = { version="1.0", features=["derive"] }
+serde_json = "1.0"
+itertools = "0.10.5"
 csv = "1.1.6"
 num-traits="0.2.14"
 quick-xml = "0.23.0"
@@ -33,7 +30,8 @@ base64 = "0.13.0"
 rand = "0.8.5"
 papyri = { version = "0.1.2", features = ["gdk4", "gdk-pixbuf", "cairo-rs"] }
 stateful =  "0.1"
-filecase = "0.1.3"
+# filecase = "0.1.3"
+filecase = { path="../filecase" }
 
 [[bin]]
 name="queries"

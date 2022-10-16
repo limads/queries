@@ -178,8 +178,10 @@ impl SchemaTree {
         });
         form.btn_cancel.connect_clicked({
             let dialog = form.dialog.clone();
+            let entries = form.entries.clone();
             move |_| {
                 dialog.close();
+                entries.iter().for_each(|e| e.set_text("") );
             }
         });
         form.dialog.connect_close({

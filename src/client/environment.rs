@@ -6,7 +6,6 @@ For a copy, see http://www.gnu.org/licenses.*/
 use gtk4::*;
 use gtk4::prelude::*;
 use std::fs::File;
-use std::io::Read;
 use crate::sql::*;
 use std::path::Path;
 use stateful::{Callbacks};
@@ -48,8 +47,6 @@ pub enum EnvironmentAction {
     /// Request to export the currently selected item to the path given as the argument.
     ExportRequest(String),
 
-    ChangeTemplate(String),
-
     ChangeSetting(ExecutionSettings),
 
     ExportError(String)
@@ -80,7 +77,6 @@ impl Environment {
         let on_export_error : Callbacks<String> = Default::default();
         let on_tbl_error : Callbacks<String> = Default::default();
         let mut selected : Option<usize> = None;
-        let mut template_path : Option<String> = None;
         recv.attach(None, {
             let on_tbl_update = on_tbl_update.clone();
             let on_export_error = on_export_error.clone();
@@ -131,9 +127,8 @@ impl Environment {
                         if let Some(item) = item {
                             thread::spawn({
                                 let send = send.clone();
-                                let template_path = template_path.clone();
                                 move || {
-                                    if let Err(e) = export_to_path(item, Path::new(&path[..]), template_path) {
+                                    if let Err(e) = export_to_path(item, Path::new(&path)) {
                                         send.send(EnvironmentAction::ExportError(e)).unwrap();
                                     }
                                 }
@@ -145,13 +140,6 @@ impl Environment {
                     },
                     EnvironmentAction::ChangeSetting(_setting) => {
 
-                    },
-                    EnvironmentAction::ChangeTemplate(path) => {
-                        if !path.is_empty() {
-                            template_path = Some(path);
-                        } else {
-                            template_path = None;
-                        }
                     },
                     _ => { }
                 }
@@ -246,14 +234,17 @@ impl React<ExportDialog> for Environment {
 
 }
 
-fn export_to_path(item : ExportItem, path : &Path, _template_path : Option<String>) -> Result<(), String> {
+fn export_to_path(item : ExportItem, path : &Path) -> Result<(), String> {
     let ext = path.extension().map(|ext| ext.to_str().unwrap_or("") );
     match item {
-        ExportItem::Table(tbl) => {
+        ExportItem::Table(mut tbl) => {
+            let mut export_format = TableSettings::default();
+            export_format.prec = None;
+            tbl.update_format(export_format);
             match ext {
                 Some("csv") => {
                     let mut f = File::create(path).map_err(|e| format!("Error creating export file: {}", e) )?;
-                    let s = tbl.to_string();
+                    let s = tbl.to_csv();
                     f.write_all(s.as_bytes()).map_err(|e| format!("Error writing to export file: {}", e) )
                 },
                 Some("md") => {
@@ -279,17 +270,6 @@ fn export_to_path(item : ExportItem, path : &Path, _template_path : Option<Strin
                 }
             }
         }
-    }
-}
-
-fn _read_template(template_path : Option<String>) -> Result<String, String> {
-    if let Some(template) = template_path {
-        let mut s = String::new();
-        let mut f = File::open(&template).map_err(|e| format!("{}", e))?;
-        f.read_to_string(&mut s).map_err(|e| format!("{}", e))?;
-        Ok(s)
-    } else {
-        Err(format!("Missing template"))
     }
 }
 
@@ -439,7 +419,12 @@ impl Tables {
                     self.history.push(EnvironmentUpdate::Clear);
                     opt_err = Some(ExecutionError { msg : msg.clone(), is_server });
                 },
-                StatementOutput::Statement(_) | StatementOutput::Modification(_) | StatementOutput::Empty => {
+                StatementOutput::Statement(_) | 
+                    StatementOutput::Modification(_) | 
+                    StatementOutput::Empty | 
+                    StatementOutput::Committed(_, _) | 
+                    StatementOutput::RolledBack(_) => 
+                {
                     self.tables.clear();
                     self.exec_results.push(r.clone());
                     self.history.push(EnvironmentUpdate::Clear);
@@ -497,8 +482,12 @@ impl Tables {
         }
         if let Some(r) = results.last() {
             match r {
-                StatementOutput::Statement(s) => Some(Ok(s.clone())),
-                StatementOutput::Invalid(e, is_server) => Some(Err(ExecutionError { msg : e.clone(), is_server : *is_server })),
+                StatementOutput::Statement(s) | StatementOutput::Committed(s, _) | StatementOutput::RolledBack(s) => {
+                    Some(Ok(s.clone()))
+                },
+                StatementOutput::Invalid(e, is_server) => {
+                    Some(Err(ExecutionError { msg : e.clone(), is_server : *is_server }))
+                },
                 StatementOutput::Modification(m) => Some(Ok(m.clone())),
                 StatementOutput::Valid(_, _) => None,
                 StatementOutput::Empty => Some(Ok(format!("No results to show")))

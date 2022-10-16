@@ -214,7 +214,6 @@ impl SqlListener {
         if let Ok(cmds) = self.last_cmd.lock() {
             cmds.clone()
         } else {
-            println!("Unable to acquire lock over last commands");
             Vec::new()
         }
     }*/
@@ -263,7 +262,7 @@ impl SqlListener {
         });
     }
 
-    pub fn on_import_request_done(
+    pub fn spawn_import_and_then(
         &self,
         path : String,
         action : crate::sql::copy::Copy,
@@ -276,7 +275,7 @@ impl SqlListener {
                     let ans = copy_table_from_csv(path, engine.as_mut(), action);
                     f(ans);
                 } else {
-                    f(Err(String::from("No active connection")));
+                    f(Err(String::from("No active connection to complete import action")));
                 }
             } else {
                 eprintln!("Unable to acquire lock over engine");
@@ -358,27 +357,27 @@ fn copy_table_from_csv(
     action : crate::sql::copy::Copy
 ) -> Result<usize, String> {
     assert!(action.target == CopyTarget::From);
-    if let Ok(mut f) = File::open(&path) {
-        let mut txt = String::new();
-        if let Err(e) = f.read_to_string(&mut txt) {
-            return Err(format!("{}", e));
-        }
-        match Table::new_from_text(txt) {
-            Ok(mut tbl) => {
-                conn.import(
-                    &mut tbl,
-                    &action.table[..],
-                    // &action.cols[..],
-                    // false,
-                    // true
-                )
-            },
-            Err(e) => {
-                Err(format!("Error parsing table: {}", e))
+    match File::open(&path) {
+        Ok(mut f) => {
+            let mut txt = String::new();
+            if let Err(e) = f.read_to_string(&mut txt) {
+                return Err(format!("{}", e));
             }
+            match Table::new_from_text(txt) {
+                Ok(mut tbl) => {
+                    conn.import(
+                        &mut tbl,
+                        &action.table[..]
+                    )
+                },
+                Err(e) => {
+                    Err(format!("Error parsing table: {}", e))
+                }
+            }
+        },
+        Err(e) => {
+            Err(format!("Error opening file to import data: {}", e))
         }
-    } else {
-        Err(format!("Error opening file"))
     }
 }
 

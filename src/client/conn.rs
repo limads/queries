@@ -928,7 +928,7 @@ impl ActiveConnection {
                                         client : CopyClient::Stdio
                                     };
                                     let send = send.clone();
-                                    listener.on_import_request_done(csv_path, copy, move |ans| {
+                                    listener.spawn_import_and_then(csv_path, copy, move |ans| {
                                         match ans {
                                             Ok(n) => {
                                                 let msg = format!("{} row(s) imported", n);
@@ -1340,6 +1340,7 @@ impl React<SchemaTree> for ActiveConnection {
             let call_action = tree.call_action.clone();
             let entries = tree.form.entries.clone();
             let send = self.send.clone();
+            let dialog = tree.form.dialog.clone();
             move |_| {
                 let state_str : String = if let Some(state) = insert_action.state() {
                     let s = state.get::<String>().unwrap();
@@ -1416,6 +1417,7 @@ impl React<SchemaTree> for ActiveConnection {
                     }
                 }
                 entries.iter().for_each(|e| e.set_text("") );
+                dialog.close();
             }
         });
 

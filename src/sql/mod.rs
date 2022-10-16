@@ -95,11 +95,11 @@ impl SafetyLock {
     
 }
 
-#[cfg(feature="arrowext")]
-use datafusion::execution::context::ExecutionContext;
+// #[cfg(feature="arrowext")]
+// use datafusion::execution::context::ExecutionContext;
 
-#[cfg(feature="arrowext")]
-use datafusion::datasource::csv::{CsvFile, CsvReadOptions};
+// #[cfg(feature="arrowext")]
+// use datafusion::datasource::csv::{CsvFile, CsvReadOptions};
 
 /// This enum represents non-standard SQL statements that are parsed and
 /// executed at client-side by queries.  The DB engine only sees the
@@ -219,6 +219,11 @@ pub enum StatementOutput {
 
     // Returns the result of a successful insert/update/delete statement.
     Statement(String),
+    
+    // Carries commit message and how many statements were commited in the transaction block.
+    Committed(String, usize),
+    
+    RolledBack(String),
 
     // Returns the result of a successful create/drop/alter statement.
     Modification(String),
@@ -280,19 +285,42 @@ pub fn condense_errors(stmts : &[StatementOutput]) -> Option<String> {
 }
 
 pub fn condense_statement_outputs(stmts : &[StatementOutput]) -> Option<String> {
-    let mut msgs : Vec<String> = stmts.iter().filter_map(|stmt| {
-        match stmt {
-            StatementOutput::Statement(msg) | StatementOutput::Modification(msg) => {
-                Some(msg.clone())
-            },
-            _ => None
-        }
-    }).collect();
+
+    // Carries message and number of statements.
+    let mut msgs : Vec<(String, usize)> = stmts.iter()
+        .filter_map(|stmt| {
+            match stmt {
+                StatementOutput::Statement(msg) | StatementOutput::Modification(msg) => {
+                    Some((msg.clone(), 1))
+                },
+                StatementOutput::Committed(msg, n_stmts) => {
+                    Some((msg.clone(), *n_stmts))
+                },
+                StatementOutput::RolledBack(msg) => {
+                    Some((msg.clone(), 0))
+                },
+                _ => None
+            }
+        })
+        .collect();
     match msgs.len() {
         0 => None,
-        1 => Some(msgs.remove(0)),
-        2 => Some(format!("{} (+1 previous change)", msgs.last().unwrap())),
-        n => Some(format!("{} (+{} previous changes)", msgs.last().unwrap(), n-1))
+        1 => Some(msgs.remove(0).0),
+        _ => {
+            let n_extra_changes = msgs.iter().take(msgs.len().saturating_sub(1))
+                .fold(0, |all, (_, n_changed)| all + n_changed );
+            match n_extra_changes {
+                0 => {
+                    Some(msgs.remove(0).0)
+                },
+                1 => {
+                    Some(format!("{} (+1 previous change)", msgs.last().unwrap().0))
+                },
+                n => {
+                    Some(format!("{} (+{} previous changes)", msgs.last().unwrap().0, n))
+                }
+            }
+        }
     }
 }
 
@@ -447,8 +475,8 @@ pub fn build_statement_result(any_stmt : &AnyStatement, n : usize) -> StatementO
             },
             _ => StatementOutput::Statement(format!("Statement executed"))
         },
-        AnyStatement::ParsedTransaction(stmts, _) => {
-            StatementOutput::Statement(format!("Transaction executed ({} statements, {} rows modified)", stmts.len(), n))
+        AnyStatement::ParsedTransaction { middle, .. } => {
+            StatementOutput::Committed(format!("Transaction executed ({} statements, {} rows modified)", middle.len(), n), middle.len())
         },
         AnyStatement::Raw(_, s, _) => {
 

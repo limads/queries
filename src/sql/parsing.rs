@@ -24,7 +24,7 @@ pub enum AnyStatement {
     Parsed(Statement, String),
     
     // Parsed statement block.
-    ParsedTransaction(Vec<Statement>, String),
+    ParsedTransaction { begin : Statement, middle : Vec<Statement>, end : Statement, raw : String },
 
     // Raw SQL tokens; full statement; whether the statement is a query or not.
     Raw(Vec<Token>, String, bool),
@@ -47,7 +47,7 @@ impl AnyStatement {
     pub fn sql(&self) -> &str {
         match &self {
             Self::Parsed(_, sql) => &sql[..],
-            Self::ParsedTransaction(_, sql) => &sql[..],
+            Self::ParsedTransaction{ raw, .. } => &raw[..],
             Self::Raw(_, sql, _) => &sql[..],
             Self::Local(_) => unimplemented!()
         }
@@ -357,6 +357,36 @@ pub fn parse_query_cols(query : &str) -> Result<Vec<String>, String> {
     }
 }
 
+fn agg_statements(stmts : &[Statement]) -> String {
+    let mut s = String::new();
+    for stmt in stmts {
+        s += &format!("{};\n", stmt);
+    }
+    s
+}
+
+fn close_transaction(mut stmts : Vec<Statement>) -> Result<AnyStatement, SQLError> {
+    let raw = agg_statements(&stmts);
+    if stmts.len() < 2 {
+        return Err(SQLError::Parsing(format!("Invalid transaction command")));
+    }
+    let begin = stmts.remove(0);
+    let end = stmts.remove(stmts.len()-1);
+    match begin {
+        Statement::StartTransaction { .. } => { },
+        _ => {
+            return Err(SQLError::Parsing(format!("Invalid transaction start command (expected BEGIN)")));
+        }
+    }
+    match end {
+        Statement::Commit { .. } | Statement::Rollback { .. } => {  },
+        _ => {
+            return Err(SQLError::Parsing(format!("Invalid transaction end command (expected COMMIT or ROLLBACK)")));
+        }
+    }
+    Ok(AnyStatement::ParsedTransaction { begin, end, middle : stmts, raw })
+}
+
 pub fn fully_parse_sql(
     sql : &str
 ) -> Result<Vec<AnyStatement>, SQLError> {
@@ -392,7 +422,7 @@ pub fn fully_parse_sql(
     match Parser::parse_sql(&dialect, sql) {
         
         Ok(mut stmts) => {
-        
+            
             let mut curr_transaction = None;
             while stmts.len() > 0 {
                 
@@ -400,22 +430,31 @@ pub fn fully_parse_sql(
                     Statement::Copy{ .. } => {
                         return Err(SQLError::Unsupported(format!("Unsupported statement (copy)")));
                     },
+                    Statement::Savepoint { .. } => {
+                        return Err(SQLError::Unsupported(format!("Unsupported feature (Transaction SAVEPOINT)")));
+                    },
                     Statement::StartTransaction { modes }  => {
                         if curr_transaction.is_some() {
-                            return Err(SQLError::Unsupported(format!("Nested transactions are unsupported.")));
+                            return Err(SQLError::Unsupported(format!("Nested transactions are currently unsupported.")));
                         }
                         curr_transaction = Some(vec![Statement::StartTransaction { modes }]);
+                    },
+                    Statement::Rollback { chain } => {
+                        if let Some(mut ct) = curr_transaction.take() {
+                            ct.push(Statement::Rollback { chain });
+                            let tr = close_transaction(ct)?;
+                            any_stmts.push(tr);
+                        } else {
+                            return Err(SQLError::Parsing(format!("ROLLBACK without any open transactions (missing BEGIN)")));
+                        }
                     },
                     Statement::Commit { chain }  => {
                         if let Some(mut ct) = curr_transaction.take() {
                             ct.push(Statement::Commit { chain });
-                            let mut final_s = String::new();
-                            for stmt in &ct {
-                                final_s += &format!("{};\n", stmt);
-                            }
-                            any_stmts.push(AnyStatement::ParsedTransaction(ct, final_s));
+                            let tr = close_transaction(ct)?;
+                            any_stmts.push(tr);
                         } else {
-                            return Err(SQLError::Parsing(format!("Commit without any open transactions")));
+                            return Err(SQLError::Parsing(format!("COMMIT statement without any open transactions (missing BEGIN)")));
                         }
                     },
                     other_stmt => { 
@@ -428,13 +467,16 @@ pub fn fully_parse_sql(
                     }
                 }
             }
+            
+            if curr_transaction.is_some() {
+                return Err(SQLError::Parsing(format!("Unfinished transaction block\n(expected COMMIT or ROLLBACK)")));
+            }
         },
         
         Err(e) => {
             return Err(SQLError::Parsing(format!("{}", e)));
         }
     }
-    
     
     Ok(any_stmts)
 }
