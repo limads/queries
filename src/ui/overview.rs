@@ -368,6 +368,7 @@ pub struct ConnectionBox {
     pub user : PackedImageEntry,
     pub db : PackedImageEntry,
     pub password : PackedImagePasswordEntry,
+    pub hostname_verification : ToggleButton,
     pub switch : Switch,
     bx : Box
 }
@@ -381,6 +382,8 @@ impl ConnectionBox {
         let user = PackedImageEntry::build("avatar-default-symbolic", "User");
         let password = PackedImagePasswordEntry::build("dialog-password-symbolic", "Password");
         let switch = Switch::new();
+        let hostname_verification = ToggleButton::with_label("Disable Hostname Verification");
+        hostname_verification.set_vexpand(false);
         switch.set_valign(Align::Center);
         switch.set_vexpand(false);
         cred_bx.append(&user.bx);
@@ -392,6 +395,7 @@ impl ConnectionBox {
         bx.append(&host.bx);
         bx.append(&db.bx);
         bx.append(&cred_bx);
+        bx.append(&hostname_verification);
         bx.set_margin_bottom(36);
 
         host.entry.set_hexpand(true);
@@ -405,6 +409,7 @@ impl ConnectionBox {
             db,
             password,
             bx,
+            hostname_verification,
             switch
         };
         conn_bx.set_sensitive(false);
@@ -449,6 +454,7 @@ impl ConnectionBox {
         self.db.entry.set_sensitive(sensitive);
         self.user.entry.set_sensitive(sensitive);
         self.password.entry.set_sensitive(sensitive);
+        self.hostname_verification.set_sensitive(sensitive);
         self.switch.set_sensitive(sensitive);
     }
 

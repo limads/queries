@@ -598,7 +598,7 @@ impl SecurityBox {
         cert_entry.set_placeholder_text(Some("Root certificate path (.crt or .pem file)"));
         cert_entry.set_hexpand(true);
         cert_entry.set_halign(Align::Fill);
-        
+
         let add_bx_top = Box::new(Orientation::Horizontal, 0);
         let add_bx_middle = Box::new(Orientation::Horizontal, 0);
         let add_bx_bottom = Box::new(Orientation::Horizontal, 0);
@@ -612,7 +612,7 @@ impl SecurityBox {
         super::set_margins(&add_bx, 12, 12);
         add_btn.set_halign(Align::End);
         add_btn.set_hexpand(false);
-        
+
         let version_combo = ComboBoxText::new();
         
         for (id, mode) in [("0", TLS_V10), ("1", TLS_V11), ("2", TLS_V12)] {
