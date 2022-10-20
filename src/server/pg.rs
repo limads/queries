@@ -20,6 +20,7 @@ use sqlparser::ast::Statement;
 use futures::future;
 use std::ops::Range;
 use crate::ui::TlsVersion;
+use std::env;
 
 pub struct PostgresConnection {
 
@@ -67,24 +68,28 @@ async fn connect(
             .map_err(|e| format!("Could not read certificate:\n{}", e) )?;
         let cert = Certificate::from_pem(&cert_content)
             .map_err(|e| format!("{}", e) )?;
-        let connector = if uri.info.hostname_verification == false {
-        		TlsConnector::builder()
-            	.add_root_certificate(cert)
-            	.use_sni(true)
-            	.disable_built_in_roots(false)
-            	.min_protocol_version(Some(min_version))
-            	.danger_accept_invalid_hostnames(true)
-            	.build()
-            	.map_err(|e| format!("Error establishing TLS connector:\n{}", e) )?
-            } else {
-        		TlsConnector::builder()
-            	.add_root_certificate(cert)
-            	.use_sni(true)
-            	.disable_built_in_roots(false)
-            	.min_protocol_version(Some(min_version))
-            	.build()
-            	.map_err(|e| format!("Error establishing TLS connector:\n{}", e) )?
-            };
+        let disable_sni: bool = match env::var("QUERIES_DISABLE_SNI") {
+        	Ok(_)	=> true,
+        	Err(_)	=> false,
+        };
+        let connector = if disable_sni {
+        	TlsConnector::builder()
+            .add_root_certificate(cert)
+            .use_sni(true)
+            .disable_built_in_roots(false)
+            .min_protocol_version(Some(min_version))
+            .danger_accept_invalid_hostnames(true)
+            .build()
+            .map_err(|e| format!("Error establishing TLS connector:\n{}", e) )?
+        } else {
+        	TlsConnector::builder()
+            .add_root_certificate(cert)
+            .use_sni(true)
+            .disable_built_in_roots(false)
+            .min_protocol_version(Some(min_version))
+            .build()
+            .map_err(|e| format!("Error establishing TLS connector:\n{}", e) )?
+        };
         
         let connector = MakeTlsConnector::new(connector);
         if !uri.uri.ends_with("sslmode=require") && !uri.uri.ends_with("sslmode=verify-ca") {

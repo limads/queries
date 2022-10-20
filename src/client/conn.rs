@@ -33,6 +33,7 @@ use super::listener::ExecMode;
 use crate::tables::table::Table;
 use crate::ui::Certificate;
 use crate::ui::TlsVersion;
+use std::env;
 
 // The actual connection info that is persisted on disk (excludes password for obvious
 // security reasons).
@@ -61,8 +62,6 @@ pub struct ConnectionInfo {
     
     // When this connection was last established (datetime-formatted).
     pub dt : Option<String>,
-
-	pub hostname_verification : bool
 
 }
 
@@ -102,7 +101,6 @@ impl Default for ConnectionInfo {
             dt : None,
             cert : None,
             min_tls_version : None,
-            hostname_verification : true
         }
     }
 
@@ -469,10 +467,6 @@ pub fn is_local(info : &ConnectionInfo) -> Option<bool> {
     }
 }
 
-pub fn disable_hostname_verification() -> Option<bool> {
-	None
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Security {
     TLS,
@@ -546,7 +540,7 @@ impl ConnURI {
 
 /* Extract connection info from GTK widgets (except password, which is held separately 
 at the uri field of ConnURI. */
-fn extract_conn_info(host_entry : &Entry, db_entry : &Entry, user_entry : &Entry, hostname_verification: &ToggleButton) -> Result<ConnectionInfo, String> {
+fn extract_conn_info(host_entry : &Entry, db_entry : &Entry, user_entry : &Entry) -> Result<ConnectionInfo, String> {
     let host_s = host_entry.text().as_str().to_owned();
     if host_s.is_empty() {
         return Err(format!("Missing host"));
@@ -563,7 +557,6 @@ fn extract_conn_info(host_entry : &Entry, db_entry : &Entry, user_entry : &Entry
     info.host = host_s.to_string();
     info.database = db_s.to_string();
     info.user = user_s.to_string();
-    info.hostname_verification = hostname_verification.is_active();
     Ok(info)
 }
 
@@ -572,9 +565,8 @@ fn generate_conn_uri_from_entries(
     db_entry : &Entry,
     user_entry : &Entry,
     password_entry : &PasswordEntry,
-    hostname_verification: &ToggleButton
 ) -> Result<ConnURI, String> {
-    let info = extract_conn_info(host_entry, db_entry, user_entry, hostname_verification)?;
+    let info = extract_conn_info(host_entry, db_entry, user_entry)?;
     let pwd = password_entry.text().as_str().to_owned();
     ConnURI::new(info, &pwd)
 }
@@ -1171,18 +1163,17 @@ impl React<ConnectionBox> for ActiveConnection {
 
     fn react(&self, conn_bx : &ConnectionBox) {
         // let conn_bx = r.0;
-        let (host_entry, db_entry, user_entry, password_entry, hostname_verification) = (
+        let (host_entry, db_entry, user_entry, password_entry) = (
             conn_bx.host.entry.clone(),
             conn_bx.db.entry.clone(),
             conn_bx.user.entry.clone(),
             conn_bx.password.entry.clone(),
-            conn_bx.hostname_verification.clone(),
         );
         let send = self.send.clone();
         let user_state = self.user_state.clone();
         conn_bx.switch.connect_state_set(move |switch, _state| {
             if switch.is_active() {
-                match generate_conn_uri_from_entries(&host_entry, &db_entry, &user_entry, &password_entry, &hostname_verification) {
+                match generate_conn_uri_from_entries(&host_entry, &db_entry, &user_entry, &password_entry) {
                     Ok(mut uri) => {
                     
                         let mut extra_args = Vec::new();
@@ -1216,13 +1207,16 @@ impl React<ConnectionBox> for ActiveConnection {
                                     let cert = &matching_certs[0];
                                     uri.info.cert = Some(cert.cert.clone());
                                     uri.info.min_tls_version = Some(cert.min_version);
-                                    if !uri.info.hostname_verification {
+                                    let disable_sni: bool = match env::var("QUERIES_DISABLE_SNI") {
+                                    	Ok(_)	=> true,
+                                    	Err(_)	=> false,
+                                    };
+                                    if disable_sni {
                                     	extra_args.push(format!("sslmode=verify-ca"));
                                     } else {
                                     	extra_args.push(format!("sslmode=require"));
                                     };
                                     augment_uri(&mut uri.uri, &extra_args[..]);
-                                    println!("{:?}", uri.uri);
                                     send.send(ActiveConnectionAction::ConnectRequest(uri)).unwrap();
                                 },
                                 _ => {
@@ -1232,7 +1226,7 @@ impl React<ConnectionBox> for ActiveConnection {
                         }
                     },
                     Err(e) => {
-                        let info = extract_conn_info(&host_entry, &db_entry, &user_entry, &hostname_verification).unwrap_or_default();
+                        let info = extract_conn_info(&host_entry, &db_entry, &user_entry).unwrap_or_default();
                         send.send(ActiveConnectionAction::ConnectFailure(info, e)).unwrap();
                     }
                 }
