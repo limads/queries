@@ -702,6 +702,29 @@ impl React<OpenedScripts> for FindDialog {
                 replace_all_action.set_state(&(-1i32).to_variant());
             }
         });
+        scripts.connect_closed({
+            let find_action = self.find_action.clone();
+            let replace_action = self.replace_action.clone();
+            let replace_all_action = self.replace_all_action.clone();
+            move |(old_file, remaining)| {
+                let curr_state = find_action.state().unwrap().get::<i32>().unwrap();
+                if remaining > 0 {
+                    if curr_state == old_file.index as i32 {
+                        find_action.set_state(&(-1i32).to_variant());
+                        replace_action.set_state(&(-1i32).to_variant());
+                        replace_all_action.set_state(&(-1i32).to_variant());
+                    } else if curr_state > old_file.index as i32 {
+                        find_action.set_state(&(curr_state - 1).to_variant());
+                        replace_action.set_state(&(curr_state - 1).to_variant());
+                        replace_all_action.set_state(&(curr_state - 1).to_variant());
+                    }
+                } else {
+                    find_action.set_state(&(-1i32).to_variant());
+                    replace_action.set_state(&(-1i32).to_variant());
+                    replace_all_action.set_state(&(-1i32).to_variant());
+                }
+            }
+        });
     }
 
 }

@@ -5,10 +5,75 @@ For a copy, see http://www.gnu.org/licenses.*/
 
 use gtk4::*;
 use gtk4::prelude::*;
-
-
 use crate::tables::table::Table;
 use std::iter::ExactSizeIterator;
+use gtk4::gdk::Cursor;
+use std::rc::Rc;
+
+#[derive(Debug, Clone)]
+pub struct TablePopover {
+    pub popover : Popover,
+    pub fst_scale : Scale,
+    pub num_scale : Scale,
+    pub filter_entry : Entry,
+    pub btn_ascending : ToggleButton,
+    pub btn_descending : ToggleButton
+}
+
+impl TablePopover {
+
+    pub fn new() -> Self {
+        let fst_scale = Scale::new(Orientation::Horizontal, Some(&Adjustment::new(1., 1., 50., 1.0, 1.0, 10.0)));
+        fst_scale.set_value_pos(PositionType::Right);
+        fst_scale.set_digits(0);
+        fst_scale.set_draw_value(true);
+        fst_scale.set_hexpand(true);
+        fst_scale.set_halign(Align::Fill);
+
+        let top_bx = Box::new(Orientation::Horizontal, 0);
+        let middle_bx = Box::new(Orientation::Horizontal, 0);
+        let bottom_bx = Box::new(Orientation::Horizontal, 0);
+        top_bx.style_context().add_class("linked");
+        // let btn_filter = ToggleButton::builder().icon_name("funnel-symbolic").build();
+        let btn_ascending = ToggleButton::builder().icon_name("view-sort-ascending-symbolic").build();
+        let btn_descending = ToggleButton::builder().icon_name("view-sort-descending-symbolic").build();
+        btn_ascending.style_context().add_class("flat");
+        btn_descending.style_context().add_class("flat");
+
+        let filter_entry = Entry::new();
+        filter_entry.set_primary_icon_name(Some("funnel-symbolic"));
+
+        top_bx.append(&btn_descending);
+        top_bx.append(&btn_ascending);
+        top_bx.append(&filter_entry);
+        btn_ascending.set_group(Some(&btn_descending));
+
+        let line_img = Image::from_icon_name("view-continuous-symbolic");
+        middle_bx.append(&line_img);
+        middle_bx.append(&fst_scale);
+
+        let num_img = Image::from_icon_name("type-integer-symbolic");
+        let num_scale = Scale::new(Orientation::Horizontal, Some(&Adjustment::new(0., 0., 50., 1.0, 1.0, 10.0)));
+        num_scale.set_value_pos(PositionType::Right);
+        num_scale.set_hexpand(true);
+        num_scale.set_draw_value(true);
+        num_scale.set_halign(Align::Fill);
+        num_scale.set_digits(0);
+
+        bottom_bx.append(&num_img);
+        bottom_bx.append(&num_scale);
+
+        let popover = Popover::new();
+        let bx = Box::new(Orientation::Vertical, 0);
+        bx.append(&top_bx);
+        bx.append(&middle_bx);
+        bx.append(&bottom_bx);
+        popover.set_child(Some(&bx));
+        popover.set_position(PositionType::Right);
+        Self { popover, btn_ascending, btn_descending, filter_entry, fst_scale, num_scale }
+    }
+
+}
 
 #[derive(Clone, Debug)]
 pub struct TableWidget {
@@ -21,9 +86,15 @@ pub struct TableWidget {
 
     provider : CssProvider,
 
+    popover : TablePopover,
+
+    tbl : Rc<Table>,
+
+    max_nrows : usize
+
 }
 
-const TABLE_CSS : &'static str = r#"
+const TABLE_WHITE_CSS : &'static str = r#"
 .scrolledwindow {
   background-color : #FFFFFF;
 }
@@ -50,12 +121,41 @@ const TABLE_CSS : &'static str = r#"
 }
 "#;
 
+const TABLE_DARK_CSS : &'static str = r#"
+.scrolledwindow {
+  background-color : #1E1E1E;
+}
+
+.table-cell {
+  padding-left: 10px;
+  padding-right: 10px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  border : 1px solid #454545;
+  /*border : 1px solid #000000;*/
+  background-color : #1E1E1E;
+}
+
+.selected {
+  background-color : #F5F6F7;
+  border : 1px solid #454545;
+}
+
+.first-row {
+  /*background-color : #E9E9E9;*/
+  font-weight : bold;
+  border-bottom : 1px solid #454545;
+}
+"#;
+
 impl TableWidget {
 
     pub fn new_from_table(tbl : &Table, max_nrows : usize, max_ncols : usize) -> Self {
         let mut tbl_wid = Self::new();
-        let data = tbl.text_rows(Some(max_nrows), Some(max_ncols));
-        tbl_wid.update_data(data);
+        tbl_wid.max_nrows = max_nrows;
+        tbl_wid.tbl = Rc::new(tbl.clone());
+        let data = tbl.text_rows(Some(max_nrows), Some(max_ncols), true, 0);
+        tbl_wid.update_data(data, true);
         tbl_wid
     }
 
@@ -64,8 +164,11 @@ impl TableWidget {
         // let _message = Label::new(None);
         let provider = CssProvider::new();
         
-        // provider.load_from_path("assets/styles/tables.css");
-        provider.load_from_data(TABLE_CSS.as_bytes());
+        if libadwaita::StyleManager::default().is_dark() {
+            provider.load_from_data(TABLE_DARK_CSS.as_bytes());
+        } else {
+            provider.load_from_data(TABLE_WHITE_CSS.as_bytes());
+        }
         
         let parent_ctx = grid.style_context();
         parent_ctx.add_provider(&provider,800);
@@ -86,12 +189,25 @@ impl TableWidget {
             Some(&Adjustment::new(0.0, 0.0, 100.0, 0.0, 0.0, 100.0))
         );*/
         // scroll_window.set_shadow_type(ShadowType::None);
+
         scroll_window.set_child(Some(&grid));
+
+        let popover = TablePopover::new();
+        popover.popover.set_parent(&scroll_window);
+
         // scroll_window.show_all();
         // let selected = Rc::new(RefCell::new(Vec::new()));
         // let dims = Rc::new(RefCell::new((0, 0)));
         // let tbl = Table::new_empty(None);
-        TableWidget { grid, scroll_window, /*box_container,*/ _parent_ctx : parent_ctx, provider, /*selected, dims,*/ /*tbl*/ }
+        TableWidget {
+            grid,
+            max_nrows : 500,
+            scroll_window,
+            _parent_ctx : parent_ctx,
+            provider,
+            popover,
+            tbl : Rc::new(Table::empty(Vec::new()))
+        }
     }
 
     pub fn parent(&self) -> ScrolledWindow {
@@ -123,7 +239,8 @@ impl TableWidget {
         row : usize,
         col : usize,
         nrows : usize,
-        ncols : usize
+        ncols : usize,
+        include_header : bool
     ) -> Label {
 
         // No allocation happens here
@@ -178,6 +295,135 @@ impl TableWidget {
         }
         if (row + 1) % 2 != 0 {
             ctx.add_class("odd-row");
+        }
+
+        if row == 0 && include_header {
+            let cursor = Cursor::builder().name("pointer").build();
+            label.set_cursor(Some(&cursor));
+            let click = GestureClick::new();
+            click.set_button(gdk::BUTTON_PRIMARY);
+            label.add_controller(&click);
+            click.connect_pressed({
+                let grid = self.grid.clone();
+                let label = label.clone();
+                let popover = self.popover.clone();
+                let tbl = self.tbl.clone();
+                let tbl_wid = self.clone();
+                let max_nrows = self.max_nrows.clone();
+                move |_gesture, _n_press, _x, _y| {
+                    let ctx = label.style_context();
+                    let is_selected = ctx.has_class("selected");
+                    if !is_selected {
+                        // popover.popover.set_parent(&label);
+                        popover.popover.set_pointing_to(Some(&label.allocation()));
+                        popover.popover.popup();
+                        if let Some(sorted_tbl) = tbl.sorted_by(col, true) {
+                            // println!("{:?}", sorted_tbl);
+                            let new_data = sorted_tbl.text_rows(Some(nrows), Some(ncols), false, 0);
+                            tbl_wid.update_data(new_data, false);
+                        }
+                    }
+                    set_selected_style(grid.clone(), col, !is_selected);
+                    if !is_selected {
+                        for c in 0..ncols {
+                            if c != col {
+                                set_selected_style(grid.clone(), c, is_selected);
+                            }
+                        }
+                    }
+                }
+            });
+
+            if col == 0 {
+                let max_nrows = self.max_nrows.clone();
+                println!("adj max = {}", nrows);
+                let fst_adj = Adjustment::new(1., 1., nrows as f64, 1.0, 1.0, 10.0);
+                self.popover.fst_scale.set_adjustment(&fst_adj);
+
+                let eff_rows = nrows.min(max_nrows) as f64;
+                let num_adj = Adjustment::new(eff_rows, 1., eff_rows, 1.0, 1.0, 10.0);
+                self.popover.num_scale.set_adjustment(&num_adj);
+
+                fst_adj.connect_value_changed({
+                    let tbl = self.tbl.clone();
+                    let tbl_wid = self.clone();
+                    let grid = self.grid.clone();
+                    let num_scale = self.popover.num_scale.clone();
+                    move|adj| {
+                        let sel_col = selected_col(&grid, ncols);
+                        let fst_row = adj.value() as usize;
+                        let num_rows = num_scale.adjustment().value() as usize;
+                        if let Some(sorted_tbl) = tbl.sorted_by(sel_col, true) {
+                            // let new_data = sorted_tbl.text_rows(Some(nrows), Some(ncols), false, fst_row - 1);
+                            let new_data = sorted_tbl.text_rows(Some(num_rows), Some(ncols), false, fst_row - 1);
+                            tbl_wid.update_data(new_data, false);
+                            set_selected_style(grid.clone(), sel_col, true);
+                            // num_scale.adjustment().set_upper(effective - offset);
+                        }
+                    }
+                });
+
+                num_adj.connect_value_changed({
+                    let tbl = self.tbl.clone();
+                    let tbl_wid = self.clone();
+                    let grid = self.grid.clone();
+                    let fst_scale = self.popover.fst_scale.clone();
+                    move |adj| {
+                        let sel_col = selected_col(&grid, ncols);
+                        let fst_row = fst_scale.adjustment().value() as usize;
+                        let num_rows = adj.value() as usize;
+                        if let Some(sorted_tbl) = tbl.sorted_by(sel_col, true) {
+                            let new_data = sorted_tbl.text_rows(Some(num_rows), Some(ncols), false, fst_row - 1);
+                            tbl_wid.update_data(new_data, false);
+                            set_selected_style(grid.clone(), sel_col, true);
+                            // fst_scale.adjustment().set_upper(num_rows as f64);
+                        }
+                    }
+                });
+
+                self.popover.filter_entry.connect_changed({
+                    let grid = self.grid.clone();
+                    let tbl_wid = self.clone();
+                    let fst_scale = self.popover.fst_scale.clone();
+                    let num_scale = self.popover.num_scale.clone();
+                    let tbl = self.tbl.clone();
+                    move |entry| {
+                        let sel_col = selected_col(&grid, ncols);
+                        let txt = entry.buffer().text();
+                        let fst_row = fst_scale.adjustment().value() as usize;
+                        let num_rows = num_scale.adjustment().value() as usize;
+                        if txt.is_empty() {
+                            let new_data = tbl.text_rows(Some(num_rows), Some(ncols), false, 0);
+                            tbl_wid.update_data(new_data, false);
+                            set_selected_style(grid.clone(), sel_col, true);
+                            fst_scale.adjustment().set_value(1.0);
+                            num_scale.adjustment().set_upper(tbl.nrows().min(max_nrows) as f64);
+                            num_scale.adjustment().set_value(f64::MAX);
+                        } else {
+                            if let Some(filtered_tbl) = tbl.filtered_by(sel_col, &txt) {
+                                let new_data = filtered_tbl.text_rows(Some(num_rows), Some(ncols), false, 0);
+                                tbl_wid.update_data(new_data, false);
+                                set_selected_style(grid.clone(), sel_col, true);
+                                fst_scale.adjustment().set_value(1.0);
+                                num_scale.adjustment().set_upper(filtered_tbl.nrows().min(max_nrows) as f64);
+                                num_scale.adjustment().set_value(f64::MAX);
+                            }
+                        }
+                    }
+                });
+            }
+
+            self.popover.popover.connect_closed({
+                let label = label.clone();
+                let grid = self.grid.clone();
+                move |_| {
+                    let ctx = label.style_context();
+                    let is_selected = ctx.has_class("selected");
+                    if is_selected {
+                        set_selected_style(grid.clone(), col, false);
+                    }
+                }
+            });
         }
 
         label
@@ -285,16 +531,21 @@ impl TableWidget {
         }
     }*/
 
-    fn update_data<I, S>(&mut self, mut data : Vec<I>)
+    fn update_data<I, S>(&self, mut data : Vec<I>, include_header : bool)
     where
         I : ExactSizeIterator<Item=S>,
         S : AsRef<str>
     {
-        self.clear_table();
+        if include_header {
+            self.clear_table();
+        } else {
+            self.clear_table_data();
+        }
+
         if data.len() == 0 {
             return;
         }
-        let nrows = data.len(); /*.min(200);*/
+        let nrows = data.len();
         let mut ncols = 0;
         for (i, row) in data.iter_mut().enumerate().take(nrows) {
             if i == 0 {
@@ -302,11 +553,24 @@ impl TableWidget {
                 if ncols == 0 {
                     return;
                 }
-                self.update_table_dimensions(nrows as i32, ncols as i32);
+
+                // Dimensions are defined here, when table is created. This assumes
+                // any new tables generated by sorting/filtering will have number of
+                // rows smaller than or equal to the first table.
+                if include_header {
+                    self.update_table_dimensions(nrows as i32, ncols as i32);
+                }
             }
-            for (j, col) in row.enumerate() {
-                let cell = self.create_data_cell(col.as_ref(), i, j, nrows, ncols);
-                self.grid.attach(&cell, j as i32, i as i32, 1, 1);
+            if include_header {
+                for (j, col) in row.enumerate() {
+                    let cell = self.create_data_cell(col.as_ref(), i, j, nrows, ncols, include_header);
+                    self.grid.attach(&cell, j as i32, i as i32, 1, 1);
+                }
+            } else {
+                for (j, col) in row.enumerate() {
+                    let cell = self.create_data_cell(col.as_ref(), i+1, j, nrows, ncols, include_header);
+                    self.grid.attach(&cell, j as i32, (i+1) as i32, 1, 1);
+                }
             }
         }
     }
@@ -321,9 +585,17 @@ impl TableWidget {
 
     }*/
 
+    // Removes all rows of table, including header
     fn clear_table(&self) {
         while self.grid.child_at(0, 0).is_some() {
             self.grid.remove_row(0);
+        }
+    }
+
+    // Remove all but the first (header) row of the table
+    fn clear_table_data(&self) {
+        while self.grid.child_at(0, 1).is_some() {
+            self.grid.remove_row(1);
         }
     }
 
@@ -375,16 +647,24 @@ fn _switch_selected(grid : Grid, cols : &mut [(String, usize, bool)], pos : usiz
             switch_to(grid.clone(), col, ncols, true);
         }
     }
+}*/
+
+fn selected_col(grid : &Grid, ncols : usize) -> usize {
+    let mut sel_col = 0;
+    for c in 0..ncols {
+        if grid.child_at(c as i32, 0 as i32).unwrap().style_context().has_class("selected") {
+            sel_col = c;
+        }
+    }
+    sel_col
 }
 
-fn _set_selected_style(_grid : Grid, _ncols : usize, _col : usize, _selected : bool) {
-    /*for wid in grid.get_children().iter().skip(ncols - col - 1).step_by(ncols) {
-        let wid = wid.clone().downcast::<Label>(); /*if let Ok(ev) = wid.clone().downcast::<Label>() {
-            ev.get_child().unwrap()
-        } else {
-            wid.clone()
-        };*/
-        let ctx = wid.get_style_context();
+fn set_selected_style(grid : Grid, col : usize, selected : bool) {
+    let mut row = 0;
+    // for wid in grid.children().iter().skip(ncols - col - 1).step_by(ncols) {
+    while let Some(wid) = grid.child_at(col as i32, row) {
+        let wid = wid.clone().downcast::<Label>().unwrap();
+        let ctx = wid.style_context();
         if selected {
             if !ctx.has_class("selected") {
                 ctx.add_class("selected");
@@ -394,8 +674,8 @@ fn _set_selected_style(_grid : Grid, _ncols : usize, _col : usize, _selected : b
                 ctx.remove_class("selected");
             }
         }
-    }*/
-    unimplemented!()
-}*/
+        row += 1;
+    }
+}
 
 

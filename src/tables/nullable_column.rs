@@ -8,7 +8,7 @@ use tokio_postgres::types::{ToSql   };
 use std::marker::Sync;
 use std::convert::{TryFrom, TryInto};
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use crate::tables::field::Field;
 
 /// Represents an incomplete column of information, holding
@@ -17,7 +17,7 @@ use crate::tables::field::Field;
 /// there are few null values, since we do not need to store
 /// the Option discriminant for all entries. If there are many
 /// NULL entries, it is best to store the valid indices on a
-/// dense column, and the corresponding valid indices in a HashMap<usize, usize>.
+/// dense column, and the corresponding valid indices in a BTreeMap<usize, usize>.
 #[derive(Debug, Clone)]
 pub struct NullableColumn {
 
@@ -25,7 +25,7 @@ pub struct NullableColumn {
     col : Column,
 
     // The keys are which indices over 0..n are non-NULL; The values are indices for the col field.
-    valid_ixs : HashMap<usize, usize>,
+    valid_ixs : BTreeMap<usize, usize>,
 
     n : usize
 }
@@ -35,11 +35,21 @@ impl<'a> NullableColumn {
     const NULL : &'a str = "NULL";
 
     /// Returns a string field carrying null if value is not present.
-    pub fn at(&self, row_ix : usize, missing : Option<&str>) -> Option<Field> {
-        if let Some(dense_ix) = self.valid_ixs.get(&row_ix) {
-            self.col.at(*dense_ix, missing)
-        } else {
-            Some(Field::Str(String::from(missing.unwrap_or(Self::NULL))))
+    pub fn at(&self, ix : usize, missing : Option<&str>) -> Option<Field> {
+        match self {
+            Column::Bool(v) => v.get(ix).map(|f| Field::Bool(*f) ),
+            Column::I8(v) => v.get(ix).map(|f| Field::I8(*f) ),
+            Column::I16(v) => v.get(ix).map(|f| Field::I16(*f) ),
+            Column::I32(v) => v.get(ix).map(|f| Field::I32(*f) ),
+            Column::U32(v) => v.get(ix).map(|f| Field::U32(*f) ),
+            Column::I64(v) => v.get(ix).map(|f| Field::I64(*f) ),
+            Column::F32(v) => v.get(ix).map(|f| Field::F32(*f) ),
+            Column::F64(v) => v.get(ix).map(|f| Field::F64(*f) ),
+            Column::Numeric(v) => v.get(ix).map(|f| Field::Numeric(f.clone()) ),
+            Column::Str(v) => v.get(ix).map(|f| Field::Str(f.clone()) ),
+            Column::Json(v) => v.get(ix).map(|f| Field::Json(f.clone()) ),
+            Column::Bytes(v) => v.get(ix).map(|f| Field::Bytes(f.clone()) ),
+            Column::Nullable(col) => col.at(ix, missing)
         }
     }
 
@@ -49,19 +59,11 @@ impl<'a> NullableColumn {
 
     pub fn from_col(col : Column) -> Self {
         let n = col.len();
-        let mut valid_ixs = HashMap::new();
+        let mut valid_ixs = BTreeMap::new();
         for ix in 0..n {
             valid_ixs.insert(ix, ix);
         }
         Self{ col, valid_ixs, n }
-    }
-
-    pub fn display_content_at_index(&'a self, row_ix : usize, prec : Option<usize>) -> Cow<'a, str> {
-        if let Some(dense_ix) = self.valid_ixs.get(&row_ix) {
-            self.col.display_content_at_index(*dense_ix, prec)
-        } else {
-            Cow::Borrowed(Self::NULL)
-        }
     }
 
     pub fn display_content(&self, prec : Option<usize>) -> Vec<String> {
@@ -121,7 +123,7 @@ impl<T> From<Vec<Option<T>>> for NullableColumn
 
     fn from(mut opt_vals: Vec<Option<T>>) -> Self {
         let n = opt_vals.len();
-        let mut valid_ixs : HashMap<usize, usize> = HashMap::new();
+        let mut valid_ixs : BTreeMap<usize, usize> = BTreeMap::new();
         let mut data : Vec<T> = Vec::new();
         for (i, opt_value) in opt_vals.drain(0..n).enumerate() {
             if let Some(v) = opt_value {

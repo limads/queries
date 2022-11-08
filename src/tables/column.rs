@@ -4,11 +4,15 @@ This work is licensed under the terms of the GPL v3.0 License.
 For a copy, see http://www.gnu.org/licenses.*/
 
 use rust_decimal::Decimal;
-use super::nullable_column::*;
-use super::field::Field;
 use serde_json::Value;
+use super::nullable::*;
+use super::field::Field;
 use std::borrow::Cow;
 use serde_json;
+use itertools::Itertools;
+use std::cmp::{PartialOrd, Ordering};
+use std::convert::TryInto;
+use std::str::FromStr;
 
 /// Densely packed column, where each variant is a vector of some
 /// element that implements postgres::types::ToSql.
@@ -26,10 +30,204 @@ pub enum Column {
     Str(Vec<String>),
     Bytes(Vec<Vec<u8>>),
     Json(Vec<Value>),
-    Nullable(Box<NullableColumn>)
+    Nullable(NullableColumn)
+}
+
+pub fn rearrange<T, U>(vs : &[T], ixs : &[usize]) -> U
+where
+    T : Clone,
+    U : From<Vec<T>>
+{
+    assert!(ixs.len() <= vs.len());
+    let mut dst = Vec::with_capacity(ixs.len());
+    for i in 0..ixs.len() {
+        dst.push(vs[ixs[i]].clone());
+    }
+    U::from(dst)
+}
+
+pub fn filtered<T, U>(vs : &[T], v : T) -> (Vec<usize>, U)
+where
+    T : PartialEq + Clone,
+    U : From<Vec<T>>
+{
+    let (ixs, vec) : (Vec<usize>, Vec<T>) = vs.iter().cloned()
+        .enumerate()
+        .filter(|(_, a)| *a == v )
+        .unzip();
+    (ixs, U::from(vec))
+}
+
+pub fn sorted<T, U>(vs : &[T], ascending : bool) -> (Vec<usize>, U)
+where
+    T : PartialOrd + Clone,
+    U : From<Vec<T>>
+{
+    let (ixs, vec) : (Vec<usize>, Vec<T>) = if ascending {
+        vs.iter().cloned()
+            .enumerate()
+            .sorted_by(|(_, a), (_, b)| a.partial_cmp(&b).unwrap_or(Ordering::Equal) )
+            .unzip()
+    } else {
+        vs.iter().cloned()
+            .enumerate()
+            .sorted_by(|(_, a), (_, b)| b.partial_cmp(&a).unwrap_or(Ordering::Equal) )
+            .unzip()
+    };
+    (ixs, U::from(vec))
+}
+
+pub fn display_binary(s : &[u8]) -> String {
+    s.iter().map(|b| format!("{:x}", b) ).join("")
 }
 
 impl<'a> Column {
+
+    pub fn filtered(&self, val : &str) -> Option<(Vec<usize>, Column)> {
+        match self {
+            Column::Bool(vs) => {
+                let key = if val == "t" || val == "true" {
+                    true
+                } else if val == "f" || val == "false" {
+                    false
+                } else {
+                    return None;
+                };
+                Some(filtered(&vs[..], key))
+            },
+            Column::I8(vs) => {
+                Some(filtered(&vs[..], i8::from_str(val).ok()?))
+            },
+            Column::I16(vs) => {
+                Some(filtered(&vs[..], i16::from_str(val).ok()?))
+            },
+            Column::I32(vs) => {
+                Some(filtered(&vs[..], i32::from_str(val).ok()?))
+            },
+            Column::U32(vs) => {
+                Some(filtered(&vs[..], u32::from_str(val).ok()?))
+            },
+            Column::I64(vs) => {
+                Some(filtered(&vs[..], i64::from_str(val).ok()?))
+            },
+            Column::F32(vs) => {
+                Some(filtered(&vs[..], f32::from_str(val).ok()?))
+            },
+            Column::F64(vs) => {
+                Some(filtered(&vs[..], f64::from_str(val).ok()?))
+            },
+            Column::Numeric(vs) => {
+                Some(filtered(&vs[..], Decimal::from_str(val).ok()?))
+            },
+            Column::Str(vs) => {
+                let (ixs, vec) : (Vec<usize>, Vec<String>) = vs.iter().cloned()
+                    .enumerate()
+                    .filter(|(_, a)| a.matches(val).next().is_some() )
+                    .unzip();
+                Some((ixs, Column::from(vec)))
+            },
+            Column::Bytes(vs) => {
+                None
+            },
+            Column::Json(vs) => {
+                None
+            },
+            Column::Nullable(vs) => {
+                None
+            }
+        }
+    }
+
+    pub fn rearranged(&self, ixs : &[usize]) -> Column {
+        match self {
+            Column::Bool(vs) => {
+                rearrange(&vs[..], ixs)
+            },
+            Column::I8(vs) => {
+                rearrange(&vs[..], ixs)
+            },
+            Column::I16(vs) => {
+                rearrange(&vs[..], ixs)
+            },
+            Column::I32(vs) => {
+                rearrange(&vs[..], ixs)
+            },
+            Column::U32(vs) => {
+                rearrange(&vs[..], ixs)
+            },
+            Column::I64(vs) => {
+                rearrange(&vs[..], ixs)
+            },
+            Column::F32(vs) => {
+                rearrange(&vs[..], ixs)
+            },
+            Column::F64(vs) => {
+                rearrange(&vs[..], ixs)
+            },
+            Column::Numeric(vs) => {
+                rearrange(&vs[..], ixs)
+            },
+            Column::Str(vs) => {
+                rearrange(&vs[..], ixs)
+            },
+            Column::Bytes(vs) => {
+                Column::from(self.display_content(None)).rearranged(ixs)
+            },
+            Column::Json(vs) => {
+                Column::from(self.display_content(None)).rearranged(ixs)
+            },
+            Column::Nullable(vs) => {
+                let vals : NullableColumn = vs.rearranged(ixs);
+                Column::Nullable(vals)
+            }
+        }
+    }
+
+    // Returns a sorted clone of the column, with the new index order.
+    pub fn sorted(&self, ascending : bool) -> (Vec<usize>, Column) {
+        match self {
+            Column::Bool(vs) => {
+                sorted(&vs[..], ascending)
+            },
+            Column::I8(vs) => {
+                sorted(&vs[..], ascending)
+            },
+            Column::I16(vs) => {
+                sorted(&vs[..], ascending)
+            },
+            Column::I32(vs) => {
+                sorted(&vs[..], ascending)
+            },
+            Column::U32(vs) => {
+                sorted(&vs[..], ascending)
+            },
+            Column::I64(vs) => {
+                sorted(&vs[..], ascending)
+            },
+            Column::F32(vs) => {
+                sorted(&vs[..], ascending)
+            },
+            Column::F64(vs) => {
+                sorted(&vs[..], ascending)
+            },
+            Column::Numeric(vs) => {
+                sorted(&vs[..], ascending)
+            },
+            Column::Str(vs) => {
+                sorted(&vs[..], ascending)
+            },
+            Column::Bytes(vs) => {
+                Column::from(self.display_content(None)).sorted(ascending)
+            },
+            Column::Json(vs) => {
+                Column::from(self.display_content(None)).sorted(ascending)
+            },
+            Column::Nullable(vs) => {
+                let (ixs, vals) : (_, NullableColumn) = vs.sorted(ascending);
+                (ixs, Column::Nullable(vals))
+            }
+        }
+    }
 
     pub fn new_empty<T>() -> Self
         where Column : From<Vec<T>>
@@ -160,7 +358,7 @@ impl<'a> Column {
         }
     }*/
 
-    fn display_with_precision(value : f64, prec : Option<usize>) -> String {
+    pub fn display_with_precision(value : f64, prec : Option<usize>) -> String {
         match prec {
             Some(prec) => match prec {
                 1 => format!("{:.1}", value),
@@ -212,14 +410,13 @@ impl<'a> Column {
             Column::I32(v) => Cow::Owned(v[row_ix].to_string()),
             Column::U32(v) => Cow::Owned(v[row_ix].to_string()),
             Column::I64(v) => Cow::Owned(v[row_ix].to_string()),
-
             Column::F32(v) => Cow::Owned(Self::display_with_precision(v[row_ix] as f64, prec)),
             Column::F64(v) => Cow::Owned(Self::display_with_precision(v[row_ix] as f64, prec)),
             Column::Numeric(v) => Cow::Owned(v[row_ix].to_string()),
             Column::Json(v) => {
                 Cow::Owned(json_to_string(&v[row_ix]))
             },
-            Column::Bytes(v) => Cow::Owned(format!("Binary ({} bytes)", v[row_ix].len())),
+            Column::Bytes(v) => Cow::Owned(display_binary(&v[row_ix])),
             Column::Nullable(col) => col.display_content_at_index(row_ix, prec)
         }
     }
@@ -237,7 +434,7 @@ impl<'a> Column {
             Column::Numeric(v) => v.iter().map(|d| d.to_string() ).collect(),
             Column::Str(v) => v.clone(),
             Column::Json(v) => v.iter().map(|e| json_to_string(e) ).collect(),
-            Column::Bytes(v) => v.iter().map(|e| format!("Binary ({} bytes)", e.len()) ).collect(),
+            Column::Bytes(v) => v.iter().map(|e| display_binary(&e) ).collect(),
             Column::Nullable(col) => col.display_content(prec)
         }
     }
@@ -291,6 +488,18 @@ pub mod from {
 
     use super::*;
     use std::convert::{ From };
+
+    impl From<NullableColumn> for Column {
+
+        fn from(nc : NullableColumn) -> Self {
+            if nc.count_valid() == nc.len() {
+                nc.pack()
+            } else {
+                Column::Nullable(nc)
+            }
+        }
+
+    }
 
     impl Into<()> for Column {
         fn into(self) -> () {
@@ -596,7 +805,7 @@ pub mod try_into {
         fn try_from(col : Column) -> Result<Self, Self::Error> {
             match col {
                 Column::Nullable(c) => {
-                    if let Ok(v) = Vec::<Option<T>>::try_from(*c.clone()) {
+                    if let Ok(v) = Vec::<Option<T>>::try_from(c.clone()) {
                         Ok(v)
                     } else {
                         Err("")

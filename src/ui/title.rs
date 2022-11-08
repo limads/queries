@@ -21,7 +21,8 @@ pub struct QueriesTitlebar {
     pub exec_btn : ExecButton,
     pub sidebar_toggle : ToggleButton,
     pub main_menu : MainMenu,
-    pub sidebar_hide_action : gio::SimpleAction
+    pub sidebar_hide_action : gio::SimpleAction,
+    pub about : libadwaita::AboutWindow
 }
 
 impl QueriesTitlebar {
@@ -47,7 +48,26 @@ impl QueriesTitlebar {
         menu_button.set_popover(Some(&main_menu.popover));
         let sidebar_hide_action = gio::SimpleAction::new_stateful("sidebar_hide", None, &(0).to_variant());
 
-        Self { header, menu_button, exec_btn, sidebar_toggle, main_menu, sidebar_hide_action }
+        let about = libadwaita::AboutWindow::builder()
+            .application_name("Queries")
+            .application_icon("io.github.limads.Queries")
+            .comments("A workbench to interact with relational databases")
+            .copyright("Diego Lima")
+            .website("https://github.com/limads/queries")
+            .version(&format!("{}", version::version!()))
+            .developer_name("Diego Lima")
+            .issue_url("https://github.com/limads/queries/issues")
+            .license("GPL 3.0")
+            .support_url("https://github.com/limads/queries/wiki")
+            .title("About")
+            .build();
+        main_menu.action_about.connect_activate({
+            let about = about.clone();
+            move |_, _| {
+                about.show();
+            }
+        });
+        Self { header, menu_button, exec_btn, sidebar_toggle, main_menu, sidebar_hide_action, about }
     }
 
 }

@@ -90,6 +90,31 @@ impl SchemaTree {
             &["table-symbolic", "db-symbolic", "fn-dark-symbolic", "clock-app-symbolic", "view-symbolic", "key-symbolic"]
         ).unwrap();
         
+        /*for (_, ic) in icons.iter() {
+            if libadwaita::StyleManager::default().is_dark() {
+                let bytes = ic.pixel_bytes().unwrap();
+                let w = ic.width() as u32;
+                let h = ic.height() as u32;
+                let stride = ic.rowstride() as u32;
+                let nchannels = ic.n_channels() as u32;
+                println!("{:?}", ic.colorspace());
+                ic.fill(0);
+                for x in 0..w {
+                    for y in 0..h {
+                        if let Some(r) = bytes.get((y*stride + x*nchannels) as usize) {
+                            if let Some(g) = bytes.get((y*stride + x*nchannels + 1) as usize) {
+                                if let Some(b) = bytes.get((y*stride + x*nchannels + 2) as usize) {                            
+                                    // ic.put_pixel(x, y, 255 - r, 255 - g, 255 - b, 255);
+                                    // ic.put_pixel(x+1, y, 255, 255, 255, 255);
+                                    // ic.put_pixel(x+2, y, 255, 255, 255, 255);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }*/
+        
         let schema_icon = icons.remove("db-symbolic").unwrap();
         let fn_icon = icons.remove("fn-dark-symbolic").unwrap();
         let clock_icon = icons.remove("clock-app-symbolic").unwrap();
@@ -500,6 +525,7 @@ fn configure_tree_view(tree_view : &TreeView) -> TreeStore {
     let pix_col = TreeViewColumn::new();
     pix_col.pack_start(&pix_renderer, false);
     pix_col.add_attribute(&pix_renderer, "pixbuf", 0);
+    // pix_col.add_attribute(&pix_renderer, "gicon", 0);
 
     let txt_col = TreeViewColumn::new();
     txt_col.pack_start(&txt_renderer, true);

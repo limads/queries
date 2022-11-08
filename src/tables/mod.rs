@@ -11,7 +11,7 @@ pub mod column;
 
 pub mod field;
 
-pub mod nullable_column;
+pub mod nullable;
 
 pub mod report;
 

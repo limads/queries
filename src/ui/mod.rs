@@ -205,19 +205,42 @@ impl React<OpenedScripts> for QueriesContent {
 impl QueriesContent {
 
     fn build(state : &SharedUserState) -> Self {
-        let stack = libadwaita::ViewStack::new();
         let editor = QueriesEditor::build(state);
         let results = QueriesResults::build();
+        let stack = libadwaita::ViewStack::new();
+
+        // Use those for stacked view
         let editor_page = stack.add_named(&editor.stack, Some("editor"));
         let results_page = stack.add_named(&results.stack, Some("results"));
-        stack.set_visible_child_name("results");
-        results_page.set_icon_name(Some("db-symbolic"));
+
+        // Use those for split view
+        // let editor_page = stack.add_named(&Label::new(None), None);
+        // let results_page = stack.add_named(&Label::new(None), None);
 
         editor_page.set_icon_name(Some("accessories-text-editor-symbolic"));
-        let switcher = libadwaita::ViewSwitcher::builder().stack(&stack).can_focus(false).policy(libadwaita::ViewSwitcherPolicy::Wide).build();
+        results_page.set_icon_name(Some("db-symbolic"));
+        stack.set_visible_child_name("results");
+
+        let switcher = libadwaita::ViewSwitcher::builder()
+            .stack(&stack)
+            .can_focus(false)
+            .policy(libadwaita::ViewSwitcherPolicy::Wide)
+            .build();
+
         let overlay = libadwaita::ToastOverlay::new();
         overlay.set_opacity(1.0);
         overlay.set_visible(true);
+
+        // Use those for split view
+        // let inner_paned = Paned::new(Orientation::Vertical);
+        // inner_paned.set_position(520);
+        // inner_paned.set_start_child(Some(&editor.stack));
+        // inner_paned.set_end_child(Some(&results.stack));
+
+        // Split view
+        // overlay.set_child(Some(&inner_paned));
+
+        // Stacked view
         overlay.set_child(Some(&stack));
 
         let curr_toast = Rc::new(RefCell::new(None));
@@ -306,7 +329,7 @@ impl React<ActiveConnection> for QueriesContent {
                             }
                         }).next().is_some();
                     if has_any_tbl {
-                        results_page.set_icon_name(Some("queries"));
+                        results_page.set_icon_name(Some("table-symbolic"));
                     }
                 }
             }
@@ -392,6 +415,7 @@ impl QueriesWindow {
         window.add_action(&titlebar.main_menu.action_save_as);
         window.add_action(&titlebar.main_menu.action_export);
         window.add_action(&titlebar.main_menu.action_settings);
+        window.add_action(&titlebar.main_menu.action_about);
         window.add_action(&content.editor.ignore_file_save_action);
         window.add_action(&titlebar.sidebar_hide_action);
 
@@ -610,7 +634,12 @@ where
 
 fn set_border_to_title(bx : &Box) {
     let provider = CssProvider::new();
-    provider.load_from_data("* { border-bottom : 1px solid #d9dada; } ".as_bytes());
+    let css = if libadwaita::StyleManager::default().is_dark() {
+        "* { border-bottom : 1px solid #454545; } "
+    } else {
+        "* { border-bottom : 1px solid #d9dada; } "
+    };
+    provider.load_from_data(css.as_bytes());
     bx.style_context().add_provider(&provider, 800);
 }
 

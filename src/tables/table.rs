@@ -22,8 +22,7 @@ use std::iter::ExactSizeIterator;
 use std::cmp::{Eq, PartialEq};
 use quick_xml::Reader;
 use quick_xml::events::{Event };
-use crate::tables::nullable_column::NullableColumn;
-
+use crate::tables::nullable::NullableColumn;
 
 #[derive(Debug, Clone)]
 pub struct TableSource {
@@ -51,14 +50,6 @@ pub struct Table {
 
     format : TableSettings,
 
-    // Holds a column index and string representation for non-string columns.
-    // cached_cols : RefCell<HashMap<usize, Vec<String>>>
-
-    // Could be written when text_rows(.) is called. On a database update,
-    // if the update is a refresh, verify equality of ALL values in first rows of table
-    // (the ones that are actually showed). If no value is changed, text_rows(.) just returns
-    // this cache. If a few values are changed, just change their values at the cache.
-    // text_cache : RefCell<Vec<Vec<String>>>
 }
 
 /*To implement this, we need GATs in stable. This should be returned by table.text_rows(),
@@ -148,6 +139,35 @@ pub enum HTMLTag {
 
 impl Table {
 
+    pub fn filtered_by(&self, col_ix : usize, val : &str) -> Option<Table> {
+        let (ixs, filtered_col) = self.cols[col_ix].filtered(val)?;
+        let mut cols = Vec::new();
+        for i in 0..self.cols.len() {
+            if i == col_ix {
+                cols.push(filtered_col.clone());
+            } else {
+                let filtered = self.cols[i].rearranged(&ixs[..]);
+                cols.push(filtered);
+            }
+        }
+        Some(Table::new(None, self.names.clone(), cols).ok()?)
+    }
+
+    pub fn sorted_by(&self, col_ix : usize, ascending : bool) -> Option<Table> {
+        // let col_ix = self.names.iter().position(|c| c == col )?;
+        let (ixs, sorted_col) = self.cols[col_ix].sorted(ascending);
+        let mut cols = Vec::new();
+        for i in 0..self.cols.len() {
+            if i == col_ix {
+                cols.push(sorted_col.clone());
+            } else {
+                let rearranged = self.cols[i].rearranged(&ixs);
+                cols.push(rearranged);
+            }
+        }
+        Some(Table::new(None, self.names.clone(), cols).ok()?)
+    }
+
     pub fn ncols(&self) -> usize {
         self.cols.len()
     }
@@ -162,7 +182,7 @@ impl Table {
         for _ in 0..(self.cols.len()+1) {
             cols.push(Vec::new());
         }
-        let txt_rows = self.text_rows(None, None);
+        let txt_rows = self.text_rows(None, None, true, 0);
         
         for n in &self.names {
             cols[0].push(n.to_string());
@@ -260,21 +280,21 @@ impl Table {
             let is_dp_arr = col_types[i] == &Type::FLOAT8_ARRAY;
             let is_smallint_arr = col_types[i] == &Type::INT2_ARRAY;
             let is_int_arr = col_types[i] == &Type::INT4_ARRAY;
+            let is_decimal_arr = col_types[i] == &Type::NUMERIC_ARRAY;
             let is_bigint_arr = col_types[i] == &Type::INT8_ARRAY;
             let _is_xml = col_types[i] == &Type::XML;
             let is_json_arr = col_types[i] == &Type::JSON_ARRAY;
-            let array_ty = match (is_text_arr, is_real_arr, is_dp_arr, is_smallint_arr, is_int_arr, is_bigint_arr, is_json_arr) {
-                (true, _, _, _, _, _, _) => Some(ArrayType::Text),
-                (_, true, _, _, _, _, _) => Some(ArrayType::Float4),
-                (_, _, true, _, _, _, _) => Some(ArrayType::Float8),
-                (_, _, _, true, _, _, _) => Some(ArrayType::Int2),
-                (_, _, _, _, true, _, _) => Some(ArrayType::Int4),
-                (_, _, _, _, _, _, true) => Some(ArrayType::Json),
+            let array_ty = match (is_text_arr, is_real_arr, is_dp_arr, is_smallint_arr, is_int_arr, is_bigint_arr, is_json_arr, is_decimal_arr) {
+                (true, _, _, _, _, _, _, _) => Some(ArrayType::Text),
+                (_, true, _, _, _, _, _, _) => Some(ArrayType::Float4),
+                (_, _, true, _, _, _, _, _) => Some(ArrayType::Float8),
+                (_, _, _, true, _, _, _, _) => Some(ArrayType::Int2),
+                (_, _, _, _, true, _, _, _) => Some(ArrayType::Int4),
+                (_, _, _, _, _, true, _, _) => Some(ArrayType::Int8),
+                (_, _, _, _, _, _, true, _) => Some(ArrayType::Json),
+                (_, _, _, _, _, _, _, true) => Some(ArrayType::Decimal),
                 _ => None
             };
-
-            // Postgres Interval type is unsupported by the client driver
-            // let is_interval = col_types[i] == &Type::INTERVAL;
 
             if is_bool {
                 null_cols.push(nullable_from_rows::<bool>(rows, i)?);
@@ -343,7 +363,7 @@ impl Table {
             }
         }
         let cols : Vec<Column> = null_cols.drain(0..names.len())
-            .map(|nc| nc.to_column()).collect();
+            .map(|nc| Column::from(nc) ).collect();
         Ok(Table::new(None, names, cols)?)
     }
 
@@ -547,16 +567,25 @@ impl Table {
     pub fn text_rows<'a>(
         &'a self,
         max_nrows : Option<usize>, 
-        max_ncols : Option<usize>
+        max_ncols : Option<usize>,
+        include_header : bool,
+        fst_row : usize
     ) -> Vec<std::boxed::Box<dyn RowIterator + 'a>> {
         let sz = self.nrows + 1;
         let mut rows : Vec<std::boxed::Box<dyn RowIterator>> = Vec::with_capacity(sz);
 
-        let nrows = max_nrows.unwrap_or(self.nrows);
+        let nrows = max_nrows.unwrap_or(self.nrows).min(self.nrows);
+        if fst_row >= nrows {
+            return Vec::new();
+        }
+
         let ncols = max_ncols.unwrap_or(self.cols.len());
 
-        rows.push(Box::new(self.names.iter().take(ncols).map(|n| Cow::Borrowed(&n[..]) )) as Box<dyn RowIterator + 'a> );
-        for row_ix in 0..(self.nrows.min(nrows)) {
+        if include_header {
+            rows.push(Box::new(self.names.iter().take(ncols).map(|n| Cow::Borrowed(&n[..]) )) as Box<dyn RowIterator + 'a> );
+        }
+
+        for row_ix in fst_row..nrows {
             rows.push(
                 Box::new(
                     self.cols.iter()
@@ -646,7 +675,7 @@ impl Table {
         };
 
         let mut curr_row = Vec::new();
-        let mut content = self.text_rows(None, None);
+        let mut content = self.text_rows(None, None, true, 0);
         let ncol = order.len();
         for (line_n, line) in content.iter_mut().skip(1).enumerate() {
             stmt += "(";
@@ -683,7 +712,7 @@ impl Table {
 
     pub fn to_csv(&self) -> String {
         let mut content = String::new();
-        let mut text_rows = self.text_rows(None, None);
+        let mut text_rows = self.text_rows(None, None, true, 0);
         let n = text_rows.len();
         let types = self.sql_types();
         for (row_ix, row) in text_rows.iter_mut().enumerate() {
@@ -710,7 +739,7 @@ impl Table {
     }
 
     pub fn to_tex(&self) -> String {
-        let mut rows = self.text_rows(None, None);
+        let mut rows = self.text_rows(None, None, true, 0);
         let mut tex = String::new();
         tex += r"\begin{tabular}";
         let ncol = self.cols.len();
@@ -743,7 +772,7 @@ impl Table {
     }
 
     pub fn to_markdown(&self) -> String {
-        let mut rows = self.text_rows(None, None);
+        let mut rows = self.text_rows(None, None, true, 0);
         let mut md = String::new();
         for (i, row) in rows.iter_mut().enumerate() {
             for (j, field) in row.enumerate() {
@@ -785,7 +814,7 @@ impl Table {
         html += "</thead>\n";
 
         html += "<tbody>\n";
-        for ref mut row in self.text_rows(None, None).iter_mut().skip(1) {
+        for ref mut row in self.text_rows(None, None, true, 0).iter_mut().skip(1) {
             html += "<tr>\n";
             for cell in row {
                 html += "<td>\n";
@@ -998,8 +1027,8 @@ impl<'a> Columns<'a> {
     /// Tries to retrieve a cloned copy from a column, performing any valid
     /// upcasts required to retrieve a f64 numeric type.
     pub fn try_numeric(&'a self, ix : usize) -> Result<Vec<f64>, NotNumericErr>
-        where
-            Column : TryInto<Vec<f64>,Error=&'static str>
+    where
+        Column : TryInto<Vec<f64>,Error=&'static str>
     {
         if let Some(dbl) = self.try_access::<f64>(ix) {
             return Ok(dbl);
@@ -1385,7 +1414,6 @@ pub fn col_as_opt_vec<'a, T>(
     where
         T : FromSql<'a> + ToSql + Sync,
 {
-
     let mut opt_data = Vec::new();
     for r in rows.iter() {
         let opt_datum = r.try_get::<usize, Option<T>>(ix)
@@ -1428,6 +1456,7 @@ pub enum ArrayType {
     Int2,
     Int4,
     Int8,
+    Decimal,
     Json
 }
 
@@ -1475,6 +1504,14 @@ pub fn nullable_from_arr<'a>(
         },
         ArrayType::Json => {
             col_as_opt_vec::<Vec<serde_json::Value>>(rows, ix)?.drain(..).map(|v| json_value_or_null(v) ).collect()
+        },
+        ArrayType::Decimal => {
+            let mut col = col_as_opt_vec::<Vec<Decimal>>(rows, ix)?;
+            let mut fcol : Vec<Option<Vec<f64>>> = col.drain(..).map(|v| match v {
+                Some(v) => Some(v.clone().drain(..).map(|v| v.to_f64().unwrap_or(std::f64::NAN) ).collect::<Vec<_>>()),
+                None => None
+            }).collect();
+            fcol.drain(..).map(|v| json_value_or_null(v) ).collect()
         }
     };
     Ok(NullableColumn::from(data))

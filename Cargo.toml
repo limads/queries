@@ -4,14 +4,14 @@ version = "0.1.4"
 edition = "2018"
 
 [dependencies]
-gtk4 = "0.4.8"
-sourceview5 = { version = "0.4.2" }
-libadwaita = "0.1.1"
+gtk4 = "0.5.1"
+sourceview5 = { version = "0.5.0" }
+libadwaita = { version = "0.2.0", features = ["v1_2"] }
 postgres-native-tls = "0.5.0"
 tokio = { version = "1.21.1", features=["rt", "rt-multi-thread"] }
 tokio-postgres = { version = "0.7.7", features = ["with-chrono-0_4", "with-serde_json-1"] }
 futures = "0.3.24"
-native-tls = "0.2.10"
+native-tls = "0.2.11"
 sqlparser = "0.25.0"
 regex = { version = "1.6.0" }
 rust_decimal = { version = "1.26.1", features = ["db-postgres"] }
@@ -28,14 +28,17 @@ anyhow = "1.0"
 ordinal = "0.2"
 base64 = "0.13.0"
 rand = "0.8.5"
-papyri = { version = "0.1.2", features = ["gdk4", "gdk-pixbuf", "cairo-rs"] }
+version = "3.0.0"
+# papyri = { version = "0.1.2", features = ["gdk4", "gdk-pixbuf", "cairo-rs"] }
+papyri = { path = "../papyri", features = ["gdk4", "gdk-pixbuf", "cairo-rs"] }
 stateful =  "0.1"
-filecase = "0.1.4"
+# filecase = "0.1.4"
+filecase = { path = "../filecase" }
 
 [[bin]]
 name="queries"
 path="src/main.rs"
 
 [build-dependencies]
-gtk4 = "0.4.8"
+glib-build-tools = "0.16.0"
 

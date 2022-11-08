@@ -35,6 +35,7 @@ fn main() {
 
     let style_manager = libadwaita::StyleManager::default();
     style_manager.set_color_scheme(libadwaita::ColorScheme::Default);
+    // style_manager.set_color_scheme(libadwaita::ColorScheme::ForceDark);
 
     let user_state = if let Some(mut path) = filecase::get_datadir(queries::APP_ID) {
         path.push(queries::SETTINGS_FILE);
@@ -99,7 +100,6 @@ fn main() {
             client.env.react(&client.active_conn);
             client.env.react(&queries_win.content.results.workspace);
             client.env.react(&queries_win.content.editor.export_dialog);
-            // client.env.react(&queries_win.settings);
             client.env.react(&queries_win.titlebar.exec_btn);
 
             queries_win.content.react(&client.active_conn);
