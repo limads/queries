@@ -33,6 +33,7 @@ use super::listener::ExecMode;
 use crate::tables::table::Table;
 use crate::ui::Certificate;
 use crate::ui::TlsVersion;
+use std::env;
 
 // The actual connection info that is persisted on disk (excludes password for obvious
 // security reasons).
@@ -60,7 +61,7 @@ pub struct ConnectionInfo {
     pub min_tls_version : Option<TlsVersion>,
     
     // When this connection was last established (datetime-formatted).
-    pub dt : Option<String>
+    pub dt : Option<String>,
 
 }
 
@@ -99,7 +100,7 @@ impl Default for ConnectionInfo {
             database : String::from(DEFAULT_DB),
             dt : None,
             cert : None,
-            min_tls_version : None
+            min_tls_version : None,
         }
     }
 
@@ -563,7 +564,7 @@ fn generate_conn_uri_from_entries(
     host_entry : &Entry,
     db_entry : &Entry,
     user_entry : &Entry,
-    password_entry : &PasswordEntry
+    password_entry : &PasswordEntry,
 ) -> Result<ConnURI, String> {
     let info = extract_conn_info(host_entry, db_entry, user_entry)?;
     let pwd = password_entry.text().as_str().to_owned();
@@ -1166,7 +1167,7 @@ impl React<ConnectionBox> for ActiveConnection {
             conn_bx.host.entry.clone(),
             conn_bx.db.entry.clone(),
             conn_bx.user.entry.clone(),
-            conn_bx.password.entry.clone()
+            conn_bx.password.entry.clone(),
         );
         let send = self.send.clone();
         let user_state = self.user_state.clone();
@@ -1206,7 +1207,15 @@ impl React<ConnectionBox> for ActiveConnection {
                                     let cert = &matching_certs[0];
                                     uri.info.cert = Some(cert.cert.clone());
                                     uri.info.min_tls_version = Some(cert.min_version);
-                                    extra_args.push(format!("sslmode=require"));
+                                    let disable_sni: bool = match env::var("QUERIES_DISABLE_SNI") {
+                                    	Ok(_)	=> true,
+                                    	Err(_)	=> false,
+                                    };
+                                    if disable_sni {
+                                    	extra_args.push(format!("sslmode=verify-ca"));
+                                    } else {
+                                    	extra_args.push(format!("sslmode=require"));
+                                    };
                                     augment_uri(&mut uri.uri, &extra_args[..]);
                                     send.send(ActiveConnectionAction::ConnectRequest(uri)).unwrap();
                                 },
