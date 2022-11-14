@@ -44,37 +44,44 @@ impl<'a> NullableColumn {
         }
     }
 
-    pub fn display_lines(&'a self, prec : Option<usize>, max_rows : Option<usize>) -> String {
+    pub fn display_lines(&'a self, prec : Option<usize>, fst_row : Option<usize>, max_rows : Option<usize>) -> String {
         let mut buffer = String::new();
-        let max_rows = max_rows.unwrap_or(usize::MAX);
+        let max_rows = max_rows.unwrap_or(usize::MAX).max(1);
+        let fst_row = fst_row.unwrap_or(1).max(1);
+        let fst_row_ix = fst_row - 1;
         match self {
-            NullableColumn::Bool(v) => v.iter().take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer, e) ),
-            NullableColumn::I8(v) => v.iter().take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer,e) ),
-            NullableColumn::I16(v) => v.iter().take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer,e) ),
-            NullableColumn::I32(v) => v.iter().take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer,e) ),
-            NullableColumn::U32(v) => v.iter().take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer,e) ),
-            NullableColumn::I64(v) => v.iter().take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer,e) ),
-            NullableColumn::F32(v) => v.iter().take(max_rows).for_each(|e| {
+            NullableColumn::Bool(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer, e) ),
+            NullableColumn::I8(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer,e) ),
+            NullableColumn::I16(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer,e) ),
+            NullableColumn::I32(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer,e) ),
+            NullableColumn::U32(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer,e) ),
+            NullableColumn::I64(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer,e) ),
+            NullableColumn::F32(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| {
                 match e.as_ref() {
                     Some(e) => Column::write_with_precision(&mut buffer, *e as f64, prec),
                     None => write!(&mut buffer, "{}\n", Self::NULL ).unwrap()
                 }
             }),
-            NullableColumn::F64(v) => v.iter().take(max_rows).for_each(|e| {
+            NullableColumn::F64(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| {
                 match e.as_ref() {
                     Some(e) => Column::write_with_precision(&mut buffer, *e as f64, prec),
                     None => write!(&mut buffer, "{}\n", Self::NULL ).unwrap()
                 }
             }),
-            NullableColumn::Numeric(v) => v.iter().take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer,e) ),
-            NullableColumn::Str(v) => v.iter().take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer, e) ),
-            NullableColumn::Json(v) => v.iter().take(max_rows).for_each(|e| {
+            NullableColumn::Numeric(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer,e) ),
+            NullableColumn::Str(v) => v.iter().take(max_rows).for_each(|e| {
                 match e.as_ref() {
-                    Some(e) => write!(&mut buffer, "{}\n", json_to_string(e) ).unwrap(),
+                    Some(e) => write_str(&mut buffer, &e),
+                    None => write!(&mut buffer, "{}\n", Self::NULL ).unwrap()
+                }
+            }),
+            NullableColumn::Json(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| {
+                match e.as_ref() {
+                    Some(e) => write_str(&mut buffer, &json_to_string(e)),
                     None => write!(&mut buffer, "{}\n", Self::NULL ).unwrap()
                 }
             } ),
-            NullableColumn::Bytes(v) => v.iter().take(max_rows).for_each(|e| {
+            NullableColumn::Bytes(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| {
                 match e.as_ref() {
                     Some(e) => write_binary(&mut buffer, &e),
                     None => write!(&mut buffer, "{}\n", Self::NULL ).unwrap()

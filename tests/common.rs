@@ -2,6 +2,54 @@ use queries::client::*;
 use std::sync::Arc;
 use std::process::{Command, Stdio};
 
+/*// Launch a test run of Queries. This differs from a regular launch
+// in that no user state is read/written into disk. Takes a closure F
+// that executes in a parallel thread while the GUI is open to change queries
+// state, and a close G called immediately after Application::run in the
+// main thread to verify the state is kept at a consistent state with the client.
+pub fn launch_test_gui<F, G>(f : F, g :G)
+where
+    F : Fn(&queries::client::QueriesClient) + Send + Sync,
+    G : Fn(&queries::client::QueriesClient, &SharedUserState)
+{
+
+    register_resources();
+    if let Err(e) = gtk4::init() {
+        eprintln!("{}", e);
+        return;
+    }
+    let application = Application::builder()
+        .application_id(APP_ID)
+        .build();
+    let user_state = Arc::new(client::SharedUserState::default());
+    let client = Arc::new(client::QueriesClient::new(&user_state));
+    application.connect_activate({
+        let user_state = user_state.clone();
+        let client = client.clone();
+        move |app| {
+            if let Some(display) = gdk::Display::default() {
+                let theme = IconTheme::for_display(&display);
+                theme.add_resource_path("/io/github/limads/queries/icons");
+            } else {
+                eprintln!("Unable to get default GDK display");
+            }
+            let queries_win = QueriesWindow::build(app, &user_state);
+            queries::setup(&queries_win, &user_state, &client);
+            queries_win.window.show();
+        }
+    });
+
+    let sent_client = client.clone();
+    thread::spawn(move || {
+        f(&sent_client);
+    });
+
+    // The final states for scripts and conn_set are updated just when the window is
+    // closed, which happens before application::run unblocks the main thread.
+    application.run();
+    g(&client, &state);
+}*/
+
 /*
 The queries test set calls the following command-line applications:
 
@@ -73,6 +121,20 @@ impl TempDB {
         uri 
     }
     
+}
+
+pub struct ExistingDB {
+
+}
+
+// This runs the closure with an existing database, with credentials
+// queries from psql's connection environment variables. Exits with
+// success if the credentials are not set.
+pub fn run_with_existing_db<F>(f : F)
+where
+    F : Fn(&ExistingDB)
+{
+
 }
 
 // Creates a temporary database at localhost with the username and password

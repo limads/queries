@@ -79,7 +79,10 @@ where
 }
 
 pub fn write_binary(buffer : &mut String, s : &[u8]) {
-    s.iter().for_each(|b| write!(buffer, "{:x}\n", b).unwrap() )
+    s.iter().take(MAX_WIDTH_CHARS / 2).for_each(|b| write!(buffer, "{:x}\n", b).unwrap() );
+    if s.len() > MAX_WIDTH_CHARS / 2 {
+        write!(buffer, "...").unwrap();
+    }
 }
 
 pub fn display_binary(s : &[u8]) -> String {
@@ -469,27 +472,31 @@ impl<'a> Column {
         }
     }
 
-    pub fn display_lines(&'a self, prec : Option<usize>, max_rows : Option<usize>) -> String {
+    pub fn display_lines(&'a self, prec : Option<usize>, fst_row : Option<usize>, max_rows : Option<usize>) -> String {
         let mut buffer = String::new();
-        let max_rows = max_rows.unwrap_or(usize::MAX);
+        let max_rows = max_rows.unwrap_or(usize::MAX).max(1);
+        let fst_row = fst_row.unwrap_or(1).max(1);
+        let fst_row_ix = fst_row - 1;
         match self {
-            Column::Bool(v) => v.iter().take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
-            Column::I8(v) => v.iter().take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
-            Column::I16(v) => v.iter().take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
-            Column::I32(v) => v.iter().take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
-            Column::U32(v) => v.iter().take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
-            Column::I64(v) => v.iter().take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
-            Column::F32(v) => v.iter().take(max_rows).for_each(|e| Self::write_with_precision(&mut buffer, *e as f64, prec) ),
-            Column::F64(v) => v.iter().take(max_rows).for_each(|e| Self::write_with_precision(&mut buffer, *e as f64, prec) ),
-            Column::Numeric(v) => v.iter().take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
-            Column::Str(v) => v.iter().take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
-            Column::Json(v) => v.iter().take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", json_to_string(e) ).unwrap() ),
-            Column::Bytes(v) => v.iter().take(max_rows).for_each(|e| write_binary(&mut buffer, &e) ),
-            Column::Nullable(col) => { buffer = col.display_lines(prec, Some(max_rows)); }
+            Column::Bool(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
+            Column::I8(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
+            Column::I16(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
+            Column::I32(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
+            Column::U32(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
+            Column::I64(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
+            Column::F32(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| Self::write_with_precision(&mut buffer, *e as f64, prec) ),
+            Column::F64(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| Self::write_with_precision(&mut buffer, *e as f64, prec) ),
+            Column::Numeric(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
+            Column::Str(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write_str(&mut buffer, &e[..]) ),
+            Column::Json(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write_str(&mut buffer, &json_to_string(&e) ) ),
+            Column::Bytes(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write_binary(&mut buffer, &e[..]) ),
+            Column::Nullable(col) => { buffer = col.display_lines(prec, Some(fst_row), Some(max_rows)); }
         }
 
         // Ignore last line break
-        buffer.truncate(buffer.len()-1);
+        if buffer.ends_with("\n") {
+            buffer.truncate(buffer.len()-1);
+        }
 
         buffer
     }
@@ -555,6 +562,26 @@ pub fn json_to_string(v : &serde_json::Value) -> String {
     }
     
     v_str
+}
+
+const MAX_WIDTH_CHARS : usize = 140;
+
+pub fn write_str(buffer : &mut String, s : &str) {
+    let extrapolated = if s.len() <= MAX_WIDTH_CHARS {
+        write!(buffer, "{}\n", s).unwrap();
+        false
+    } else {
+        if let Some((ix, _)) = s.char_indices().nth(MAX_WIDTH_CHARS+1) {
+            write!(buffer, "{}\n", &s[..ix]).unwrap();
+            true
+        } else {
+            write!(buffer, "{}\n", s).unwrap();
+            false
+        }
+    };
+    if extrapolated {
+        write!(buffer, "...").unwrap()
+    }
 }
 
 pub mod from {

@@ -14,15 +14,9 @@ use queries::*;
 use queries::client::*;
 use queries::ui::*;
 
-fn register_resources() {
-    let bytes = glib::Bytes::from_static(include_bytes!(concat!(env!("OUT_DIR"), "/", "compiled.gresource")));
-    let resource = gio::Resource::from_data(&bytes).unwrap();
-    gio::resources_register(&resource);
-}
-
 fn main() {
 
-    register_resources();
+    queries::register_resources();
     
     if let Err(e) = gtk4::init() {
         eprintln!("{}", e);
@@ -52,6 +46,7 @@ fn main() {
     // the window is closed. We have to do this because client is moved to the connect_activate
     // closure, but we need to keep a reference to its state after that happens.
     let script_final_state = client.scripts.final_state();
+
     // let conn_final_state = client.conn_set.final_state();
 
     application.set_accels_for_action("win.save_file", &["<Ctrl>S"]);
@@ -73,90 +68,8 @@ fn main() {
             } else {
                 eprintln!("Unable to get default GDK display");
             }
-
-            let window = ApplicationWindow::builder()
-                .application(app)
-                .title("Queries")
-                .default_width(1440)
-                .default_height(1080)
-                .build();
-            let queries_win = QueriesWindow::build(window, &user_state);
-
-            // It is critical that updating the window here is done before setting the react signal
-            // below while the widgets are inert and thus do not change the state recursively.
-            user_state.update(&queries_win);
-
-            // Now the window has been updated by the state, it is safe to add the callback signals.
-            user_state.react(&queries_win);
-
-            client.conn_set.react(&queries_win.content.results.overview.conn_list);
-            // client.conn_set.react(&client.active_conn);
-            // client.conn_set.react(&queries_win);
-            client.conn_set.react(&queries_win.content.results.overview.conn_bx);
-            client.active_conn.react(&queries_win.content.results.overview.conn_bx);
-            client.active_conn.react(&queries_win.titlebar.exec_btn);
-            client.active_conn.react(&queries_win.sidebar.schema_tree);
-
-            client.env.react(&client.active_conn);
-            client.env.react(&queries_win.content.results.workspace);
-            client.env.react(&queries_win.content.editor.export_dialog);
-            client.env.react(&queries_win.titlebar.exec_btn);
-
-            queries_win.content.react(&client.active_conn);
-            queries_win.content.results.overview.conn_bx.react(&client.conn_set);
-            queries_win.content.results.overview.conn_list.react(&client.conn_set);
-            queries_win.content.results.overview.conn_list.react(&client.active_conn);
-            queries_win.content.results.overview.conn_bx.react(&client.active_conn);
-            queries_win.content.results.overview.sec_bx.react(&client.conn_set);
-            queries_win.content.results.overview.sec_bx.react(&queries_win.settings);
-            queries_win.content.results.workspace.react(&client.env);
-
-            queries_win.sidebar.schema_tree.react(&client.active_conn);
-            queries_win.sidebar.file_list.react(&client.scripts);
-
-            client.scripts.react(&queries_win.content.editor.save_dialog);
-            client.scripts.react(&queries_win.content.editor.open_dialog);
-            client.scripts.react(&queries_win.titlebar.main_menu);
-            client.scripts.react(&queries_win.content.editor.script_list);
-            client.scripts.react(&queries_win.sidebar.file_list);
-            client.scripts.react(&queries_win.content.editor);
-            client.scripts.react(&queries_win);
-
-            queries_win.content.editor.react(&client.scripts);
-            queries_win.content.editor.save_dialog.react(&client.scripts);
-            queries_win.content.editor.save_dialog.react(&queries_win.titlebar.main_menu);
-
-            queries_win.content.react(&client.scripts);
-            queries_win.titlebar.exec_btn.react(&client.scripts);
-            queries_win.titlebar.exec_btn.react(&client.active_conn);
-            queries_win.titlebar.exec_btn.react(&queries_win.content);
-            queries_win.titlebar.main_menu.react(&client.scripts);
-            queries_win.content.react(&client.env);
-            queries_win.sidebar.file_list.react(&client.active_conn);
-
-            queries_win.content.results.overview.detail_bx.react(&client.active_conn);
-
-            queries_win.react(&queries_win.titlebar);
-            queries_win.react(&client.scripts);
-            queries_win.find_dialog.react(&queries_win.titlebar.main_menu);
-            queries_win.find_dialog.react(&queries_win.content.editor);
-            queries_win.find_dialog.react(&client.scripts);
-
-            queries_win.window.add_action(&queries_win.find_dialog.find_action);
-            queries_win.window.add_action(&queries_win.find_dialog.replace_action);
-            queries_win.window.add_action(&queries_win.find_dialog.replace_all_action);
-
-            queries_win.content.editor.react(&queries_win.settings);
-            // user_state.react(&client.conn_set);
-            user_state.react(&client.scripts);
-
-            // It is important to make this call to add scripts and connections
-            // only after all signals have been setup, to guarantee the GUI will update
-            // when the client updates.
-            crate::client::set_client_state(&user_state, &client);
-
-            queries_win.content.editor.configure(&user_state.borrow().editor);
-
+            let queries_win = QueriesWindow::build(app, &user_state);
+            queries::setup(&queries_win, &user_state, &client);
             queries_win.window.show();
         }
     });
@@ -166,7 +79,6 @@ fn main() {
     application.run();
 
     user_state.replace_with(|user_state| {
-        // user_state.conns = conn_final_state.borrow().clone();
         user_state.scripts = script_final_state.borrow().recent.clone();
         user_state.clone()
     });

@@ -53,54 +53,6 @@ pub struct Table {
 
 }
 
-/*To implement this, we need GATs in stable. This should be returned by table.text_rows(),
-to avoid flattening the rows into a several Cows, as is currently done.
-pub struct RowIter<'a> {
-
-    // this is returned by table.text_cols().collect::<Vec<_>()>
-    cols : Vec<Cow<'a, [String]>>,
-
-    curr_ix : usize,
-
-    nrows : usize,
-
-    curr_row : Vec<&'a str>
-}
-
-impl<'a> Iterator for RowIter<'a> {
-
-    type Item<'a> = &'a [&'a str];
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.curr_ix == nrows {
-            return None;
-        }
-
-        if self.curr_ix == 0 {
-            self.curr_row.extend(self.cols.iter().map(|c| c[0].as_ref() );
-        } else {
-            for (col_ix, c) in self.cols.iter().map(|c| c[curr_ix].as_ref() ).enumerate() {
-                self.curr_row[ix] = c;
-            }
-        }
-        self.curr_ix += 1;
-        Some(&self.curr_row[..])
-    }
-
-}
-
-impl<'a> ExactSizeIterator for RowIter<'a> {
-
-    fn len(&self) -> usize {
-        self.nrows
-    }
-
-    fn is_empty(&self) -> bool {
-        self.nrows == 0
-    }
-
-}*/
-
 pub trait RowIterator<'a>
 where
     Self : Iterator<Item=Cow<'a, str>> + ExactSizeIterator
@@ -641,8 +593,8 @@ impl Table {
         self.cols.iter().map(|c| c.sqlite3_type().to_string()).collect()
     }
 
-    pub fn display_lines(&self, col_ix : usize, max_rows : Option<usize>) -> String {
-        self.cols[col_ix].display_lines(self.format.prec, max_rows)
+    pub fn display_lines(&self, col_ix : usize, fst_row : Option<usize>, max_rows : Option<usize>) -> String {
+        self.cols[col_ix].display_lines(self.format.prec, fst_row, max_rows)
     }
 
     pub fn sql_table_creation(&self, name : &str, _cols : &[String]) -> Option<String> {
@@ -1535,4 +1487,5 @@ pub fn nullable_from_arr<'a>(
     };
     Ok(NullableColumn::from(data))
 }
+
 

@@ -376,11 +376,11 @@ pub fn set_all_not_selectable(list : &ListBox) {
 
 const TLS_DISABLED : &'static str = "Disabled";
 
-const TLS_V10 : &'static str = "≥ TLS 1.0";
+const TLS_V10 : &'static str = "TLS (Version ≥ 1.0)";
 
-const TLS_V11 : &'static str = "≥ TLS 1.1";
+const TLS_V11 : &'static str = "TLS (Version ≥ 1.1)";
 
-const TLS_V12 : &'static str = "≥ TLS 1.2";
+const TLS_V12 : &'static str = "TLS (Version ≥ 1.2)";
 
 /* A security settings row, generated dynamically every time
 the settings window is opened. */
@@ -397,8 +397,8 @@ r#"Connecting with TLS disabled is only supported
 for hosts accessible locally or through a private network."#;
 
 const HOSTNAME_MSG : &'static str =
-r#"Disabling verification is discouraged,
-unless you are in a trusted network."#;
+r#"Disabling verification is discouraged, unless
+you are connecting through a trusted network."#;
 
 const CERT_MSG : &'static str =
 r#"Path to the root certificate
@@ -507,8 +507,8 @@ impl SecurityRow {
         cert_entry.set_placeholder_text(Some("~/certificate.pem"));
         cert_entry.set_max_width_chars(40);
 
-        let enc_bx = NamedBox::new("Encryption protocol", Some(TLS_MSG), tls_combo.clone());
-        let cert_bx = NamedBox::new("Certificate path", Some(CERT_MSG), cert_entry.clone());
+        let enc_bx = NamedBox::new("Encryption", Some(TLS_MSG), tls_combo.clone());
+        let cert_bx = NamedBox::new("Certificate", Some(CERT_MSG), cert_entry.clone());
         let hostname_bx = NamedBox::new("Verify hostname", Some(HOSTNAME_MSG), hostname_switch.clone());
         let rows = [ListBoxRow::new(), ListBoxRow::new(), ListBoxRow::new()];
         rows[0].set_child(Some(&enc_bx.bx));
@@ -694,7 +694,7 @@ impl SecurityBox {
             let lbl = Label::builder().use_markup(true).build();
             lbl.set_margin_bottom(18);
             lbl.set_margin_top(18);
-            lbl.set_markup("<b>No configurable hosts included yet</b>");
+            lbl.set_markup("No configurable hosts included yet");
             let row = ListBoxRow::new();
             row.set_child(Some(&lbl));
             row.set_selectable(false);

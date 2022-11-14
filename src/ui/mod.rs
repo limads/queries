@@ -380,7 +380,14 @@ pub struct QueriesWindow {
 
 impl QueriesWindow {
 
-    pub fn build(window : ApplicationWindow, state : &SharedUserState) -> Self {
+    pub fn build(app : &Application, state : &SharedUserState) -> Self {
+
+        let window = ApplicationWindow::builder()
+            .application(app)
+            .title("Queries")
+            .default_width(1440)
+            .default_height(1080)
+            .build();
 
         let sidebar = QueriesSidebar::build();
         let titlebar = QueriesTitlebar::build();

@@ -12,6 +12,8 @@ use super::table::*;
 use crate::tables::table::Table;
 use crate::ui::PlotView;
 use papyri::render::Panel;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 use crate::client::UserState;
 
@@ -19,7 +21,12 @@ use crate::client::UserState;
 pub struct QueriesWorkspace {
     pub tab_view : libadwaita::TabView,
     pub tab_bar : libadwaita::TabBar,
-    pub bx : Box
+    pub bx : Box,
+
+    // Although not strictly required to be kept here for GUI
+    // update reasons, the TableWidget wrapper has a Drop implementation
+    // (so it must be kept alive while the table is being used)
+    pub tables : Rc<RefCell<Vec<TableWidget>>>
 }
 
 fn configure_tab(tab_view : &libadwaita::TabView, tab_bar : &libadwaita::TabBar) {
@@ -48,7 +55,7 @@ impl QueriesWorkspace {
         bx.set_margin_bottom(0);
         bx.append(&tab_view);
         bx.append(&tab_bar);
-        Self { tab_view, tab_bar, bx }
+        Self { tab_view, tab_bar, bx, tables : Rc::new(RefCell::new(Vec::new())) }
     }
 
 }
@@ -62,9 +69,16 @@ pub fn close_all_pages(tab_view : &libadwaita::TabView) {
 
 const COLUMN_LIMIT : usize = 50;
 
-pub fn populate_with_tables(tab_view : &libadwaita::TabView, tables : &[Table], state : &UserState) -> Vec<libadwaita::TabPage> {
+pub fn populate_with_tables(
+    tab_view : &libadwaita::TabView,
+    tables : &[Table],
+    state : &UserState,
+    table_wids : &Rc<RefCell<Vec<TableWidget>>>
+) -> Vec<libadwaita::TabPage> {
     close_all_pages(&tab_view);
     let mut new_pages = Vec::new();
+    let mut table_wids = table_wids.borrow_mut();
+    table_wids.clear();
     for tbl in tables.iter() {
         if let Some(val) = tbl.single_json_field() {
             match Panel::new_from_json(&val.to_string()) {
@@ -82,6 +96,7 @@ pub fn populate_with_tables(tab_view : &libadwaita::TabView, tables : &[Table], 
         let tab_page = tab_view.append(&tbl_wid.scroll_window);
         new_pages.push(tab_page.clone());
         configure_table_page(&tab_page, &tbl);
+        table_wids.push(tbl_wid);
     }
     new_pages
 }
@@ -91,11 +106,12 @@ impl<'a> React<Environment> for QueriesWorkspace {
     fn react(&self, env : &Environment) {
         let tab_view = self.tab_view.clone();
         let user_state = env.user_state.clone();
+        let table_wids = self.tables.clone();
         env.connect_table_update(move |tables| {
             let user_state = user_state.borrow();
             let past_sel_page = tab_view.selected_page().map(|page| tab_view.page_position(&page) as usize );
             let past_n_pages = tab_view.n_pages() as usize;
-            let new_pages = populate_with_tables(&tab_view, &tables[..], &*user_state);
+            let new_pages = populate_with_tables(&tab_view, &tables[..], &*user_state, &table_wids);
             if let Some(page_ix) = past_sel_page {
                 if new_pages.len() == past_n_pages {
                     tab_view.set_selected_page(&new_pages[page_ix]);

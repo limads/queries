@@ -417,21 +417,6 @@ impl ConnectionList {
         conn_list
     }
 
-    /*fn _clear(&self) {
-        while self.list.observe_children().n_items() > 1 {
-            self.list.remove(&self.list.row_at_index(0).unwrap());
-        }
-    }
-
-    fn _set(&self, info_slice : &[ConnectionInfo]) {
-        self._clear();
-        for info in info_slice.iter() {
-            let n = self.list.observe_children().n_items();
-            let new_row = ConnectionRow::from(info);
-            self.list.insert(&new_row.row, (n-1) as i32);
-        }
-    }*/
-
     fn update(&self) {
         self.list.connect_row_activated({
             move|list, row| {
@@ -570,7 +555,6 @@ impl ConnectionBox {
         let title = super::title_label("Authentication");
         let bx = Box::new(Orientation::Vertical, 0);
         bx.append(&title);
-        // bx.append(&host.bx);
         bx.append(&host_bx);
         bx.append(&db.bx);
         bx.append(&cred_bx);
@@ -649,6 +633,10 @@ impl React<ConnectionSet> for ConnectionBox {
         connections.connect_selected({
             let conn_bx = self.clone();
             move |opt_sel| {
+
+                /* Blocking the entry changed signal is important
+                because we don't want to issue a connection update
+                message by simply switching the selected connection.*/
                 let signals = (
                     &*conn_bx.host_changed.borrow(),
                     &*conn_bx.port_changed.borrow(),
@@ -658,12 +646,11 @@ impl React<ConnectionSet> for ConnectionBox {
                 if let (Some(host_s), Some(port_s), Some(db_s), Some(user_s)) = signals {
                     conn_bx.host.entry.block_signal(host_s);
                     conn_bx.port.entry.block_signal(port_s);
-                    conn_bx.user.entry.block_signal(user_s);
                     conn_bx.db.entry.block_signal(db_s);
+                    conn_bx.user.entry.block_signal(user_s);
                 }
                 if let Some((_sel_ix, sel_info)) = opt_sel {
                     conn_bx.set_sensitive(true);
-                    println!("Selected: {:?}", sel_info);
                     if sel_info.host == crate::client::DEFAULT_HOST {
                         conn_bx.host.entry.set_text("");
                     } else {
@@ -687,7 +674,6 @@ impl React<ConnectionSet> for ConnectionBox {
                     conn_bx.password.entry.set_text("");
                     conn_bx.password.entry.grab_focus();
                 } else {
-                    println!("No selection");
                     conn_bx.host.entry.set_text("");
                     conn_bx.port.entry.set_text("");
                     conn_bx.db.entry.set_text("");

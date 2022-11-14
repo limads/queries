@@ -191,6 +191,14 @@ impl React<QueriesEditor> for OpenedScripts {
 impl React<QueriesWindow> for OpenedScripts {
 
     fn react(&self, win : &QueriesWindow) {
+
+        self.react(&win.content.editor.save_dialog);
+        self.react(&win.content.editor.open_dialog);
+        self.react(&win.titlebar.main_menu);
+        self.react(&win.content.editor.script_list);
+        self.react(&win.sidebar.file_list);
+        self.react(&win.content.editor);
+
         let send = self.sender().clone();
 
         // When the usesr attempts to close the window, we inhibit the action so
