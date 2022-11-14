@@ -31,17 +31,115 @@ use std::hash::Hash;
 use crate::client::SharedUserState;
 use super::listener::ExecMode;
 use crate::tables::table::Table;
-use crate::ui::Certificate;
-use crate::ui::TlsVersion;
+use std::str::FromStr;
+use std::net::Ipv4Addr;
+use crate::ui::SecurityChange;
+use std::sync::mpsc;
+use crate::client::UserState;
+use url::Url;
+use std::fmt;
+use std::error::Error;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Engine {
+    Postgres,
+    MySQL,
+    SQLite
+}
+
+impl fmt::Display for Engine {
+
+    fn fmt(&self, f : &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Engine::Postgres => write!(f, "Postgres"),
+            Engine::MySQL => write!(f, "MySQL"),
+            Engine::SQLite => write!(f, "SQLite")
+        }
+    }
+
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct TlsVersion {
+    pub major : usize,
+    pub minor : usize
+}
+
+impl std::string::ToString for TlsVersion {
+
+    fn to_string(&self) -> String {
+        format!("{}.{}", self.major, self.minor)
+    }
+
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Security {
+
+    // What minimum version of TLS to use for encryption. If this is None,
+    // then the connection is not encrypted. Users can only use non-encrypted connections
+    // to localhost (127.0.0.1) or local network (192.168.x.x).
+    pub tls_version : Option<TlsVersion>,
+
+    // Whether to require hostname verification. If tls_version is Some(.), then
+    // this field should be Some(.) as well.
+    pub verify_hostname : Option<bool>,
+
+    // Path to certificate. If tls_version is Some(.), then
+    // this field should be Some(.) as well.
+    pub cert_path : Option<String>
+
+}
+
+impl Security {
+
+    // The default security created by new_secure won't connect
+    // because it still needs a cert_path. The user should
+    // inform a certificate when a secure connection is created.
+    // The secure state serializes as a JSON object
+    // with a single field tls_version.
+    pub fn new_secure() -> Self {
+        Self {
+            tls_version : Some(TlsVersion { major : 1, minor : 2 }),
+            verify_hostname : Some(true),
+            cert_path : None
+        }
+    }
+
+    // Creates a new insecure connection. Used only for localhost or
+    // private network. The "insecure" state
+    // serializes as a json object with all null fields.
+    pub fn new_insecure() -> Self {
+        Self {
+            tls_version : None,
+            verify_hostname : None,
+            cert_path : None
+        }
+    }
+
+}
+
+impl fmt::Display for Security {
+
+    fn fmt(&self, f : &mut fmt::Formatter) -> fmt::Result {
+        crate::client::display_as_json(self, f)
+    }
+}
 
 // The actual connection info that is persisted on disk (excludes password for obvious
-// security reasons).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
+// security reasons). This is the internal state of what the user sees in the right
+// form when establishing new connections. This eventually resolves into a ConnURI at the moment
+// a password is inserted and the connection switch is set to active. After the connection
+// is established or failed, the ConnURI ceasse to exist and this carries again carries all
+// the information of the recently-established connection to the rest of the GUI.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConnectionInfo {
 
-    // Holds either a host-only string (assuming default 5432 port)
-    // or host:port string.
+    pub engine : Engine,
+
     pub host : String,
+
+    pub port : String,
 
     // PostgreSQL user.
     pub user : String,
@@ -49,18 +147,122 @@ pub struct ConnectionInfo {
     // Database name.
     pub database : String,
 
-    // Database details, queried automatically by the application every time
-    // there is a new connection to the database. If this query fails, holds None.
-    // This information is also persisted in disk.
-    // pub details : Option<DBDetails>,
+    // Optional path to certificate. If connection does not have an
+    // associated certificate, it is non-encrypted.
+    pub security : Security,
 
-    // Optional path to certificate
-    pub cert : Option<String>,
-    
-    pub min_tls_version : Option<TlsVersion>,
-    
-    // When this connection was last established (datetime-formatted).
-    pub dt : Option<String>
+}
+
+impl fmt::Display for ConnectionInfo {
+
+    fn fmt(&self, f : &mut fmt::Formatter) -> fmt::Result {
+        crate::client::user::display_as_json(self, f)
+    }
+}
+
+impl ConnectionInfo {
+
+    // Check if state matches with the default start of
+    // ConnectionInfo::Default. This means the form should
+    // display the placeholder instead of the actual value.
+    pub fn is_default(&self) -> bool {
+        &self.host[..] == DEFAULT_HOST &&
+            &self.port[..] == DEFAULT_PORT &&
+            &self.user[..] == DEFAULT_USER &&
+            &self.database[..] == DEFAULT_DB
+    }
+
+    // Checks if the credentials match
+    pub fn is_like(&self, other : &Self) -> bool {
+        &self.host[..] == &other.host[..] &&
+            &self.port[..] == &other.port[..] &&
+            &self.user[..] == &other.user[..]
+            && &self.database[..] == &other.database[..]
+    }
+
+    pub fn is_certificate_valid(&self) -> bool {
+        if let Some(path) = &self.security.cert_path {
+            std::path::Path::new(&path).exists() &&
+                (path.ends_with(".crt") || path.ends_with(".pem"))
+        } else {
+            false
+        }
+    }
+
+    /* The connection info description that is shown at the security settings GUI */
+    pub fn description(&self) -> String {
+        let mut s = String::from(self.kind());
+        s += "\t\t";
+        if self.is_encrypted() {
+            s += "✓ Encrypted";
+            s += "\t\t";
+            if self.is_certificate_valid(){
+                s += "✓ Certificate path valid";
+            } else {
+                s += "⨯ Certificate path invalid";
+            }
+            s += "\t\t";
+            if self.is_verified() {
+                s += "✓ Hostname verified";
+            } else {
+                s += "⨯ Hostname not verified";
+            }
+        } else {
+            s += "⨯ Not encrypted";
+        }
+        s
+    }
+
+    pub fn kind(&self) -> &'static str {
+        if self.is_localhost() {
+            "Local"
+        } else {
+            if self.is_private_network() {
+                "Private network"
+            } else {
+                "Remote"
+            }
+        }
+    }
+
+    pub fn is_encrypted(&self) -> bool {
+        self.security.tls_version.is_some()
+    }
+
+    pub fn is_verified(&self) -> bool {
+        self.security.verify_hostname == Some(true)
+    }
+
+    pub fn is_file(&self) -> bool {
+        self.host.starts_with("file://")
+    }
+
+    pub fn is_localhost(&self) -> bool {
+        /* Quoting from the stdlib docs:
+        "An IPv4 address with the address pointing to localhost: 127.0.0.1" */
+        if let Ok(ip) = Ipv4Addr::from_str(&self.host[..]) {
+            ip == Ipv4Addr::LOCALHOST
+        } else {
+            &self.host[..] == "localhost"
+        }
+    }
+
+    pub fn is_private_network(&self) -> bool {
+        /* Defines if an IP is private. Quoting from the stdlib docs:
+        "The private address ranges are defined in IETF RFC 1918 and include:
+        10.0.0.0/8
+        172.16.0.0/12
+        192.168.0.0/16" "*/
+        if let Ok(ip) = Ipv4Addr::from_str(&self.host[..]) {
+            ip.is_private()
+        } else {
+            false
+        }
+    }
+
+    pub fn requires_tls(&self) -> bool {
+        !(self.is_private_network() || self.is_localhost())
+    }
 
 }
 
@@ -72,34 +274,24 @@ pub struct ConnConfig {
 
 }
 
-const DEFAULT_HOST : &'static str = "Host:Port";
+pub const DEFAULT_HOST : &'static str = "Host";
 
-const DEFAULT_USER : &'static str = "User";
+pub const DEFAULT_PORT : &'static str = "Port";
 
-const DEFAULT_DB : &'static str = "Database";
+pub const DEFAULT_USER : &'static str = "User";
 
-impl ConnectionInfo {
-
-    pub fn is_default(&self) -> bool {
-        &self.host[..] == DEFAULT_HOST && &self.user[..] == DEFAULT_USER && &self.database[..] == DEFAULT_DB
-    }
-
-    pub fn is_like(&self, other : &Self) -> bool {
-        &self.host[..] == &other.host[..] && &self.user[..] == &other.user[..] && &self.database[..] == &other.database[..]
-    }
-
-}
+pub const DEFAULT_DB : &'static str = "Database";
 
 impl Default for ConnectionInfo {
 
     fn default() -> Self {
         Self {
+            engine : Engine::Postgres,
             host : String::from(DEFAULT_HOST),
+            port : String::from(DEFAULT_PORT),
             user : String::from(DEFAULT_USER),
             database : String::from(DEFAULT_DB),
-            dt : None,
-            cert : None,
-            min_tls_version : None
+            security : Security::new_secure(),
         }
     }
 
@@ -113,21 +305,27 @@ pub enum ConnectionChange {
 #[derive(Debug, Clone)]
 pub enum ConnectionAction {
     Switch(Option<i32>),
-    Add(Option<ConnectionInfo>),
-    Update(ConnectionInfo),
+    Add,
     UpdateHost(String),
+    UpdatePort(String),
     UpdateUser(String),
+
     UpdateDB(String),
-    EraseCertificate(String),
-    AddCertificate(Certificate),
     Remove(i32),
-    CloseWindow
 }
 
-// TODO rename to ConnectionHistory.
+// The ConnectionSet keeps all history of established connections. It is loaded
+// from disk when Queries start if the save credentials settings is on.
+// The user views the connection set on the ListBox to the
+// left in the main overview GUI. The user manipulates the Connection set by adding
+// or removing from the buttons next to this GUI. The user edits the ConnectionSet
+// by manipulating the form to the right in the overview or changing something in
+// the security settings. More than one connection might share the same host, so
+// changing the security settings for a given host makes the change reflect in all
+// connections matching this host. If a host field is edited, the keys in the security
+// settings must be edited accordingly. Changing the host name re-sets all its
+// security settings to the default.
 pub struct ConnectionSet {
-
-    final_state : Rc<RefCell<Vec<ConnectionInfo>>>,
 
     added : Callbacks<ConnectionInfo>,
 
@@ -150,134 +348,116 @@ pub type ConnSetTypes = (
 
 impl ConnectionSet {
 
-    pub fn final_state(&self) -> Rc<RefCell<Vec<ConnectionInfo>>> {
-        self.final_state.clone()
-    }
-
-    pub fn add_certificates(&self, certs : &[Certificate]) {
-        for cert in certs {
-            self.send.send(ConnectionAction::AddCertificate(cert.clone())).unwrap();
-        }
-    }
-    
-    pub fn add_connections(&self, conns : &[ConnectionInfo]) {
-        for conn in conns.iter() {
-            if !conn.host.is_empty() && !conn.database.is_empty() && !conn.user.is_empty() {
-                self.send.send(ConnectionAction::Add(Some(conn.clone()))).unwrap();
-            }
-        }
-    }
-
-    pub fn new() -> Self {
+    pub fn new(user_state : &SharedUserState) -> Self {
         let (send, recv) = MainContext::channel::<ConnectionAction>(glib::source::PRIORITY_DEFAULT);
         let (selected, added, updated, removed) : ConnSetTypes = Default::default();
-        // let on_view : Callbacks<Vec<ConnectionInfo>> = Default::default();
-        let final_state = Rc::new(RefCell::new(Vec::new()));
         recv.attach(None, {
 
             // Holds the set of connections added by the user. This is synced to the
             // Connections list seen by the user on startup. The connections are
             // set to the final state just before the window closes.
-            let mut conns : (Vec<ConnectionInfo>, Option<i32>) = (Vec::new(), None);
+            let mut curr_conn : Option<i32> = None;
 
             let (selected, added, updated, removed) = (selected.clone(), added.clone(), updated.clone(), removed.clone());
-            let final_state = final_state.clone();
-            // let on_view = on_view.clone();
-            let mut certs = Vec::new();
+            let user_state = user_state.clone();
             move |action| {
                 match action {
+
                     ConnectionAction::Switch(opt_ix) => {
-                        conns.1 = opt_ix;
-                        selected.call(opt_ix.map(|ix| (ix, conns.0[ix as usize].clone() )));
+                        curr_conn = opt_ix;
+                        println!("Switching to {:?}", opt_ix);
+                        selected.call(opt_ix.map(|ix| (ix, user_state.borrow().conns[ix as usize].clone()) ));
                     },
                     
-                    /* This is called at startup via UserState::update->append_certificate_row->cert_added.activate,
-                    which is also called every time the user presses the add certificate button. */
-                    ConnectionAction::AddCertificate(cert) => {
-                        for conn in &mut conns.0[..] {
-                            if &conn.host[..] == &cert.host[..] {
-                                conn.min_tls_version = Some(cert.min_version);
-                                conn.cert = Some(cert.cert.clone());
-                            }
-                        }
-                        certs.push(cert);
-                    },
-                    
-                    ConnectionAction::EraseCertificate(host) => {
-                        for conn in &mut conns.0[..] {
-                            if &conn.host[..] == &host[..] {
-                                conn.cert = None;
-                                conn.min_tls_version = None;
-                            }
-                        }
-                        for i in (0..(certs.len())).rev() {
-                            if &certs[i].host[..] == &host[..] {
-                                certs.remove(i);
-                            }
-                        }
-                    },
-                    ConnectionAction::Add(opt_conn) => {
+                    ConnectionAction::Add => {
 
                         // If the user clicked the 'plus' button, this will be None. If the connection
                         // was added from the settings file, there will be a valid value here.
-                        let mut conn = opt_conn.unwrap_or_default();
-                        update_certificate(&mut conn, &certs);
+                        let mut conn = ConnectionInfo::default();
                         
-                        conns.0.push(conn.clone());
+                        user_state.borrow_mut().conns.push(conn.clone());
 
                         // The selection will be re-set when the list triggers the callback at connect_added.
-                        conns.1 = None;
+                        curr_conn = None;
 
                         added.call(conn.clone());
                     },
                     
-                    ConnectionAction::UpdateHost(host) => {
-                        if let Some(ix) = conns.1 {
-                            conns.0[ix as usize].host = host;
-                        }
-                    },
-                    
-                    ConnectionAction::UpdateUser(user) => {
-                        if let Some(ix) = conns.1 {
-                            conns.0[ix as usize].user = user;
-                        }
-                    },
-                    
-                    ConnectionAction::UpdateDB(db) => {
-                        if let Some(ix) = conns.1 {
-                            conns.0[ix as usize].database = db;
-                        }
-                    },
-                    
-                    // Called when the user connects to the database
-                    // and the date field is set at ActiveConnection::Accepted.
-                    ConnectionAction::Update(mut info) => {
+                    ConnectionAction::UpdateHost(updated_host) => {
+                        if let Some(ix) = curr_conn {
+                            let mut us = user_state.borrow_mut();
+                            let matching_conn = us.conns.iter()
+                                .find(|c| &c.host[..] == &updated_host[..] )
+                                .cloned();
+                            let mut this_conn = &mut us.conns[ix as usize];
 
-                        // On update, it might be the case the info is the same as some
-                        // other connection. Must decide how to resolve duplicates (perhaps
-                        // remove old one by sending ConnectionAction::remove(other_equal_ix)?).
-                        if let Some(ix) = conns.1 {
+                            if this_conn.host != updated_host {
+
+                                println!("Updating {} to {}", this_conn.host, updated_host);
+
+                                // If this is a totally new host, it should have its security
+                                // settings re-set to a default value.
+                                this_conn.host = updated_host;
+
+                                // The user edited the host to have a a name that
+                                // already existed in the connection history. Inherit
+                                // its security settings in this case.
+                                if let Some(matching) = matching_conn {
+                                    this_conn.security = matching.security;
+                                } else {
+                                    if this_conn.is_localhost() || this_conn.is_file() {
+                                        this_conn.security = Security::new_insecure();
+                                    } else {
+                                        this_conn.security = Security::new_secure();
+                                    }
+                                }
+                                updated.call((ix as i32, this_conn.clone()));
+                            }
+                        }
+                    },
+                    
+                    ConnectionAction::UpdatePort(updated_port) => {
+                        if let Some(ix) = curr_conn {
+                            let mut us = user_state.borrow_mut();
+                            let mut this_conn = &mut us.conns[ix as usize];
+
+                            if this_conn.port != updated_port {
+                                this_conn.port = updated_port;
+                                updated.call((ix as i32, this_conn.clone()));
+                            }
+                        }
+                    },
+
+                    ConnectionAction::UpdateUser(updated_user) => {
+                        if let Some(ix) = curr_conn {
+                            let mut us = user_state.borrow_mut();
+                            let mut this_conn = &mut us.conns[ix as usize];
+
+                            if this_conn.user != updated_user {
+                                this_conn.user = updated_user;
+                                updated.call((ix as i32, this_conn.clone()));
+                            }
+                        }
+                    },
+                    
+                    ConnectionAction::UpdateDB(updated_db) => {
+                        if let Some(ix) = curr_conn {
+                            let mut us = user_state.borrow_mut();
+                            let mut this_conn = &mut us.conns[ix as usize];
                             
-                            info.dt = Some(Local::now().to_string());
-                            
-                            conns.0[ix as usize] = info;
-                            update_certificate(&mut conns.0[ix as usize], &certs);
-                            
-                            updated.call((ix, conns.0[ix as usize].clone()));
-                        } else {
-                            eprintln!("No connection selected");
+                            if this_conn.database != updated_db {
+                                this_conn.database = updated_db;
+                                updated.call((ix as i32, this_conn.clone()));
+                            }
                         }
                     },
                     
                     ConnectionAction::Remove(ix) => {
-                        let _rem_conn = conns.0.remove(ix as usize);
+                        user_state.borrow_mut().conns.remove(ix as usize);
                         removed.call(ix);
                         selected.call(None);
                     },
-                    ConnectionAction::CloseWindow => {
 
-                        final_state.replace(conns.0.clone());
-                    }
                 }
                 Continue(true)
             }
@@ -287,8 +467,7 @@ impl ConnectionSet {
             selected,
             added,
             updated,
-            removed,
-            final_state
+            removed
         }
     }
 
@@ -310,31 +489,34 @@ impl ConnectionSet {
 
 }
 
-fn update_certificate(conn : &mut ConnectionInfo, certs : &[Certificate]) {
-    if !conn.is_default() {
-        if let Some(cert) = certs.iter().find(|c| &c.host[..] == &conn.host[..] ) {
-            conn.cert = Some(cert.cert.clone());
-            conn.min_tls_version = Some(cert.min_version);
-        }
-    }
-}
-
 impl React<ConnectionBox> for ConnectionSet {
 
     fn react(&self, conn_bx : &ConnectionBox) {
-        conn_bx.host.entry.connect_changed({
+        let host_changed = conn_bx.host.entry.connect_changed({
+            let send = self.send.clone();
+            move |entry| {
+                let txt = entry.text().to_string();
+                println!("Entry text: {}", txt);
+                if &txt[..] != "" {
+                    send.send(ConnectionAction::UpdateHost(txt)).unwrap();
+                } else {
+                    send.send(ConnectionAction::UpdateHost("Host".to_string())).unwrap();
+                }
+            }
+        });
+        let port_changed = conn_bx.port.entry.connect_changed({
             let send = self.send.clone();
             move |entry| {
                 let txt = entry.text().to_string();
                 if &txt[..] != "" {
-                    send.send(ConnectionAction::UpdateHost(txt)).unwrap();
+                    send.send(ConnectionAction::UpdatePort(txt)).unwrap();
                 } else {
-                    send.send(ConnectionAction::UpdateHost("Host:Port".to_string())).unwrap();
+                    send.send(ConnectionAction::UpdatePort("Port".to_string())).unwrap();
                 }
-                
+
             }
         });
-        conn_bx.user.entry.connect_changed({
+        let user_changed = conn_bx.user.entry.connect_changed({
             let send = self.send.clone();
             move |entry| {
                 let txt = entry.text().to_string();
@@ -346,7 +528,7 @@ impl React<ConnectionBox> for ConnectionSet {
                 
             }
         });
-        conn_bx.db.entry.connect_changed({
+        let db_changed = conn_bx.db.entry.connect_changed({
             let send = self.send.clone();
             move |entry| {
                 let txt = entry.text().to_string();
@@ -355,9 +537,12 @@ impl React<ConnectionBox> for ConnectionSet {
                 } else {
                     send.send(ConnectionAction::UpdateDB("Database".to_string())).unwrap();
                 }
-               
             }
         });
+        conn_bx.host_changed.replace(Some(host_changed));
+        conn_bx.user_changed.replace(Some(user_changed));
+        conn_bx.db_changed.replace(Some(db_changed));
+        conn_bx.port_changed.replace(Some(port_changed));
     }
     
 }
@@ -374,7 +559,7 @@ impl React<ConnectionList> for ConnectionSet {
         conn_list.add_btn.connect_clicked({
             let send = self.send.clone();
             move |_btn| {
-                send.send(ConnectionAction::Add(None)).unwrap();
+                send.send(ConnectionAction::Add).unwrap();
             }
         });
         conn_list.remove_btn.connect_clicked({
@@ -390,89 +575,6 @@ impl React<ConnectionList> for ConnectionSet {
 
 }
 
-impl React<ActiveConnection> for ConnectionSet {
-
-    fn react(&self, conn : &ActiveConnection) {
-        let send = self.send.clone();
-        conn.connect_db_connected(move |(conn_info, _)| {
-            send.send(ConnectionAction::Update(conn_info)).unwrap();
-        });
-        let send = self.send.clone();
-        conn.connect_db_conn_failure(move |(conn_info, _)| {
-            send.send(ConnectionAction::Update(conn_info)).unwrap();
-        });
-    }
-
-}
-
-impl React<QueriesWindow> for ConnectionSet {
-
-    fn react(&self, win : &QueriesWindow) {
-        let send = self.send.clone();
-        win.window.connect_close_request(move |_win| {
-            send.send(ConnectionAction::CloseWindow).unwrap();
-            Inhibit(false)
-        });
-        win.settings.security_bx.cert_removed.connect_activate({
-            let send = self.send.clone();
-            move |_, param| {
-                if let Some(s) = param {
-                    let cert : Certificate = serde_json::from_str(&s.get::<String>().unwrap()).unwrap();
-                    send.send(ConnectionAction::EraseCertificate(cert.host.to_string())).unwrap();
-                }
-           }
-       });
-       win.settings.security_bx.cert_added.connect_activate({
-            let send = self.send.clone();
-            move |_, param| {
-                if let Some(s) = param {
-                    let cert : Certificate = serde_json::from_str(&s.get::<String>().unwrap()).unwrap();
-                    send.send(ConnectionAction::AddCertificate(cert)).unwrap();
-                }
-           }
-       });
-    }
-
-}
-
-/*mod tests {
-
-    use super::{ConnectionInfo, ConnURI};
-    
-    #[test]
-    fn conn_str_test() {
-
-        // Reference: https://www.postgresql.org/docs/current/libpq-connect.html
-        // Eventually the settings GUI might include those URI parameters as well.
-        // "postgresql://other@localhost/otherdb?connect_timeout=10&application_name=myapp",
-        // "postgresql://host1:123,host2:456/somedb?target_session_attrs=any&application_name=myapp"
-        
-        // let info_noport = ConnectionInfo { host : format!("localhost"), user : format!("user"), database : format!("mydb"), ..Default::default() };
-        // let uri = ConnURI::new(info_noport, "secret").unwrap();
-        // assert!(&uri.uri[..] == "postgresql://user:secret@localhost:5432/mydb");
-        
-        let info_port = ConnectionInfo { host : format!("localhost:1234"), user : format!("user2"), database : format!("mydb2"), ..Default::default() };
-        let uri_port = ConnURI::new(info_port, "secret2").unwrap();
-        assert!(&uri_port.uri[..] == "postgresql://user2:secret2@localhost:1234/mydb2");
-
-    }
-}*/
-
-pub fn is_local(info : &ConnectionInfo) -> Option<bool> {
-    if let Some(fst_part) = info.host.split(":").next() {
-        Some(fst_part.trim() == "127.0.0.1" || fst_part.trim() == "localhost")
-    } else {
-        None
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Security {
-    TLS,
-    SSL,
-    None
-}
-
 /// Short-lived data structure used to collect information from the connection
 /// form. The URI contains all the credentials (including password) to connect
 /// to the database. Only the info field is persisted in the client component
@@ -481,30 +583,61 @@ pub enum Security {
 #[derive(Debug, Clone)]
 pub struct ConnURI {
     pub info : ConnectionInfo,
-    pub uri : String
-}
-
-const INVALID_HOST_PORT : &'static str = "Invalid host value (expected host:port format)\n(ex. 127.0.0.1:5432)";
-
-pub fn split_host_port(host_with_port : &str) -> Result<(&str, &str), String> {
-    let split_port : Vec<&str> = host_with_port.split(":").collect();
-    let (host_prefix, port) = match split_port.len() {
-        2 => {
-            (split_port[0], split_port[1])
-        },
-        _n => {
-            return Err(format!("{}", INVALID_HOST_PORT));
-        }
-    };
-    if port.parse::<usize>().is_err() {
-        return Err(format!("{}", INVALID_HOST_PORT));
-    }
-    Ok((host_prefix, port))
+    pub uri : Url
 }
 
 impl ConnURI {
 
-    /* Builds a connection URI from the GTK widgets */
+    pub fn require_tls(&self) -> bool {
+        self.uri.query_pairs().any(|pair| pair.0.as_ref() == "sslmode" && pair.1.as_ref() == "require" )
+    }
+
+    pub fn file_path(&self) -> Result<std::path::PathBuf, ()> {
+        self.uri.to_file_path()
+    }
+
+    pub fn is_file(&self) -> bool {
+        self.uri.scheme() == "file"
+    }
+
+    pub fn is_postgres(&self) -> bool {
+        self.uri.scheme() == "postgresql"
+    }
+
+    pub fn verify_integrity(&self) -> Result<(), boxed::Box<dyn Error>> {
+        match self.info.engine {
+            Engine::Postgres => {
+                if !self.is_postgres() {
+                    return Err("Invalid URI for Postgres connection".into());
+                }
+            },
+            Engine::SQLite => {
+                if !self.is_file() {
+                    return Err("Invalid URI for SQLite connection".into());
+                }
+            },
+            _ => { }
+        }
+        if self.uri.host_str() != Some(&self.info.host[..]) {
+            return Err("Mismatch between connection host and URI domain".into());
+        }
+        if self.uri.username() != &self.info.user[..] {
+            return Err("Mismatch between connection username and URI username".into());
+        }
+        if let Ok(port) = u16::from_str(&self.info.port[..]) {
+            if self.uri.port() != Some(port) {
+                return Err("Mismatch between connection port and URI port".into());
+            }
+        } else {
+            return Err("Invalid port value".into());
+        }
+        Ok(())
+    }
+
+}
+
+impl ConnURI {
+
     pub fn new(
         info : ConnectionInfo,
         password : &str
@@ -524,25 +657,41 @@ impl ConnURI {
         uri += password;
 
         uri += "@";
-        let (host_prefix, port) = split_host_port(&info.host)?;
+        // let (host_prefix, port) = split_host_port(&info.host)?;
         
-        uri += host_prefix;
+        uri += &info.host;
         uri += ":";        
-        uri += port;
+        uri += &info.port;
         uri += "/";
         uri += &info.database;
         
-        Ok(ConnURI { info, uri })
+        match Url::parse(&uri) {
+            Ok(uri) => {
+                Ok(ConnURI { info, uri })
+            },
+            Err(e) => {
+                Err(format!("{}",e))
+            }
+        }
     }
 
 }
 
 /* Extract connection info from GTK widgets (except password, which is held separately 
 at the uri field of ConnURI. */
-fn extract_conn_info(host_entry : &Entry, db_entry : &Entry, user_entry : &Entry) -> Result<ConnectionInfo, String> {
+fn extract_conn_info(
+    host_entry : &Entry,
+    port_entry : &Entry,
+    db_entry : &Entry,
+    user_entry : &Entry
+) -> Result<ConnectionInfo, String> {
     let host_s = host_entry.text().as_str().to_owned();
     if host_s.is_empty() {
         return Err(format!("Missing host"));
+    }
+    let port_s = port_entry.text().as_str().to_owned();
+    if port_s.is_empty() {
+        return Err(format!("Missing port"));
     }
     let db_s = db_entry.text().as_str().to_owned();
     if db_s.is_empty() {
@@ -554,6 +703,7 @@ fn extract_conn_info(host_entry : &Entry, db_entry : &Entry, user_entry : &Entry
     }
     let mut info : ConnectionInfo = Default::default();
     info.host = host_s.to_string();
+    info.port = port_s.to_string();
     info.database = db_s.to_string();
     info.user = user_s.to_string();
     Ok(info)
@@ -561,11 +711,12 @@ fn extract_conn_info(host_entry : &Entry, db_entry : &Entry, user_entry : &Entry
 
 fn generate_conn_uri_from_entries(
     host_entry : &Entry,
+    port_entry : &Entry,
     db_entry : &Entry,
     user_entry : &Entry,
     password_entry : &PasswordEntry
 ) -> Result<ConnURI, String> {
-    let info = extract_conn_info(host_entry, db_entry, user_entry)?;
+    let info = extract_conn_info(host_entry, port_entry, db_entry, user_entry)?;
     let pwd = password_entry.text().as_str().to_owned();
     ConnURI::new(info, &pwd)
 }
@@ -634,6 +785,10 @@ pub struct ActiveConnection {
 
     on_exec_result : Callbacks<Vec<StatementOutput>>,
 
+    // "single queries" are queries sent by interactions with the GUI
+    // (Query and Report on the popover in the left schema tree). The
+    // callbacks are different because the GUI should react differently
+    // to results from those kinds of queries.
     on_single_query_result : Callbacks<Table>,
 
     send : glib::Sender<ActiveConnectionAction>,
@@ -716,7 +871,12 @@ impl ActiveConnection {
             let on_schema_invalidated = on_schema_invalidated.clone();
             let user_state = (*user_state).clone();
             
-            let mut trying_connection = false;
+            // If the user disconnects the switch when a connection is still being attempted,
+            // then when eventually the connection is established or timed out, it should be
+            // left to die without any error messages (irrespective of whether it was successful)
+            // since the user turning off the switch should mean the user gave up on the connection.
+            let (cancel_tx, cancel_rx) = mpsc::channel::<()>();
+            // let mut cancel_rx : Option<mpsc::Receiver<()>> = Some(cancel_rx);
             
             move |action| {
                 match action {
@@ -726,42 +886,31 @@ impl ActiveConnection {
                     // the entries, so no certificate is associated with it yet.
                     ActiveConnectionAction::ConnectRequest(uri) => {
 
-                        if trying_connection {
-                            on_error.call(format!("Previous connect attempt not finished yet"));
-                            return glib::source::Continue(true);
-                        }
+                        // if cancel_rx.is_none() {
+                        //    on_error.call(format!("Previous connection attempt not finished yet"));
+                        //    return glib::source::Continue(true);
+                        // }
                         
-                        trying_connection = true;
+                        // trying_connection = true;
                         
                         // Spawn a thread that captures the database connection URI. The URI
-                        // and the sensitive information (password) is forgotten when this thread dies.
+                        // carrying the password is forgotten when this thread dies.
                         thread::spawn({
                             let send = send.clone();
-                            let us = user_state.borrow();
-                            let timeout_secs = us.execution.statement_timeout;
-                            move || {
-                                match PostgresConnection::try_new(uri.clone()) {
-                                    Ok(mut conn) => {
-                                    
-                                        let db_info = match conn.db_info() {
-                                            Ok(info) => Some(info),
-                                            Err(_e) => {
-                                                None
-                                            }
-                                        };
-                                        
-                                        if timeout_secs > 0 {
-                                            conn.configure(ConnConfig {
-                                                timeout : timeout_secs as usize * 1000
-                                            });
-                                        }
+                            let us : UserState = user_state.borrow().clone();
 
-                                        // From now on, the URI is forgotten (no password is kept in memory anymore), and only the
-                                        // database info and details are sent back to the main thread.
-                                        send.send(ActiveConnectionAction::ConnectAccepted(boxed::Box::new(conn), db_info)).unwrap();
+                            // let conn_kept = conn_kept.clone();
+                            // let cancel_rx = cancel_rx.take().unwrap();
+                            move || {
+                                match uri.info.engine {
+                                    Engine::Postgres => {
+                                        connect_to_postgres(uri.clone(), send.clone(), &us);
                                     },
-                                    Err(e) => {
-                                        send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(), e)).unwrap();
+                                    other_engine => {
+                                        send.send(ActiveConnectionAction::ConnectFailure(
+                                            uri.info.clone(),
+                                            format!("Unsupported engine: {}", other_engine)
+                                        )).unwrap();
                                     }
                                 }
                             }
@@ -772,7 +921,9 @@ impl ActiveConnection {
                     // forgotten.
                     ActiveConnectionAction::ConnectAccepted(conn, db_info) => {
                         
-                        trying_connection = false;
+                        // trying_connection = false;
+                        // *(conn_kept.lock().unwrap()) = true;
+
                         schema = db_info.as_ref().map(|info| info.schema.clone() );
                         selected_obj = None;
                         let info = conn.conn_info();
@@ -783,11 +934,23 @@ impl ActiveConnection {
                     },
                     
                     ActiveConnectionAction::Disconnect => {
-                        trying_connection = false;
+
+                        // This means the switch has been turned off while the application
+                        // was still trying to make a connection. Send a message to ignore
+                        // this connection, so that the connecting threads does not send a
+                        // connect_accepted message back.
+                        //if cancel_rx.is_none() {
+                        //    cancel_tx.send(());
+                        //    return glib::source::Continue(true);
+                        // } else {
+                        // If the cancel_rx is available, that means there is
+                        // an active connection. Call the disconnect callback in
+                        // this case and clear the state.
                         schema = None;
                         selected_obj = None;
                         active_schedule.replace(false);
                         on_disconnected.call(());
+                        // }
                     },
                     
                     // When the user clicks the exec button or activates the execute action.
@@ -1025,7 +1188,7 @@ impl ActiveConnection {
                     },
                     
                     ActiveConnectionAction::ConnectFailure(info, e) => {
-                        trying_connection = false;
+                        // trying_connection = false;
                         on_conn_failure.call((info, e.clone()));
                     },
                     
@@ -1146,24 +1309,93 @@ const MANY_CERTS : &'static str = "Multiple SSL certificates associated with thi
 
 const CONN_NAME_ERR : &'static str = "Application name at settings contain non-alphanumeric characters";
 
-fn augment_uri(uri : &mut String, extra_args : &[String]) {
+fn augment_uri_with_params(uri : &mut String, extra_args : &[String]) {
     let n = extra_args.len();
     if n >= 1 {
         *uri += "?";
         for arg in extra_args.iter().take(n-1) {
             *uri += &arg[..];
-            *uri += ",";
+            *uri += "&";
         }
         *uri += &extra_args[n-1][..];
     }
 }
 
+pub fn connect_to_postgres(
+    uri : ConnURI,
+    send : glib::Sender<ActiveConnectionAction>,
+    us : &UserState
+) {
+    let timeout_secs = us.execution.statement_timeout;
+    match PostgresConnection::try_new(uri.clone()) {
+        Ok(mut conn) => {
+
+            // Conn switch turned off.
+            //if cancel_rx.try_recv().is_ok() {
+                // Connection dies here.
+            //    send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(),
+            // format!("Connection cancelled by user"))).unwrap();
+            //    return cancel_rx;
+            // }
+
+            let db_info = match conn.db_info() {
+                Ok(info) => Some(info),
+                Err(_e) => {
+                    None
+                }
+            };
+
+            if timeout_secs > 0 {
+                conn.configure(ConnConfig {
+                    timeout : timeout_secs as usize * 1000
+                });
+            }
+
+            // From now on, the URI is forgotten (no password is kept in memory anymore), and only the
+            // database info and details are sent back to the main thread.
+            send.send(ActiveConnectionAction::ConnectAccepted(boxed::Box::new(conn), db_info)).unwrap();
+        },
+        Err(e) => {
+
+            // Conn switch turned off.
+            // if cancel_rx.try_recv().is_ok() {
+                // User canceled connection, so no need to show error message.
+            //    send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(), format!("Connection cancelled by user"))).unwrap();
+            //    return cancel_rx;
+            // }
+
+            send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(), e)).unwrap();
+        }
+    }
+    // cancel_rx
+}
+
+// Returns extra arguments to the connection string based on connection state and security settings
+pub fn get_user_state_conn_params(us : &UserState, sec : &Security) -> Result<Vec<String>, String> {
+    let mut extra_args = Vec::new();
+    let app_name = &us.conn.app_name;
+    if !app_name.is_empty() {
+        if app_name.chars().any(|c| !c.is_alphanumeric() ) {
+            return Err(format!("{}", CONN_NAME_ERR));
+        } else {
+            extra_args.push(format!("application_name={}", app_name));
+        }
+    }
+    extra_args.push(format!("connect_timeout={}", us.conn.timeout));
+    if sec.tls_version.is_some() {
+        extra_args.push(format!("sslmode=require"));
+    } else {
+        extra_args.push(format!("sslmode=prefer"));
+    }
+    Ok(extra_args)
+}
+
 impl React<ConnectionBox> for ActiveConnection {
 
     fn react(&self, conn_bx : &ConnectionBox) {
-        // let conn_bx = r.0;
-        let (host_entry, db_entry, user_entry, password_entry) = (
+        let (host_entry, port_entry, db_entry, user_entry, password_entry) = (
             conn_bx.host.entry.clone(),
+            conn_bx.port.entry.clone(),
             conn_bx.db.entry.clone(),
             conn_bx.user.entry.clone(),
             conn_bx.password.entry.clone()
@@ -1172,59 +1404,93 @@ impl React<ConnectionBox> for ActiveConnection {
         let user_state = self.user_state.clone();
         conn_bx.switch.connect_state_set(move |switch, _state| {
             if switch.is_active() {
-                match generate_conn_uri_from_entries(&host_entry, &db_entry, &user_entry, &password_entry) {
+
+                // The form URI is built from the entry values - It does not
+                // have a security or user state options set yet.
+                let res_form_uri = generate_conn_uri_from_entries(
+                    &host_entry,
+                    &port_entry,
+                    &db_entry,
+                    &user_entry,
+                    &password_entry
+                );
+                match res_form_uri {
                     Ok(mut uri) => {
                     
-                        let mut extra_args = Vec::new();
+                        // Retrieve most recent security settings from host, for the formed URI.
+                        // If this host hasn't been configured yet, create a new secure default for
+                        // remove/private network or insecure for localhost.
+                        // This will happen if the user edited the host entry but did not configure
+                        // a new security state.
+                        // All hosts with the same name will have the same security settings, so
+                        // take the first one.
                         let us = user_state.borrow();
-                        
-                        let app_name = &us.conn.app_name;
-                        if !app_name.is_empty() {
-                            if app_name.chars().any(|c| !c.is_alphanumeric() ) {
-                                send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(), format!("{}", CONN_NAME_ERR))).unwrap();
-                                return Inhibit(false);
-                            } else {
-                                extra_args.push(format!("application_name={}", app_name));
-                            }
-                        }
-                        
-                        extra_args.push(format!("connect_timeout={}", us.conn.timeout));
-                        
-                        let local = is_local(&uri.info).unwrap_or(false);
-                        if local {
-                            augment_uri(&mut uri.uri, &extra_args[..]);
-                            send.send(ActiveConnectionAction::ConnectRequest(uri)).unwrap();
+                        crate::client::assert_user_state_integrity(&us);
+                        let security = if let Some(c) = us.conns
+                            .iter()
+                            .find(|c| &c.host[..] == &uri.info.host[..] )
+                        {
+                            c.security.clone()
                         } else {
-                            let matching_certs : Vec<_> = us.certs.iter()
-                                .filter(|cert| &cert.host[..] == &uri.info.host[..] )
-                                .collect();
-                            match matching_certs.len() {
-                                0 => {
-                                    send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(), NO_CERT.to_string())).unwrap();
-                                },
-                                1 => {
-                                    let cert = &matching_certs[0];
-                                    uri.info.cert = Some(cert.cert.clone());
-                                    uri.info.min_tls_version = Some(cert.min_version);
-                                    extra_args.push(format!("sslmode=require"));
-                                    augment_uri(&mut uri.uri, &extra_args[..]);
-                                    send.send(ActiveConnectionAction::ConnectRequest(uri)).unwrap();
-                                },
-                                _ => {
-                                    send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(), MANY_CERTS.to_string())).unwrap();
+                            send.send(ActiveConnectionAction::ConnectFailure(
+                                uri.info.clone(),
+                                format!("Security not configured for this host"))
+                            );
+                            return Inhibit(false);
+                        };
+
+                        // Now link the security information to the established connection.
+                        uri.info.security = security;
+
+                        match get_user_state_conn_params(&us, &uri.info.security) {
+                            Ok(params) => {
+                                let mut uri_str = uri.uri.as_str().to_string();
+                                augment_uri_with_params(&mut uri_str, &params[..]);
+
+                                // Guarantee the URI is valid after being augmented with the
+                                // user state parameters.
+                                match Url::parse(&uri_str) {
+                                    Ok(new_uri) => {
+
+                                        // Effectively update the URI with user state parameters.
+                                        uri.uri = new_uri;
+
+                                        // Checks if the URI fields matches with what is at the
+                                        // info field.
+                                        match uri.verify_integrity() {
+                                            Ok(_) => {
+                                                send.send(ActiveConnectionAction::ConnectRequest(uri)).unwrap();
+                                            },
+                                            Err(e) => {
+                                                send.send(ActiveConnectionAction::ConnectFailure(
+                                                    uri.info.clone(),
+                                                    format!("{}", e)
+                                                )).unwrap();
+                                            }
+                                        }
+                                    },
+                                    Err(e) => {
+                                        send.send(ActiveConnectionAction::ConnectFailure(
+                                            uri.info.clone(),
+                                            format!("Connection string URL parsing error\n{}", e))
+                                        ).unwrap();
+                                    }
                                 }
+                            },
+                            Err(e) => {
+                                send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(), e)).unwrap();
+                                return Inhibit(false);
                             }
                         }
                     },
                     Err(e) => {
-                        let info = extract_conn_info(&host_entry, &db_entry, &user_entry).unwrap_or_default();
+                        let info = extract_conn_info(&host_entry, &port_entry, &db_entry, &user_entry).unwrap_or_default();
                         send.send(ActiveConnectionAction::ConnectFailure(info, e)).unwrap();
                     }
                 }
             } else {
                 send.send(ActiveConnectionAction::Disconnect).unwrap();
             }
-
             Inhibit(false)
         });
     }

@@ -148,6 +148,95 @@ const TABLE_DARK_CSS : &'static str = r#"
 }
 "#;
 
+fn update_cols(tbl : &Table, grid : &Grid, max_nrows : usize) {
+    for col in 0..tbl.size().1 {
+        grid.child_at(col as i32, 1).unwrap().downcast::<Label>().unwrap()
+            .set_text(&tbl.display_lines(col, Some(max_nrows)));
+    }
+}
+
+const HEADER_DARK_CSS : &'static str =r#"
+
+"#;
+
+const DATA_DARK_CSS : &'static str =r#"
+
+"#;
+
+const HEADER_WHITE_CSS : &'static str =r#"
+label {
+  font-weight : bold;
+  border-bottom : 1px solid #dcdcdc;
+  padding-left: 10px;
+  padding-right: 10px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  border : 1px solid #F0F0F0;
+  background-color : #FFFFFF;
+}
+
+.selected {
+  background-color : #F5F6F7;
+  border : 1px solid #E9E9E9;
+}
+"#;
+
+const DATA_WHITE_CSS : &'static str = r#"
+label {
+  line-height : 39px;
+  background-color: #ffffff;
+  background-size: 1px 39px;
+  background-image: linear-gradient(0deg, #dcdcdc, #dcdcdc 1px, #ffffff 1px, #ffffff);
+  border-left : 1px solid #F0F0F0;
+  border-right : 1px solid #F0F0F0;
+}
+
+.selected {
+  background-color : #F5F6F7;
+  background-size: 1px 39px;
+  background-image: linear-gradient(0deg, #E9E9E9, #E9E9E9 1px, #F5F6F7 1px, #F5F6F7);
+  border-left : 1px solid #E9E9E9;
+  border-right : 1px solid #E9E9E9;
+}
+"#;
+
+pub fn column_label(tbl : &Table, col : usize, nrows : Option<usize>) -> Label {
+    let lbl = Label::new(Some(&tbl.display_lines(col, nrows)));
+    lbl.set_justify(Justification::Center);
+    //lbl.set_height_request(nrows.unwrap_or(tbl.nrows()) as i32*39);
+    lbl.set_vexpand(false);
+    lbl.set_hexpand(true);
+    lbl.set_halign(Align::Fill);
+    lbl.set_valign(Align::Start);
+    // let provider = CssProvider::new();
+    // provider.load_from_data(css.as_bytes());
+    // let parent_ctx = lbl.style_context();
+    // parent_ctx.add_provider(&provider,800);
+    lbl
+}
+
+fn add_header_css(lbl : &Label) {
+    let provider = CssProvider::new();
+    if libadwaita::StyleManager::default().is_dark() {
+        provider.load_from_data(HEADER_DARK_CSS.as_bytes());
+    } else {
+        provider.load_from_data(HEADER_WHITE_CSS.as_bytes());
+    }
+    let ctx = lbl.style_context();
+    ctx.add_provider(&provider,800);
+}
+
+fn add_data_css(lbl : &Label) {
+    let provider = CssProvider::new();
+    if libadwaita::StyleManager::default().is_dark() {
+        provider.load_from_data(DATA_DARK_CSS.as_bytes());
+    } else {
+        provider.load_from_data(DATA_WHITE_CSS.as_bytes());
+    }
+    let ctx = lbl.style_context();
+    ctx.add_provider(&provider,800);
+}
+
 impl TableWidget {
 
     pub fn new_from_table(tbl : &Table, max_nrows : usize, max_ncols : usize) -> Self {
@@ -155,7 +244,8 @@ impl TableWidget {
         tbl_wid.max_nrows = max_nrows;
         tbl_wid.tbl = Rc::new(tbl.clone());
         let data = tbl.text_rows(Some(max_nrows), Some(max_ncols), true, 0);
-        tbl_wid.update_data(data, true);
+        // tbl_wid.update_data(data, true);
+        tbl_wid.update_data2(&tbl, Some(max_nrows), true);
         tbl_wid
     }
 
@@ -164,14 +254,14 @@ impl TableWidget {
         // let _message = Label::new(None);
         let provider = CssProvider::new();
         
-        if libadwaita::StyleManager::default().is_dark() {
+        /*if libadwaita::StyleManager::default().is_dark() {
             provider.load_from_data(TABLE_DARK_CSS.as_bytes());
         } else {
             provider.load_from_data(TABLE_WHITE_CSS.as_bytes());
-        }
+        }*/
         
         let parent_ctx = grid.style_context();
-        parent_ctx.add_provider(&provider,800);
+        // parent_ctx.add_provider(&provider,800);
 
         // let msg = Label::new(None);
         // let box_container = Box::new(Orientation::Vertical, 0);
@@ -319,8 +409,9 @@ impl TableWidget {
                         popover.popover.popup();
                         if let Some(sorted_tbl) = tbl.sorted_by(col, true) {
                             // println!("{:?}", sorted_tbl);
-                            let new_data = sorted_tbl.text_rows(Some(nrows), Some(ncols), false, 0);
-                            tbl_wid.update_data(new_data, false);
+                            // let new_data = sorted_tbl.text_rows(Some(nrows), Some(ncols), false, 0);
+                            // tbl_wid.update_data2(&sorted_tbl, Some(nrows), false);
+                            update_cols(&sorted_tbl, &grid, max_nrows);
                         }
                     }
                     set_selected_style(grid.clone(), col, !is_selected);
@@ -355,8 +446,10 @@ impl TableWidget {
                         let num_rows = num_scale.adjustment().value() as usize;
                         if let Some(sorted_tbl) = tbl.sorted_by(sel_col, true) {
                             // let new_data = sorted_tbl.text_rows(Some(nrows), Some(ncols), false, fst_row - 1);
-                            let new_data = sorted_tbl.text_rows(Some(num_rows), Some(ncols), false, fst_row - 1);
-                            tbl_wid.update_data(new_data, false);
+                            // let new_data = sorted_tbl.text_rows(Some(num_rows), Some(ncols), false, fst_row - 1);
+                            // tbl_wid.update_data2(&sorted_tbl, Some(num_rows), false);
+                            update_cols(&sorted_tbl, &grid, num_rows);
+
                             set_selected_style(grid.clone(), sel_col, true);
                             // num_scale.adjustment().set_upper(effective - offset);
                         }
@@ -373,8 +466,9 @@ impl TableWidget {
                         let fst_row = fst_scale.adjustment().value() as usize;
                         let num_rows = adj.value() as usize;
                         if let Some(sorted_tbl) = tbl.sorted_by(sel_col, true) {
-                            let new_data = sorted_tbl.text_rows(Some(num_rows), Some(ncols), false, fst_row - 1);
-                            tbl_wid.update_data(new_data, false);
+                            // let new_data = sorted_tbl.text_rows(Some(num_rows), Some(ncols), false, fst_row - 1);
+                            // tbl_wid.update_data2(&sorted_tbl, Some(num_rows), false);
+                            update_cols(&sorted_tbl, &grid, num_rows);
                             set_selected_style(grid.clone(), sel_col, true);
                             // fst_scale.adjustment().set_upper(num_rows as f64);
                         }
@@ -393,16 +487,18 @@ impl TableWidget {
                         let fst_row = fst_scale.adjustment().value() as usize;
                         let num_rows = num_scale.adjustment().value() as usize;
                         if txt.is_empty() {
-                            let new_data = tbl.text_rows(Some(num_rows), Some(ncols), false, 0);
-                            tbl_wid.update_data(new_data, false);
+                            //let new_data = tbl.text_rows(Some(num_rows), Some(ncols), false, 0);
+                            //tbl_wid.update_data2(&tbl, Some(num_rows), false);
+                            update_cols(&tbl, &grid, num_rows);
                             set_selected_style(grid.clone(), sel_col, true);
                             fst_scale.adjustment().set_value(1.0);
                             num_scale.adjustment().set_upper(tbl.nrows().min(max_nrows) as f64);
                             num_scale.adjustment().set_value(f64::MAX);
                         } else {
                             if let Some(filtered_tbl) = tbl.filtered_by(sel_col, &txt) {
-                                let new_data = filtered_tbl.text_rows(Some(num_rows), Some(ncols), false, 0);
-                                tbl_wid.update_data(new_data, false);
+                                //let new_data = filtered_tbl.text_rows(Some(num_rows), Some(ncols), false, 0);
+                                //tbl_wid.update_data2(&filtered_tbl, Some(num_rows), false);
+                                update_cols(&filtered_tbl, &grid, num_rows);
                                 set_selected_style(grid.clone(), sel_col, true);
                                 fst_scale.adjustment().set_value(1.0);
                                 num_scale.adjustment().set_upper(filtered_tbl.nrows().min(max_nrows) as f64);
@@ -531,6 +627,39 @@ impl TableWidget {
         }
     }*/
 
+    fn update_data2(&self, tbl : &Table, num_rows : Option<usize>, include_header : bool) {
+        if include_header {
+            self.clear_table();
+        } else {
+            self.clear_table_data();
+        }
+
+        // if data.len() == 0 {
+        //    return;
+        // }
+        let (nrows, ncols) = tbl.size();
+        if nrows == 0 || ncols == 0 {
+            return;
+        }
+        if include_header {
+            self.update_table_dimensions2(ncols as i32);
+        }
+
+        // Add header
+        for (j, col) in tbl.names().drain(..).enumerate() {
+            let cell = self.create_data_cell(col.as_ref(), 0, j, nrows, ncols, include_header);
+            add_header_css(&cell);
+            self.grid.attach(&cell, j as i32, 0 as i32, 1, 1);
+        }
+
+        // Add data column
+        for j in 0..ncols {
+            let cell = column_label(&tbl, j, num_rows);
+            add_data_css(&cell);
+            self.grid.attach(&cell, j as i32, 1, 1, 1);
+        }
+    }
+
     fn update_data<I, S>(&self, mut data : Vec<I>, include_header : bool)
     where
         I : ExactSizeIterator<Item=S>,
@@ -596,6 +725,16 @@ impl TableWidget {
     fn clear_table_data(&self) {
         while self.grid.child_at(0, 1).is_some() {
             self.grid.remove_row(1);
+        }
+    }
+
+    pub fn update_table_dimensions2(&self, ncols : i32) {
+        for c in 0..ncols {
+            self.grid.insert_column(c);
+        }
+
+        for r in 0..2 {
+            self.grid.insert_row(r);
         }
     }
 

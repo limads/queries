@@ -13,6 +13,7 @@ use itertools::Itertools;
 use std::cmp::{PartialOrd, Ordering};
 use std::convert::TryInto;
 use std::str::FromStr;
+use std::fmt::Write;
 
 /// Densely packed column, where each variant is a vector of some
 /// element that implements postgres::types::ToSql.
@@ -75,6 +76,10 @@ where
             .unzip()
     };
     (ixs, U::from(vec))
+}
+
+pub fn write_binary(buffer : &mut String, s : &[u8]) {
+    s.iter().for_each(|b| write!(buffer, "{:x}\n", b).unwrap() )
 }
 
 pub fn display_binary(s : &[u8]) -> String {
@@ -401,6 +406,49 @@ impl<'a> Column {
         }
     }
     
+    pub fn write_with_precision(s : &mut String, value : f64, prec : Option<usize>) {
+        match prec {
+            Some(prec) => match prec {
+                1 => write!(s, "{:.1}\n", value).unwrap(),
+                2 => write!(s, "{:.2}\n", value).unwrap(),
+                3 => write!(s, "{:.3}\n", value).unwrap(),
+                4 => write!(s, "{:.4}\n", value).unwrap(),
+                5 => write!(s, "{:.5}\n", value).unwrap(),
+                6 => write!(s, "{:.6}\n", value).unwrap(),
+                7 => write!(s, "{:.7}\n", value).unwrap(),
+                8 => write!(s, "{:.8}\n", value).unwrap(),
+                9 => write!(s, "{:.9}\n", value).unwrap(),
+                10 => write!(s, "{:.10}\n", value).unwrap(),
+                11 => write!(s, "{:.11}\n", value).unwrap(),
+                12 => write!(s, "{:.12}\n", value).unwrap(),
+                13 => write!(s, "{:.13}\n", value).unwrap(),
+                14 => write!(s, "{:.14}\n", value).unwrap(),
+                15 => write!(s, "{:.15}\n", value).unwrap(),
+                16 => write!(s, "{:.16}\n", value).unwrap(),
+                17 => write!(s, "{:.17}\n", value).unwrap(),
+                18 => write!(s, "{:.18}\n", value).unwrap(),
+                19 => write!(s, "{:.19}\n", value).unwrap(),
+                20 => write!(s, "{:.20}\n", value).unwrap(),
+                21 => write!(s, "{:.21}\n", value).unwrap(),
+                22 => write!(s, "{:.22}\n", value).unwrap(),
+                23 => write!(s, "{:.23}\n", value).unwrap(),
+                24 => write!(s, "{:.24}\n", value).unwrap(),
+                25 => write!(s, "{:.25}\n", value).unwrap(),
+                26 => write!(s, "{:.26}\n", value).unwrap(),
+                27 => write!(s, "{:.27}\n", value).unwrap(),
+                28 => write!(s, "{:.28}\n", value).unwrap(),
+                29 => write!(s, "{:.29}\n", value).unwrap(),
+                30 => write!(s, "{:.30}\n", value).unwrap(),
+                31 => write!(s, "{:.31}\n", value).unwrap(),
+                32 => write!(s, "{:.32}\n", value).unwrap(),
+                _ => write!(s, "{}\n", value).unwrap()
+            },
+            None => {
+                write!(s, "{}\n", value).unwrap()
+            }
+        }
+    }
+
     pub fn display_content_at_index(&'a self, row_ix : usize, prec : Option<usize>) -> Cow<'a, str> {
         match &self {
             Column::Str(v) => Cow::Borrowed(&v[row_ix]),
@@ -419,6 +467,31 @@ impl<'a> Column {
             Column::Bytes(v) => Cow::Owned(display_binary(&v[row_ix])),
             Column::Nullable(col) => col.display_content_at_index(row_ix, prec)
         }
+    }
+
+    pub fn display_lines(&'a self, prec : Option<usize>, max_rows : Option<usize>) -> String {
+        let mut buffer = String::new();
+        let max_rows = max_rows.unwrap_or(usize::MAX);
+        match self {
+            Column::Bool(v) => v.iter().take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
+            Column::I8(v) => v.iter().take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
+            Column::I16(v) => v.iter().take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
+            Column::I32(v) => v.iter().take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
+            Column::U32(v) => v.iter().take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
+            Column::I64(v) => v.iter().take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
+            Column::F32(v) => v.iter().take(max_rows).for_each(|e| Self::write_with_precision(&mut buffer, *e as f64, prec) ),
+            Column::F64(v) => v.iter().take(max_rows).for_each(|e| Self::write_with_precision(&mut buffer, *e as f64, prec) ),
+            Column::Numeric(v) => v.iter().take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
+            Column::Str(v) => v.iter().take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
+            Column::Json(v) => v.iter().take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", json_to_string(e) ).unwrap() ),
+            Column::Bytes(v) => v.iter().take(max_rows).for_each(|e| write_binary(&mut buffer, &e) ),
+            Column::Nullable(col) => { buffer = col.display_lines(prec, Some(max_rows)); }
+        }
+
+        // Ignore last line break
+        buffer.truncate(buffer.len()-1);
+
+        buffer
     }
 
     pub fn display_content(&'a self, prec : Option<usize>) -> Vec<String> {

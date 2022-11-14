@@ -14,7 +14,7 @@ use queries::*;
 use queries::client::*;
 use queries::ui::*;
 
-fn register_resource() {
+fn register_resources() {
     let bytes = glib::Bytes::from_static(include_bytes!(concat!(env!("OUT_DIR"), "/", "compiled.gresource")));
     let resource = gio::Resource::from_data(&bytes).unwrap();
     gio::resources_register(&resource);
@@ -22,7 +22,7 @@ fn register_resource() {
 
 fn main() {
 
-    register_resource();
+    register_resources();
     
     if let Err(e) = gtk4::init() {
         eprintln!("{}", e);
@@ -52,7 +52,7 @@ fn main() {
     // the window is closed. We have to do this because client is moved to the connect_activate
     // closure, but we need to keep a reference to its state after that happens.
     let script_final_state = client.scripts.final_state();
-    let conn_final_state = client.conn_set.final_state();
+    // let conn_final_state = client.conn_set.final_state();
 
     application.set_accels_for_action("win.save_file", &["<Ctrl>S"]);
     application.set_accels_for_action("win.open_file", &["<Ctrl>O"]);
@@ -90,8 +90,8 @@ fn main() {
             user_state.react(&queries_win);
 
             client.conn_set.react(&queries_win.content.results.overview.conn_list);
-            client.conn_set.react(&client.active_conn);
-            client.conn_set.react(&queries_win);
+            // client.conn_set.react(&client.active_conn);
+            // client.conn_set.react(&queries_win);
             client.conn_set.react(&queries_win.content.results.overview.conn_bx);
             client.active_conn.react(&queries_win.content.results.overview.conn_bx);
             client.active_conn.react(&queries_win.titlebar.exec_btn);
@@ -107,6 +107,8 @@ fn main() {
             queries_win.content.results.overview.conn_list.react(&client.conn_set);
             queries_win.content.results.overview.conn_list.react(&client.active_conn);
             queries_win.content.results.overview.conn_bx.react(&client.active_conn);
+            queries_win.content.results.overview.sec_bx.react(&client.conn_set);
+            queries_win.content.results.overview.sec_bx.react(&queries_win.settings);
             queries_win.content.results.workspace.react(&client.env);
 
             queries_win.sidebar.schema_tree.react(&client.active_conn);
@@ -145,7 +147,7 @@ fn main() {
             queries_win.window.add_action(&queries_win.find_dialog.replace_all_action);
 
             queries_win.content.editor.react(&queries_win.settings);
-            user_state.react(&client.conn_set);
+            // user_state.react(&client.conn_set);
             user_state.react(&client.scripts);
 
             // It is important to make this call to add scripts and connections
@@ -164,7 +166,7 @@ fn main() {
     application.run();
 
     user_state.replace_with(|user_state| {
-        user_state.conns = conn_final_state.borrow().clone();
+        // user_state.conns = conn_final_state.borrow().clone();
         user_state.scripts = script_final_state.borrow().recent.clone();
         user_state.clone()
     });

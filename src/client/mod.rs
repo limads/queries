@@ -18,7 +18,7 @@ impl QueriesClient {
 
     pub fn new(user_state : &SharedUserState) -> Self {
         let client = Self {
-            conn_set : ConnectionSet::new(),
+            conn_set : ConnectionSet::new(user_state),
             active_conn : ActiveConnection::new(user_state),
             env : Environment::new(user_state),
             scripts : OpenedScripts::new(),
@@ -31,9 +31,10 @@ impl QueriesClient {
         // signals is called. Note nothing is done here because the MainLoop hasn't been
         // started yet, but those actions are queued for when it does and the
         // state is re-updated accordingly.
-        for conn in mem::take(&mut state.conns) {
-            client.conn_set.send.send(ConnectionAction::Add(Some(conn.clone()))).unwrap();
-        }
+        // for conn in mem::take(&mut state.conns) {
+        //    client.conn_set.send.send(ConnectionAction::Add(Some(conn.clone()))).unwrap();
+        // }
+
         for script in mem::take(&mut state.scripts) {
             client.scripts.sender().send(MultiArchiverAction::Add(script.clone())).unwrap();
         }

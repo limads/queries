@@ -23,6 +23,7 @@ use std::cmp::{Eq, PartialEq};
 use quick_xml::Reader;
 use quick_xml::events::{Event };
 use crate::tables::nullable::NullableColumn;
+use std::ops::Index;
 
 #[derive(Debug, Clone)]
 pub struct TableSource {
@@ -135,6 +136,16 @@ pub enum HTMLTag {
     TH,
     TBody,
     TD,
+}
+
+impl Index<usize> for Table {
+
+    type Output=Column;
+
+    fn index(&self, ix : usize) -> &Column {
+        &self.cols[ix]
+    }
+
 }
 
 impl Table {
@@ -630,6 +641,10 @@ impl Table {
         self.cols.iter().map(|c| c.sqlite3_type().to_string()).collect()
     }
 
+    pub fn display_lines(&self, col_ix : usize, max_rows : Option<usize>) -> String {
+        self.cols[col_ix].display_lines(self.format.prec, max_rows)
+    }
+
     pub fn sql_table_creation(&self, name : &str, _cols : &[String]) -> Option<String> {
         let mut query = format!("CREATE TABLE {}(", name);
         for (i, (name, col)) in self.names.iter().zip(self.cols.iter()).enumerate() {
@@ -856,6 +871,10 @@ impl Table {
         ooxml += "</table:table>";
 
         ooxml
+    }
+
+    pub fn size(&self) -> (usize, usize) {
+        (self.nrows, self.cols.len())
     }
 
     pub fn shape(&self) -> (usize, usize) {

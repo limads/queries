@@ -594,25 +594,39 @@ impl React<QueriesEditor> for FindDialog {
             let (replace_btn, replace_all_btn) = (self.replace_btn.clone(), self.replace_all_btn.clone());
             self.find_action.connect_activate(move |action, _| {
                 if let Some(ix) = get_index(&action) {
+                    let txt = find_entry.text().to_string();
                     if let Ok(mut ctx) = ctx.try_borrow_mut() {
-                        let txt = find_entry.text().to_string();
-                        if let Some(new_ctx) = start_search(&views[ix], &txt) {
-                            *ctx = Some((new_ctx, None, None));
+                        if txt.is_empty() {
+                            if let Some(new_ctx) = clear_search(&views[ix]) {
+                                *ctx = Some((new_ctx, None, None));
+                            } else {
+                                eprintln!("Unable to get text buffer to create search context");
+                            }
                         } else {
-                            eprintln!("Unable to get text buffer to create search context");
+                            if let Some(new_ctx) = start_search(&views[ix], &txt) {
+                                *ctx = Some((new_ctx, None, None));
+                            } else {
+                                eprintln!("Unable to get text buffer to create search context");
+                            }
                         }
                     } else {
                         eprintln!("Unable to borrow search context");
                     }
 
-                    let n_found = move_match(&views[ix], &ctx, &matches_lbl, true);
-                    let sensitive = if let Some(n_found) = n_found {
-                        n_found >= 1
+                    if txt.is_empty() {
+                        matches_lbl.set_text(NO_MATCHES);
+                        replace_btn.set_sensitive(false);
+                        replace_all_btn.set_sensitive(false);
                     } else {
-                        false
-                    };
-                    replace_btn.set_sensitive(sensitive);
-                    replace_all_btn.set_sensitive(sensitive);
+                        let n_found = move_match(&views[ix], &ctx, &matches_lbl, true);
+                        let sensitive = if let Some(n_found) = n_found {
+                            n_found >= 1
+                        } else {
+                            false
+                        };
+                        replace_btn.set_sensitive(sensitive);
+                        replace_all_btn.set_sensitive(sensitive);
+                    }
                 } else {
                     eprintln!("No index available");
                 }
@@ -627,8 +641,10 @@ impl React<QueriesEditor> for FindDialog {
                 let new_txt = replace_entry.text().to_string();
                 let mut ctx = ctx.borrow_mut();
                 if let Some((ref ctx, Some(ref mut start), Some(ref mut end))) = &mut *ctx {
-                    if let Err(e) = ctx.replace(start, end, &new_txt[..]) {
-                        eprintln!("{}", e);
+                    if ctx.settings().search_text().is_some() {
+                        if let Err(e) = ctx.replace(start, end, &new_txt[..]) {
+                            eprintln!("{}", e);
+                        }
                     }
                 }
                 *ctx = None;
@@ -644,9 +660,11 @@ impl React<QueriesEditor> for FindDialog {
                 let new_txt = replace_all_entry.text().to_string();
                 let mut ctx = ctx.borrow_mut();
                 if let Some((ref ctx, _, _)) = &*ctx {
-                    match ctx.replace_all(&new_txt[..]) {
-                        Ok(_n) => { },
-                        Err(e) => { eprintln!("{}", e) }
+                    if ctx.settings().search_text().is_some() {
+                        match ctx.replace_all(&new_txt[..]) {
+                            Ok(_n) => { },
+                            Err(e) => { eprintln!("{}", e) }
+                        }
                     }
                 }
                 *ctx = None;
@@ -658,12 +676,26 @@ impl React<QueriesEditor> for FindDialog {
             let find_btn = self.find_btn.clone();
             let replace_btn = self.replace_btn.clone();
             let replace_all_btn = self.replace_all_btn.clone();
+            let ctx = ctx.clone();
+            let views = editor.views.clone();
+            let find_action = self.find_action.clone();
             self.find_entry.connect_changed(move |entry| {
                 let txt = entry.text().to_string();
                 let sensitive = txt.len() >= 1;
                 find_btn.set_sensitive(sensitive);
                 replace_btn.set_sensitive(false);
                 replace_all_btn.set_sensitive(false);
+                if txt.is_empty() {
+                    if let Some(ix) = get_index(&find_action) {
+                        if let Ok(mut ctx) = ctx.try_borrow_mut() {
+                            if let Some(new_ctx) = clear_search(&views[ix]) {
+                                *ctx = Some((new_ctx, None, None));
+                            } else {
+                                eprintln!("Unable to get text buffer to create search context");
+                            }
+                        }
+                    }
+                }
             });
         }
 
@@ -730,6 +762,16 @@ impl React<OpenedScripts> for FindDialog {
 }
 
 const NO_MATCHES : &'static str = "Matches : 0";
+
+fn clear_search(view : &View) -> Option<SearchContext> {
+    let buffer = view.buffer();
+    let settings = SearchSettings::new();
+    settings.set_search_text(None);
+    settings.set_wrap_around(true);
+    let downcasted_buffer : Buffer = buffer.clone().downcast().unwrap();
+    let new_ctx = SearchContext::new(&downcasted_buffer, Some(&settings));
+    Some(new_ctx)
+}
 
 fn start_search(view : &View, txt : &str) -> Option<SearchContext> {
     let buffer = view.buffer();
@@ -850,5 +892,6 @@ impl React<QueriesSettings> for QueriesEditor {
     }
 
 }
+
 
 

@@ -438,32 +438,33 @@ pub fn require_insert_n(stmt : &AnyStatement, ncols : usize, nrows : usize) -> R
 pub fn build_statement_result(any_stmt : &AnyStatement, n : usize) -> StatementOutput {
     match any_stmt {
         AnyStatement::Parsed(stmt, _) => match stmt {
-            Statement::CreateView{..} => StatementOutput::Modification(format!("Create view")),
+            Statement::CreateView{..} => StatementOutput::Modification(format!("CREATE VIEW")),
             Statement::CreateTable{..} | Statement::CreateVirtualTable{..} => {
-                StatementOutput::Modification(format!("Create table"))
+                StatementOutput::Modification(format!("CREATE TABLE"))
             },
 
             Statement::CreateFunction{ .. } => {
-                StatementOutput::Modification(format!("Create function"))
+                StatementOutput::Modification(format!("CREATE FUNCTION"))
             },
 
-            Statement::CreateIndex{..} => StatementOutput::Modification(format!("Create index")),
-            Statement::CreateSchema{..} => StatementOutput::Modification(format!("Create schema")),
-            Statement::AlterTable{..} => StatementOutput::Modification(format!("Alter table")),
+            Statement::CreateIndex{..} => StatementOutput::Modification(format!("CREATE INDEX")),
+            Statement::CreateSchema{..} => StatementOutput::Modification(format!("CREATE SCHEMA")),
+            Statement::AlterTable{..} => StatementOutput::Modification(format!("ALTER TABLE")),
             Statement::Drop{ object_type, ..} => {
                 let drop_msg = match object_type {
-                    ObjectType::Table => "Drop table",
-                    ObjectType::View => "Drop view",
-                    ObjectType::Index => "Drop index",
-                    ObjectType::Schema => "Drop schema",
-                    ObjectType::Role => "Drop role",
+                    ObjectType::Table => "DROP TABLE",
+                    ObjectType::View => "DROP VIEW",
+                    ObjectType::Index => "DROP INDEX",
+                    ObjectType::Schema => "DROP SCHEMA",
+                    ObjectType::Role => "DROP ROLE",
+                    ObjectType::Sequence => "DROP SEQUENCE"
                 };
                 StatementOutput::Modification(format!("{}", drop_msg))
             },
             Statement::Truncate { .. } => {
-                StatementOutput::Statement(format!("Truncate"))
+                StatementOutput::Statement(format!("TRUNCATE"))
             },
-            Statement::Copy{..} => StatementOutput::Modification(format!("Copy")),
+            Statement::Copy{..} => StatementOutput::Modification(format!("COPY")),
             Statement::Insert { .. } => {
                 StatementOutput::Statement(format!("{} row(s) inserted", n))
             },
@@ -489,34 +490,34 @@ pub fn build_statement_result(any_stmt : &AnyStatement, n : usize) -> StatementO
             if let (Some(p1), Some(p2), Some(p3)) = prefix {
                 match (&p1[..], &p2[..], &p3[..]) {
                     ("create", "table", _) | ("create", "virtual", "table") | ("create", "temporary", "table") => {
-                        return StatementOutput::Modification(format!("Create table"));
+                        return StatementOutput::Modification(format!("CREATE TABLE"));
                     },
                     ("drop", "table", _) => {
-                        return StatementOutput::Modification(format!("Drop table"));
+                        return StatementOutput::Modification(format!("DROP TABLE"));
                     },
                     ("alter", "table", _) => {
-                        return StatementOutput::Modification(format!("Alter table"));
+                        return StatementOutput::Modification(format!("ALTER TABLE"));
                     },
                     ("create", "schema", _) => {
-                        return StatementOutput::Modification(format!("Create schema"));
+                        return StatementOutput::Modification(format!("CREATE SCHEMA"));
                     },
                     ("create", "view", _) => {
-                        return StatementOutput::Modification(format!("Create view"));
+                        return StatementOutput::Modification(format!("CREATE VIEW"));
                     },
                     ("create", "procedure", _) => {
-                        return StatementOutput::Modification(format!("Create procedure"));
+                        return StatementOutput::Modification(format!("CREATE PROCEDURE"));
                     },
                     ("create",  "function", _) => {
-                        return StatementOutput::Modification(format!("Create function"));
+                        return StatementOutput::Modification(format!("CREATE FUNCTION"));
                     },
                     ("drop", "function", _) => {
-                        return StatementOutput::Modification(format!("Drop function"));
+                        return StatementOutput::Modification(format!("DROP FUNCTION"));
                     },
                     ("drop", "procedure", _) => {
-                        return StatementOutput::Modification(format!("Drop procedure"));
+                        return StatementOutput::Modification(format!("DROP PROCEDURE"));
                     },
                     ("drop", "view", _) => {
-                        return StatementOutput::Modification(format!("Drop view"));
+                        return StatementOutput::Modification(format!("DROP VIEW"));
                     },
                     ("insert", _, _) => {
                         return StatementOutput::Statement(format!("{} row(s) inserted", n));
@@ -536,7 +537,7 @@ pub fn build_statement_result(any_stmt : &AnyStatement, n : usize) -> StatementO
         AnyStatement::Local(local) => {
             match local {
                 LocalStatement::Copy(_) => {
-                    StatementOutput::Modification(format!("Copy"))
+                    StatementOutput::Modification(format!("COPY"))
                 },
                 LocalStatement::Decl(_) | LocalStatement::Exec(_) => {
                     StatementOutput::Empty
@@ -641,7 +642,6 @@ pub fn build_error_with_stmt(msg : &str, query : &str) -> String {
 
 pub fn parse_sql(sql : &str, subs : &HashMap<String, String>) -> Result<Vec<Statement>, String> {
     let sql = substitute_if_required(sql, subs);
-    //let dialect = PostgreSqlDialect {};
     let dialect = PostgreSqlDialect {};
     Parser::parse_sql(&dialect, &sql[..])
         .map_err(|e| {

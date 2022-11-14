@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   height="16px"
+   viewBox="0 0 16 16"
+   width="16px"
+   version="1.1"
+   id="svg4"
+   sodipodi:docname="padlock2-open-symbolic.svg"
+   inkscape:version="1.1.2 (0a00cf5339, 2022-02-04)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs8" />
+  <sodipodi:namedview
+     id="namedview6"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     showgrid="false"
+     inkscape:zoom="20.082996"
+     inkscape:cx="17.776233"
+     inkscape:cy="6.3984479"
+     inkscape:window-width="1920"
+     inkscape:window-height="1016"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg4" />
+  <path
+     id="path2"
+     d="M 5.3575752,7.0136719 C 4.3581248,7.1272379 3.588044,7.9687938 3.588044,9 v 5 c 0,0.554688 0.445312,1 1,1 h 10 c 0.554688,0 1,-0.445312 1,-1 V 9 c 0,-1.0312062 -0.770081,-1.8727621 -1.769531,-1.9863281 z"
+     style="fill:#000000" />
+  <path
+     id="path2-3"
+     d="m 3.9959693,1.0136719 c -2.1992192,0 -4.00000017,1.800781 -4.00000017,4 v 2 H 1.9959691 v -2 c 0,-1.125 0.8750002,-2 2.0000002,-2 1.125,0 2,0.875 2,2 v 2 h 2 v -2 c 0,-2.199219 -1.800781,-4 -4,-4 z"
+     style="fill:#000000" />
+</svg>

@@ -16,11 +16,14 @@ use libadwaita::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 use serde::{Serialize, Deserialize};
+use libadwaita::ExpanderRow;
+use crate::client::*;
+use itertools::Itertools;
 
 #[derive(Debug, Clone)]
 pub struct SettingsWindow {
-    dialog : Dialog,
-    _list : ListBox,
+    pub dialog : Dialog,
+    pub list : ListBox,
     stack : Stack,
     _paned : Paned
 }
@@ -72,7 +75,7 @@ impl SettingsWindow {
         paned.set_start_child(Some(&list));
         paned.set_end_child(Some(&stack));
         dialog.set_child(Some(&paned));
-        Self { dialog, _list : list, stack, _paned : paned }
+        Self { dialog, list : list, stack, _paned : paned }
     }
 
 }
@@ -125,7 +128,8 @@ impl<W: IsA<Widget>> NamedBox<W> {
 pub struct ConnBox {
     list : ListBox,
     pub app_name_entry : Entry,
-    pub timeout_scale : Scale
+    pub timeout_scale : Scale,
+    pub save_switch : Switch
 }
 
 impl ConnBox {
@@ -141,7 +145,11 @@ impl ConnBox {
         list.append(&NamedBox::new("Application name", Some("Name used to identify the client application\nto the server."), app_name_entry.clone()).bx);
         list.append(&NamedBox::new("Connection timeout", Some("Maximum number of seconds to wait for a server\nreply when establishing connections"), timeout_scale.clone()).bx);
         set_all_not_selectable(&list);
-        Self { app_name_entry, timeout_scale, list }
+        let save_row = ListBoxRow::new();
+        save_row.set_selectable(false);
+        let save_switch = Switch::new();
+        list.append(&NamedBox::new("Remember credentials", Some("Store credentials (except passwords)\nand load them at future sessions"), save_switch.clone()).bx);
+        Self { app_name_entry, timeout_scale, list, save_switch  }
     }
     
 }
@@ -358,191 +366,6 @@ impl EditableCombo {
 
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy, Hash)]
-pub enum SSLMode {
-
-    #[serde(rename="require")]
-    Require,
-    
-    #[serde(rename="verify-ca")]
-    VerifyCA,
-    
-    #[serde(rename="verify-full")]
-    VerifyFull
-}
-
-impl std::string::ToString for SSLMode {
-
-    fn to_string(&self) -> String {
-        match self {
-            Self::Require => format!("require"),
-            Self::VerifyCA => format!("verify-ca"),
-            Self::VerifyFull => format!("verify-full")
-        }
-    }
-    
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct TlsVersion {
-    pub major : usize,
-    pub minor : usize
-}
-
-impl std::string::ToString for TlsVersion {
-
-    fn to_string(&self) -> String {
-        format!("{}.{}", self.major, self.minor)
-    }
-    
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Certificate {
-    pub host : String,
-    pub cert : String,
-    pub min_version : TlsVersion
-}
-
-#[derive(Debug, Clone)]
-pub struct SecurityBox {
-    pub list : ListBox,
-    pub scrolled : ScrolledWindow,
-    pub cert_added : gio::SimpleAction,
-    pub cert_removed : gio::SimpleAction,
-    pub exp_row : libadwaita::ExpanderRow,
-    pub save_switch : Switch,
-    pub version_combo : ComboBoxText,
-   
-    // pub ssl_switch : Switch,
-
-    // TODO remove the rows list if/when libadwaita API allows recovering the ExpanderRow rows.
-    // While this is not possible, we must keep a shared reference to the rows to remove
-    // them.
-    pub rows : Rc<RefCell<Vec<ListBoxRow>>>
-
-}
-
-fn validate((host, cert, _mode) : &(String, String, TlsVersion), rows : &[ListBoxRow]) -> bool {
-
-    for row in rows.iter() {
-        let bx = row.child().unwrap().clone().downcast::<Box>().unwrap();
-        let bx_entries = super::get_child_by_index::<Box>(&bx, 0);
-        let bx_top = super::get_child_by_index::<Box>(&bx_entries, 0);
-        let lbl = super::get_child_by_index::<Label>(&bx_top, 1);
-        if &lbl.text()[..] == &host[..] {
-            return false;
-        }
-    }
-
-    !host.is_empty() && cert.chars().count() > 4 /*&& cert.ends_with(".crt") || cert.ends_with(".pem") */
-}
-
-pub fn append_certificate_row(
-    exp_row : libadwaita::ExpanderRow, 
-    host : &str, 
-    cert : &str, 
-    min_version : TlsVersion, 
-    rows : &Rc<RefCell<Vec<ListBoxRow>>>,
-    cert_added : &gio::SimpleAction,
-    cert_removed : &gio::SimpleAction
-) {
-
-    let mut cert_str = cert.to_string();
-    cert_str += &format!(" (≥ TLS {})", min_version.to_string());
-    
-    let lbl_host = Label::new(Some(host));
-    let lbl_cert = Label::new(Some(&cert_str));
-
-    super::set_margins(&lbl_host, 0, 12);
-    super::set_margins(&lbl_cert, 0, 12);
-    let host_img = Image::from_icon_name("preferences-system-network-proxy-symbolic");
-    let cert_img = Image::from_icon_name("application-certificate-symbolic");
-    super::set_margins(&host_img, 12, 0);
-    super::set_margins(&cert_img, 12, 0);
-
-    let row = ListBoxRow::new();
-    row.set_selectable(false);
-    let bx = Box::new(Orientation::Horizontal, 0);
-    
-    let bx_top = Box::new(Orientation::Horizontal, 0);
-    bx_top.append(&host_img);
-    bx_top.append(&lbl_host);
-    bx_top.set_hexpand(true);
-    bx_top.set_halign(Align::Start);
-    
-    let bx_bottom = Box::new(Orientation::Horizontal, 0);
-    bx_bottom.append(&cert_img);
-    bx_bottom.append(&lbl_cert);
-    bx_bottom.set_hexpand(true);
-    bx_bottom.set_halign(Align::Start);
-    
-    row.set_child(Some(&bx));
-    exp_row.add_row(&row);
-    rows.borrow_mut().push(row.clone());
-
-    let ev = EventControllerMotion::new();
-    let exclude_btn = Button::builder().icon_name("user-trash-symbolic").build();
-    exclude_btn.set_hexpand(false);
-    exclude_btn.set_halign(Align::End);
-    exclude_btn.style_context().add_class("flat");
-    
-    let bx_entries = Box::new(Orientation::Vertical, 0);
-    bx_entries.append(&bx_top);
-    bx_entries.append(&bx_bottom);
-    bx_entries.set_hexpand(true);
-    bx_entries.set_halign(Align::Fill);
-    bx.append(&bx_entries);
-    bx.append(&exclude_btn);
-
-    // Account for exclude btn space
-    lbl_cert.set_margin_end(34);
-    exclude_btn.set_visible(false);
-    
-    ev.connect_enter({
-        let exclude_btn = exclude_btn.clone();
-        let lbl_cert = lbl_cert.clone();
-        move |_, _, _| {
-            exclude_btn.set_visible(true);
-            lbl_cert.set_margin_end(0);
-        }
-    });
-    ev.connect_leave({
-        let exclude_btn = exclude_btn.clone();
-        let lbl_cert = lbl_cert.clone();
-        move |_| {
-            let w = exclude_btn.allocation().width();
-            exclude_btn.set_visible(false);
-            lbl_cert.set_margin_end(w);
-        }
-    });
-    row.add_controller(&ev);
-    exclude_btn.connect_clicked({
-        let exp_row = exp_row.clone();
-        let rows = rows.clone();
-        let host = host.to_string();
-        let cert = cert.to_string();
-        let cert_removed = cert_removed.clone();
-        move |_| {
-            exp_row.remove(&row);
-            let mut rows = rows.borrow_mut();
-            if let Some(ix) = rows.iter().position(|r| r == &row) {
-                rows.remove(ix);
-            }
-
-            cert_removed.activate(
-                Some(&serde_json::to_string(&Certificate {
-                    host : host.clone(),
-                    cert : cert.clone(),
-                    min_version
-                }).unwrap().to_variant())
-            );
-        }
-    });
-    
-    cert_added.activate(Some(&serde_json::to_string(&Certificate { host : host.to_string(), min_version, cert : cert.to_string() }).unwrap().to_variant()));
-}
-
 pub fn set_all_not_selectable(list : &ListBox) {
     let mut ix = 0;
     while let Some(r) = list.row_at_index(ix) {
@@ -551,217 +374,345 @@ pub fn set_all_not_selectable(list : &ListBox) {
     }
 }
 
+const TLS_DISABLED : &'static str = "Disabled";
+
 const TLS_V10 : &'static str = "≥ TLS 1.0";
 
 const TLS_V11 : &'static str = "≥ TLS 1.1";
 
 const TLS_V12 : &'static str = "≥ TLS 1.2";
 
+/* A security settings row, generated dynamically every time
+the settings window is opened. */
+#[derive(Debug, Clone)]
+pub struct SecurityRow {
+    pub exp_row : ExpanderRow,
+    pub tls_combo : ComboBoxText,
+    pub hostname_switch : Switch,
+    pub cert_entry : Entry
+}
+
+const TLS_MSG : &'static str =
+r#"Connecting with TLS disabled is only supported
+for hosts accessible locally or through a private network."#;
+
+const HOSTNAME_MSG : &'static str =
+r#"Disabling verification is discouraged,
+unless you are in a trusted network."#;
+
+const CERT_MSG : &'static str =
+r#"Path to the root certificate
+(.crt or .pem file)."#;
+
+/* The security settings work a bit differently, since its menu is generated
+dynamically every time the settings window is opened. Any changes in the new
+dynamically generated security form calls the security_update action carrying
+this serialized enum as its parameter. The SharedUserState then listen for
+the activated signal in this enum. */
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SecurityChange {
+    Hostname { host : String, verify : Option<bool> },
+    TLSVersion { host : String, version : Option<TlsVersion> },
+    Certificate { host : String, path : Option<String> }
+}
+
+impl SecurityChange {
+
+    pub fn host(&self) -> &str {
+        match self {
+            SecurityChange::Hostname { ref host, .. } => &host[..],
+            SecurityChange::TLSVersion { ref host, .. } => &host[..],
+            SecurityChange::Certificate { ref host, .. } => &host[..]
+        }
+    }
+
+}
+
+/* If this connection has a hostname that matches the hostname
+targeted by the change, modify it. Keep it unchanged otherwise.
+Returns a bool specifying whether it was modified. */
+pub fn try_modify_security_for_conn(
+    conn : &mut ConnectionInfo,
+    change : &SecurityChange
+) -> bool {
+    match change {
+
+        SecurityChange::TLSVersion { ref host, version } => {
+            if &host[..] == &conn.host[..] {
+                conn.security.tls_version = version.clone();
+                if version.is_none() {
+                    conn.security.cert_path = None;
+                    conn.security.verify_hostname = None;
+                }
+                true
+            } else {
+                false
+            }
+        },
+        SecurityChange::Hostname { ref host, verify } => {
+            if &host[..] == &conn.host[..] {
+                if (conn.security.tls_version.is_some() && verify.is_some()) ||
+                    verify.is_none()
+                {
+                    conn.security.verify_hostname = verify.clone();
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        },
+
+        SecurityChange::Certificate { ref host, path } => {
+            if &host[..] == &conn.host[..] {
+                if (conn.security.tls_version.is_some() && path.is_some()) ||
+                    path.is_none()
+                {
+                    conn.security.cert_path = path.clone();
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        }
+
+    }
+}
+
+fn update_security_row_info(exp_row : &ExpanderRow, info : &ConnectionInfo) {
+    exp_row.set_title(&info.host);
+    exp_row.set_subtitle(&info.description());
+    let icon = match info.security.tls_version.is_some() {
+        true => "padlock2-symbolic",
+        false => "padlock2-open-symbolic"
+    };
+    exp_row.set_icon_name(Some(icon));
+}
+
+impl SecurityRow {
+
+    pub fn new(info : ConnectionInfo, action : &gio::SimpleAction) -> Self {
+        let exp_row = libadwaita::ExpanderRow::new();
+        exp_row.set_selectable(false);
+        update_security_row_info(&exp_row, &info);
+        let tls_combo = ComboBoxText::new();
+        let hostname_switch = Switch::new();
+        let cert_entry = Entry::new();
+        cert_entry.set_sensitive(info.security.tls_version.is_some());
+        hostname_switch.set_sensitive(info.security.tls_version.is_some());
+        cert_entry.set_primary_icon_name(Some("application-certificate-symbolic"));
+        cert_entry.set_placeholder_text(Some("~/certificate.pem"));
+        cert_entry.set_max_width_chars(40);
+
+        let enc_bx = NamedBox::new("Encryption protocol", Some(TLS_MSG), tls_combo.clone());
+        let cert_bx = NamedBox::new("Certificate path", Some(CERT_MSG), cert_entry.clone());
+        let hostname_bx = NamedBox::new("Verify hostname", Some(HOSTNAME_MSG), hostname_switch.clone());
+        let rows = [ListBoxRow::new(), ListBoxRow::new(), ListBoxRow::new()];
+        rows[0].set_child(Some(&enc_bx.bx));
+        rows[1].set_child(Some(&cert_bx.bx));
+        rows[2].set_child(Some(&hostname_bx.bx));
+        for r in &rows {
+            r.set_selectable(false);
+            r.set_activatable(false);
+            exp_row.add_row(r);
+        }
+        for (id, mode) in [("0", TLS_DISABLED), ("1", TLS_V10), ("2", TLS_V11), ("3", TLS_V12)] {
+            tls_combo.append(Some(id), mode);
+        }
+        if let Some(path) = info.security.cert_path.as_ref() {
+            cert_entry.set_text(&path[..]);
+        } else {
+            cert_entry.set_text("");
+        }
+        if let Some(verify) = info.security.verify_hostname {
+            hostname_switch.set_state(verify);
+        } else {
+            hostname_switch.set_state(false);
+        }
+        match info.security.tls_version {
+            None => {
+                tls_combo.set_active_id(Some("0"));
+            },
+            Some(TlsVersion { major : 1, minor : 0 }) => {
+                tls_combo.set_active_id(Some("1"));
+            },
+            Some(TlsVersion { major : 1, minor : 1 }) => {
+                tls_combo.set_active_id(Some("2"));
+            },
+            Some(TlsVersion { major : 1, minor : 2 }) => {
+                tls_combo.set_active_id(Some("3"));
+            },
+            _ => {
+                tls_combo.set_active_id(Some("3"));
+            }
+        }
+        tls_combo.connect_changed({
+            let action = action.clone();
+            let exp_row = exp_row.clone();
+            let host = info.host.to_string();
+            let cert_entry = cert_entry.clone();
+            let hostname_switch = hostname_switch.clone();
+            move |tls_combo| {
+                let active_txt = tls_combo.active_text();
+                if let Some(txt) = active_txt {
+                    let (version, icon) = match &txt[..] {
+                        TLS_DISABLED => {
+                            (None, "padlock2-open-symbolic")
+                        },
+                        TLS_V10 => {
+                            (Some(TlsVersion { major : 1, minor : 0 }), "padlock2-symbolic")
+                        },
+                        TLS_V11 => {
+                            (Some(TlsVersion { major : 1, minor : 1 }), "padlock2-symbolic")
+                        },
+                        TLS_V12 => {
+                            (Some(TlsVersion { major : 1, minor : 2 }), "padlock2-symbolic")
+                        },
+                        _ => {
+                            (Some(TlsVersion { major : 1, minor : 2 }), "padlock2-symbolic")
+                        }
+                    };
+                    exp_row.set_icon_name(Some(icon));
+
+                    // Those changes should be done before the state is updated,
+                    // since the update signal will be sent from the callback of the
+                    // hostname and cert widgets, and will be reject unless the encryption
+                    // state is active.
+                    if version.is_none() {
+                        if hostname_switch.is_active() {
+                            hostname_switch.set_active(false);
+                        }
+                        if !cert_entry.text().is_empty() {
+                            cert_entry.set_text("");
+                        }
+                        hostname_switch.set_sensitive(false);
+                        cert_entry.set_sensitive(false);
+                    }
+
+                    // Do the actual encryption change.
+                    let change = SecurityChange::TLSVersion { host : host.clone(), version };
+                    action.activate(Some(&serde_json::to_string(&change).unwrap().to_variant()));
+
+                    // This is a non-encrypted -> encrypted change. Set the
+                    // hostname verification to true, according to the default
+                    // security setting. If hostname switch is sensitive, however,
+                    // keep the current switch state.
+                    if version.is_some() && !hostname_switch.is_sensitive() {
+                        hostname_switch.set_sensitive(true);
+                        hostname_switch.set_active(true);
+                    }
+                    if version.is_some() && !cert_entry.is_sensitive() {
+                        cert_entry.set_sensitive(true);
+                        cert_entry.set_text("");
+                    }
+                }
+            }
+        });
+        cert_entry.connect_changed({
+            let action = action.clone();
+            let host = info.host.to_string();
+            move |entry| {
+                let txt = entry.buffer().text().to_string();
+                let opt_cert = if txt.is_empty() {
+                    None
+                } else {
+                    Some(txt.to_string())
+                };
+                let change = SecurityChange::Certificate { host : host.clone(), path : opt_cert };
+                action.activate(Some(&serde_json::to_string(&change).unwrap().to_variant()));
+            }
+        });
+        hostname_switch.connect_state_set({
+            let action = action.clone();
+            let host = info.host.to_string();
+            let exp_row = exp_row.clone();
+            move |switch, _| {
+                let change = SecurityChange::Hostname { host : host.clone(), verify : Some(switch.is_active()) };
+                action.activate(Some(&serde_json::to_string(&change).unwrap().to_variant()));
+                Inhibit(false)
+            }
+        });
+
+        // Update exp_row info if change is applicable to this ConnectionInfo.
+        let info = Rc::new(RefCell::new(info));
+        action.connect_activate({
+            let exp_row = exp_row.clone();
+            let info = info.clone();
+            move |_, param| {
+                if let Some(param) = param {
+                    let change : SecurityChange = serde_json::from_str(&param.get::<String>().unwrap()).unwrap();
+                    let mut info = info.borrow_mut();
+                    if try_modify_security_for_conn(&mut info, &change) {
+                        update_security_row_info(&exp_row, &info);
+                    }
+                }
+
+            }
+        });
+
+        /*// Verify if the user state is consistent. This assumes the call order
+        // of this callback is always after the
+        action.connect_activate({
+            let info = info.clone();
+            move |_, param| {
+                if let Some(param) = param {
+                    let change : SecurityChange = serde_json::from_str(&param.get::<String>().unwrap()).unwrap();
+                    let info = info.borrow_mut();
+            }
+        });*/
+
+        Self { exp_row, tls_combo, hostname_switch, cert_entry }
+    }
+
+}
+
+#[derive(Debug, Clone)]
+pub struct SecurityBox {
+    pub list : ListBox,
+    pub scrolled : ScrolledWindow,
+    pub update_action : gio::SimpleAction
+}
+
 impl SecurityBox {
+
+    pub fn update(&self, conns : &[ConnectionInfo]) {
+        while let Some(row) = self.list.row_at_index(0) {
+            self.list.remove(&row);
+        }
+        let mut n_added = 0;
+        for conn in conns.iter().sorted_by(|a, b| a.host.cmp(&b.host) ).unique_by(|c| &c.host[..] ) {
+            if !conn.host.is_empty() && &conn.host[..] != "Host" && !conn.is_file() {
+                let sec_row = SecurityRow::new(conn.clone(), &self.update_action);
+                self.list.append(&sec_row.exp_row);
+                n_added += 1;
+            }
+        }
+        if n_added == 0 {
+            let lbl = Label::builder().use_markup(true).build();
+            lbl.set_margin_bottom(18);
+            lbl.set_margin_top(18);
+            lbl.set_markup("<b>No configurable hosts included yet</b>");
+            let row = ListBoxRow::new();
+            row.set_child(Some(&lbl));
+            row.set_selectable(false);
+            row.set_activatable(false);
+            self.list.append(&row);
+        }
+    }
 
     pub fn build() -> Self {
         let scrolled = ScrolledWindow::new();
         let list = ListBox::new();
         scrolled.set_child(Some(&list));
         configure_list(&list);
-
-        let _combo_bx = EditableCombo::build();
-
-        // TODO just get lisboxrows from list, or else certificates added at startup won't count.
-        let rows : Rc<RefCell<Vec<ListBoxRow>>> = Rc::new(RefCell::new(Vec::new()));
-        let cert = Rc::new(RefCell::new((String::new(), String::new(), TlsVersion { major : 1, minor : 0 })));
-        
-        let save_switch = Switch::new();
-        let save_row = ListBoxRow::new();
-        save_row.set_selectable(false);
-        let save_bx = NamedBox::new("Remember credentials", Some("Store credentials (except passwords)\nand load them at future sessions"), save_switch.clone());
-        save_row.set_child(Some(&save_bx.bx));
-
-        let exp_row = libadwaita::ExpanderRow::new();
-        exp_row.set_selectable(false);
-        
-        exp_row.set_title("Certificates");
-        exp_row.set_subtitle("Associate SSL/TLS certificates to\ndatabase cluster hosts");
-
-        let add_row = ListBoxRow::new();
-        add_row.set_selectable(false);
-        let add_bx = Box::new(Orientation::Horizontal, 0);
-        add_row.set_child(Some(&add_bx));
-        let host_entry = Entry::new();
-        host_entry.set_hexpand(true);
-        host_entry.set_halign(Align::Fill);
-        host_entry.set_primary_icon_name(Some("preferences-system-network-proxy-symbolic"));
-        host_entry.set_placeholder_text(Some("Host:Port"));
-
-        let cert_entry = Entry::new();
-        cert_entry.set_primary_icon_name(Some("application-certificate-symbolic"));
-        cert_entry.set_placeholder_text(Some("Root certificate path (.crt or .pem file)"));
-        cert_entry.set_hexpand(true);
-        cert_entry.set_halign(Align::Fill);
-        
-        let add_bx_top = Box::new(Orientation::Horizontal, 0);
-        let add_bx_middle = Box::new(Orientation::Horizontal, 0);
-        let add_bx_bottom = Box::new(Orientation::Horizontal, 0);
-        
-        let add_btn = Button::new();
-        add_btn.set_sensitive(false);
-        add_btn.style_context().add_class("flat");
-        add_btn.set_icon_name("list-add-symbolic");
-        add_btn.set_sensitive(false);
-        add_btn.set_width_request(32);
-        super::set_margins(&add_bx, 12, 12);
-        add_btn.set_halign(Align::End);
-        add_btn.set_hexpand(false);
-        
-        let version_combo = ComboBoxText::new();
-        
-        for (id, mode) in [("0", TLS_V10), ("1", TLS_V11), ("2", TLS_V12)] {
-            version_combo.append(Some(id), mode);
-        }
-        version_combo.connect_changed({
-            let add_btn = add_btn.clone();
-            let cert = cert.clone();
-            move |version_combo| {
-                let active_txt = version_combo.active_text();
-                add_btn.set_sensitive(active_txt.is_some());
-                if let Some(txt) = active_txt {
-                    match &txt[..] {
-                        TLS_V10 => {
-                            cert.borrow_mut().2 = TlsVersion { major : 1, minor : 0 };
-                        },
-                        TLS_V11 => {
-                            cert.borrow_mut().2 = TlsVersion { major : 1, minor : 1 };
-                        },
-                        TLS_V12 => {
-                            cert.borrow_mut().2 = TlsVersion { major : 1, minor : 2 };
-                        },
-                        _ => { 
-                            cert.borrow_mut().2 = TlsVersion { major : 1, minor : 0 };
-                        }
-                    }
-                } else {
-                    cert.borrow_mut().2 = TlsVersion { major : 1, minor : 0 };
-                }
-            }
-        });
-        version_combo.set_active_id(Some("0"));
-        version_combo.set_halign(Align::End);
-        add_btn.set_halign(Align::End);
-        add_bx_top.append(&host_entry);
-        // add_bx_top.set_margin_bottom(12);
-        add_bx_middle.append(&cert_entry);
-        // version_combo.set_hexpand(true);
-        // add_bx_bottom.set_margin_top(6);
-        
-        // add_bx_middle.append(&Label::new(Some("Minimum TLS version")));
-        add_bx_middle.append(&version_combo);
-        add_bx_middle.append(&add_btn);
-        
-        let add_bx_left = Box::new(Orientation::Vertical, 0);
-        add_bx_left.append(&add_bx_top);
-        add_bx_left.append(&add_bx_middle);
-        add_bx_left.append(&add_bx_bottom);
-        add_bx.append(&add_bx_left);
-        add_bx_top.style_context().add_class("linked");
-        add_bx_middle.style_context().add_class("linked");
-        add_bx_bottom.style_context().add_class("linked");
-        add_bx.style_context().add_class("linked");
-
-        add_bx_left.set_hexpand(true);
-        add_bx_left.set_halign(Align::Fill);
-        
-        host_entry.connect_changed({
-            let cert = cert.clone();
-            let add_btn = add_btn.clone();
-            let _exp_row = exp_row.clone();
-            let rows = rows.clone();
-            move |entry| {
-                let txt = entry.buffer().text().to_string();
-                if txt.is_empty() || crate::client::split_host_port(&txt[..]).is_err() {
-                    add_btn.set_sensitive(false);
-                } else {
-                    let mut cert = cert.borrow_mut();
-                    cert.0 = txt;
-                    if validate(&cert, rows.borrow().as_ref()) {
-                        add_btn.set_sensitive(true);
-                    } else {
-                        add_btn.set_sensitive(false);
-                    }
-                }
-            }
-        });
-        cert_entry.connect_changed({
-            let cert = cert.clone();
-            let add_btn = add_btn.clone();
-            let _exp_row = exp_row.clone();
-            let rows = rows.clone();
-            move |entry| {
-                let txt = entry.buffer().text().to_string();
-                if txt.is_empty() {
-                    add_btn.set_sensitive(false);
-                } else {
-                    let mut cert = cert.borrow_mut();
-                    cert.1 = entry.buffer().text().to_string();
-                    if validate(&cert, rows.borrow().as_ref()) {
-                        add_btn.set_sensitive(true);
-                    } else {
-                        add_btn.set_sensitive(false);
-                    }
-                }
-            }
-        });
-
-        let cert_added = gio::SimpleAction::new("cert_add", Some(&String::static_variant_type()));
-        let cert_removed = gio::SimpleAction::new("cert_remove", Some(&String::static_variant_type()));
-
-        add_btn.connect_clicked({
-            let cert = cert.clone();
-            let exp_row = exp_row.clone();
-            let (host_entry, cert_entry) = (host_entry.clone(), cert_entry.clone());
-            let cert_added = cert_added.clone();
-            let rows = rows.clone();
-            let cert_removed = cert_removed.clone();
-            move |btn| {
-                let mut cert = cert.borrow_mut();
-                host_entry.set_text("");
-                cert_entry.set_text("");
-                append_certificate_row(exp_row.clone(), &cert.0, &cert.1, cert.2, &rows, &cert_added, &cert_removed);
-                btn.set_sensitive(false);
-                cert.0 = String::new();
-                cert.1 = String::new();
-                cert.2 = TlsVersion { major : 1, minor : 0 };
-            }
-        });
-
-        exp_row.add_row(&add_row);
-        exp_row.set_selectable(false);
-
-        list.append(&save_row);
-        list.append(&exp_row);
-
-        set_all_not_selectable(&list);
-        
-        Self { list, cert_added, cert_removed, exp_row, rows, save_switch, scrolled, version_combo }
+        let update_action = gio::SimpleAction::new("security_update", Some(&glib::VariantTy::STRING));
+        Self { list, update_action, scrolled }
     }
+
 }
-
-// TODO add report settings.
-/*#[derive(Debug, Clone)]
-pub struct ReportingBox {
-    pub list : ListBox,
-    pub entry : Entry
-}
-
-impl ReportingBox {
-
-    pub fn build() -> Self {
-        let list = ListBox::new();
-        configure_list(&list);
-        let entry = Entry::new();
-        list.append(&NamedBox::new("Template", Some("Path to html/fodt template from which\nreport will be rendered"), entry.clone()).bx);
-        Self { list, entry }
-    }
-}*/
 
 #[derive(Debug, Clone)]
 pub struct QueriesSettings {
@@ -811,5 +762,7 @@ fn build_settings_row(name : &str) -> ListBoxRow {
         .build();
     ListBoxRow::builder().child(&lbl).height_request(42).build()
 }
+
+
 
 

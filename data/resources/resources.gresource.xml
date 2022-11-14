@@ -27,6 +27,9 @@
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/key-symbolic.svg">../icons/hicolor/symbolic/actions/key-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/roll-symbolic.svg">../icons/hicolor/symbolic/actions/roll-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-time-symbolic.svg">../icons/hicolor/symbolic/actions/type-time-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/arrow-into-box-symbolic.svg">../icons/hicolor/symbolic/actions/arrow-into-box-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/padlock2-symbolic.svg">../icons/hicolor/symbolic/actions/padlock2-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/padlock2-open-symbolic.svg">../icons/hicolor/symbolic/actions/padlock2-open-symbolic.svg</file>
   </gresource>
 </gresources>
 

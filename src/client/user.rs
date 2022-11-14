@@ -14,17 +14,34 @@ use std::ops::Deref;
 use gtk4::*;
 use gtk4::prelude::*;
 use crate::client::QueriesClient;
-use crate::ui::Certificate;
 use filecase::MultiArchiverImpl;
 use stateful::PersistentState;
 use std::thread::JoinHandle;
-
+use crate::ui::SecurityChange;
+use std::fmt;
+use itertools::Itertools;
+use std::error::Error;
 use crate::sql::SafetyLock;
+
+pub fn display_as_json<T>(t : &T, f : &mut fmt::Formatter) -> fmt::Result
+where
+    T : Serialize
+{
+    write!(f, "{}", serde_json::to_string_pretty(&t).unwrap())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnSettings {
     pub timeout : i32,
+    pub save_conns : bool,
     pub app_name : String
+}
+
+impl fmt::Display for ConnSettings {
+
+    fn fmt(&self, f : &mut fmt::Formatter) -> fmt::Result {
+        display_as_json(self, f)
+    }
 }
 
 impl Default for ConnSettings {
@@ -32,6 +49,7 @@ impl Default for ConnSettings {
     fn default() -> Self {
         Self {
             timeout : 10,
+            save_conns : true,
             app_name : String::from("Queries")
         }
     }
@@ -57,19 +75,6 @@ impl Default for EditorSettings {
             show_line_numbers : true,
             highlight_current_line : false
         }
-    }
-
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SecuritySettings {
-    pub save_conns : bool
-}
-
-impl Default for SecuritySettings {
-
-    fn default() -> Self {
-        SecuritySettings { save_conns : true }
     }
 
 }
@@ -110,6 +115,13 @@ impl Default for ExecutionSettings {
 
 }
 
+impl fmt::Display for ExecutionSettings {
+
+    fn fmt(&self, f : &mut fmt::Formatter) -> fmt::Result {
+        display_as_json(self, f)
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct UserState {
 
@@ -123,14 +135,17 @@ pub struct UserState {
     
     pub conns : Vec<ConnectionInfo>,
 
-    pub certs : Vec<Certificate>,
-
     pub editor : EditorSettings,
 
     pub execution : ExecutionSettings,
 
-    pub security : SecuritySettings
+}
 
+impl fmt::Display for UserState {
+
+    fn fmt(&self, f : &mut fmt::Formatter) -> fmt::Result {
+        display_as_json(self, f)
+    }
 }
 
 impl UserState {
@@ -143,6 +158,44 @@ impl UserState {
         }
     }
     
+}
+
+const ERR_PREFIX : &'static str =
+r#"Queries internal error: Integrity check violated (this is a bug and should
+be reported at https://github.com/limads/queries/issues)
+"#;
+
+pub fn assert_user_state_integrity(state : &UserState) {
+    match user_state_integrity_check(state) {
+        Ok(_) => { },
+        Err(e) => {
+            panic!("{}{}", ERR_PREFIX, e)
+        }
+    }
+}
+
+pub fn user_state_integrity_check(state : &UserState) -> Result<(), std::boxed::Box<dyn Error>> {
+
+    for a in state.conns.iter() {
+        if a.security.tls_version.is_none() {
+            if a.security.cert_path.is_some() {
+                return Err(format!("Connections to {} are not encrypted but setting carries a certificate", a.host).into());
+            }
+            if a.security.verify_hostname.is_some() {
+                return Err(format!("Connections to {} are not encrypted but setting carries a verify hostname setting", a.host).into());
+            }
+        }
+    }
+
+    for (a, b) in state.conns.iter().cartesian_product(state.conns.iter()) {
+        if &a.host[..] == &b.host[..] {
+            if a.security != b.security {
+                let mismatch_msg = "Mismatch in security settings for host";
+                return Err(format!("{} {}: {} vs. {}", mismatch_msg, a.host, a.security, b.security).into())
+            }
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug)]
@@ -166,41 +219,6 @@ impl Default for SharedUserState {
             window : filecase::WindowState { width : 1440, height : 1080 },
             ..Default::default()
         })))
-    }
-
-}
-
-impl React<super::ConnectionSet> for SharedUserState {
-
-    fn react(&self, set : &ConnectionSet) {
-        set.connect_removed({
-            let state = self.clone();
-            move |ix| {
-                let mut state = state.borrow_mut();
-                if ix >= 0 {
-                    state.conns.remove(ix as usize);
-                }
-            }
-        });
-        set.connect_updated({
-            let state = self.clone();
-            move |(ix, info)| {
-                let mut state = state.borrow_mut();
-                state.conns[ix as usize] = info;
-            }
-        });
-        set.connect_added({
-            let state = self.clone();
-            move |conn| {
-                let mut state = state.borrow_mut();
-
-                // A connection might be added to the set when the user either activates the
-                // connection switch or connection is added from the disk at startup. We ignore
-                // the second case here, since the connection will already be loaded at the state.
-                state.conns.push(conn);
-
-            }
-        });
     }
 
 }
@@ -269,6 +287,13 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
                 state.borrow_mut().conn.timeout = adj.value() as i32;
             }
         });
+        win.settings.conn_bx.save_switch.connect_state_set({
+            let state = self.clone();
+            move|switch, _| {
+                state.borrow_mut().conn.save_conns = switch.is_active();
+                Inhibit(false)
+            }
+        });
 
         // Execution
         win.settings.exec_bx.row_limit_spin.adjustment().connect_value_changed({
@@ -276,7 +301,7 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
             move |adj| {
                 state.borrow_mut().execution.row_limit = adj.value() as i32;
             }
-        }); 
+        });
         win.settings.exec_bx.schedule_scale.adjustment().connect_value_changed({
             let state = self.clone();
             move |adj| {
@@ -352,58 +377,14 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
         });
 
         // Security
-        win.settings.security_bx.save_switch.connect_state_set({
-            let state = self.clone();
-            move|switch, _| {
-                state.borrow_mut().security.save_conns = switch.is_active();
-                Inhibit(false)
-            }
-        });
-        win.settings.security_bx.cert_added.connect_activate({
+        win.settings.security_bx.update_action.connect_activate({
             let state = self.clone();
             move |_, param| {
-                if let Some(s) = param {
-                    let cert_str = s.get::<String>().unwrap();
-                    let new_cert : Certificate = serde_json::from_str(&cert_str).unwrap();
-                    let mut state = state.borrow_mut();
-
-                    // Set this certificate to existing conns.
-                    let mut conn_iter = state.conns
-                        .iter_mut()
-                        .filter(|conn| &conn.host[..] == &new_cert.host[..] );
-                    while let Some(conn) = conn_iter.next() {
-                        conn.cert = Some(new_cert.cert.clone());
-                        conn.min_tls_version = Some(new_cert.min_version);
-                    }
-                    
-                    // Set this certificate to the certificate vector.
-                    let no_duplicates = state.certs.iter()
-                        .find(|c| &c.cert[..] == &new_cert.cert[..] && &c.host[..] == &new_cert.host[..] )
-                        .is_none();
-                    if no_duplicates {
-                        state.certs.push(new_cert);
-                    }
-                    
-                }
-            }
-        });
-        win.settings.security_bx.cert_removed.connect_activate({
-            let state = self.clone();
-            move |_, param| {
-                if let Some(s) = param {
-                    let cert : Certificate = serde_json::from_str(&s.get::<String>().unwrap()).unwrap();
-                    let mut state = state.borrow_mut();
-                    for conn in state.conns.iter_mut().filter(|c| c.host == cert.host ) {
-                        conn.cert = None;
-                        conn.min_tls_version = None;
-                    }
-
-                    for i in (0..state.certs.len()).rev() {
-                        if &state.certs[i].cert[..] == &cert.cert[..] && &state.certs[i].host[..] == &cert.host[..] {
-                            state.certs.remove(i);
-                        }
-                    }
-                    
+                if let Some(param) = param {
+                    let change : SecurityChange = serde_json::from_str(&param.get::<String>().unwrap()).unwrap();
+                    state.borrow_mut().conns.iter_mut().for_each(|c| {
+                        crate::ui::try_modify_security_for_conn(c, &change);
+                    });
                 }
             }
         });
@@ -414,30 +395,64 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
 impl PersistentState<QueriesWindow> for SharedUserState {
 
     fn recover(path : &str) -> Option<SharedUserState> {
-        Some(SharedUserState(filecase::load_shared_serializable(path)?))
+        let state = filecase::load_shared_serializable(path)?;
+        {
+            let mut inner_state = state.borrow_mut();
+            match user_state_integrity_check(&inner_state) {
+                Ok(_) => {
+                    inner_state.scripts.retain(|s| {
+                        if let Some(p) = &s.path {
+                            std::path::Path::new(&p[..]).exists()
+                        } else {
+                            false
+                        }
+                    });
+                },
+                Err(e) => {
+                    eprintln!("User state integrity check failed (loading default instead): {}", e);
+                    return None;
+                }
+            }
+        }
+        Some(SharedUserState(state))
     }
 
     fn persist(&self, path : &str) -> JoinHandle<bool> {
-        let _ = self.try_borrow_mut().and_then(|mut s| {
+        match self.try_borrow_mut() {
+            Ok(mut s) => {
 
-            if s.security.save_conns {
-                s.conns.sort_by(|a, b| {
-                    a.host.cmp(&b.host).then(a.database.cmp(&b.database)).then(a.user.cmp(&b.user))
-                });
-                s.conns.dedup_by(|a, b| {
-                    &a.host[..] == &b.host[..] && &a.database[..] == &b.database[..] && &a.user[..] == &b.user[..]
-                });
+                assert_user_state_integrity(&s);
 
-                // Only preserve connections that have been accepted at least once.
-                s.conns.retain(|c| !c.is_default() && !c.host.is_empty() && !c.database.is_empty() && !c.user.is_empty() && c.dt.is_some() );
-            } else {
-                s.conns.clear();
-                s.certs.clear();
+                if s.conn.save_conns {
+                    s.conns.sort_by(|a, b| {
+                        a.host.cmp(&b.host).then(a.database.cmp(&b.database)).then(a.user.cmp(&b.user))
+                    });
+                    s.conns.dedup_by(|a, b| {
+                        &a.host[..] == &b.host[..] && &a.database[..] == &b.database[..] && &a.user[..] == &b.user[..]
+                    });
+
+                    s.conns.retain(|c| !c.is_default() && !c.host.is_empty() || c.host != crate::client::DEFAULT_HOST );
+                    s.conns.iter_mut().for_each(|c| {
+                        if c.port == crate::client::DEFAULT_PORT {
+                            c.port.clear();
+                        }
+                        if c.user == crate::client::DEFAULT_USER {
+                            c.user.clear();
+                        }
+                        if c.database == crate::client::DEFAULT_DB {
+                            c.database.clear();
+                        }
+                    });
+                } else {
+                    s.conns.clear();
+                }
+
+                s.scripts.iter_mut().for_each(|script| { script.content.as_mut().map(|c| c.clear() ); } );
+            },
+            Err(e) => {
+                eprintln!("Unable to save application state: {}", e);
             }
-            
-            s.scripts.iter_mut().for_each(|script| { script.content.as_mut().map(|c| c.clear() ); } );
-            Ok(())
-        });
+        }
         filecase::save_shared_serializable(&self.0, path)
     }
 
@@ -445,17 +460,7 @@ impl PersistentState<QueriesWindow> for SharedUserState {
         
         // The cert_added action is still inert here because we haven't called react<win> for update.
         let state = self.borrow();
-        for cert in &state.certs {
-            crate::ui::append_certificate_row(
-                queries_win.settings.security_bx.exp_row.clone(),
-                &cert.host,
-                &cert.cert,
-                cert.min_version,
-                &queries_win.settings.security_bx.rows,
-                &queries_win.settings.security_bx.cert_added,
-                &queries_win.settings.security_bx.cert_removed
-            );
-        }
+        queries_win.settings.security_bx.update(&state.conns);
 
         queries_win.paned.set_position(state.paned.primary);
         queries_win.sidebar.paned.set_position(state.paned.secondary);
@@ -468,6 +473,7 @@ impl PersistentState<QueriesWindow> for SharedUserState {
         
         queries_win.settings.conn_bx.timeout_scale.adjustment().set_value(state.conn.timeout as f64);
         queries_win.settings.conn_bx.app_name_entry.set_text(&state.conn.app_name);
+        queries_win.settings.conn_bx.save_switch.set_active(state.conn.save_conns);
         
         queries_win.settings.exec_bx.row_limit_spin.adjustment().set_value(state.execution.row_limit as f64);
         queries_win.settings.exec_bx.schedule_scale.adjustment().set_value(state.execution.execution_interval as f64);
@@ -481,8 +487,6 @@ impl PersistentState<QueriesWindow> for SharedUserState {
         queries_win.settings.editor_bx.font_btn.set_font(&font);
         queries_win.settings.editor_bx.line_num_switch.set_active(state.editor.show_line_numbers);
         queries_win.settings.editor_bx.line_highlight_switch.set_active(state.editor.highlight_current_line);
-        
-        queries_win.settings.security_bx.save_switch.set_active(state.security.save_conns);
     }
 
 }
@@ -492,8 +496,6 @@ impl PersistentState<QueriesWindow> for SharedUserState {
 // and client state are the same.
 pub fn set_client_state(user_state : &SharedUserState, client : &QueriesClient) {
     let state = user_state.borrow();
-    client.conn_set.add_connections(&state.conns);
-    client.conn_set.add_certificates(&state.certs);
     client.scripts.add_files(&state.scripts);
 }
 

@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.
+For a copy, see http://www.gnu.org/licenses.*/
+
 use super::column::*;
 use tokio_postgres::types::{ToSql   };
 use std::marker::Sync;
@@ -7,6 +12,7 @@ use std::collections::BTreeMap;
 use crate::tables::field::Field;
 use rust_decimal::Decimal;
 use serde_json::Value;
+use std::fmt::Write;
 
 #[derive(Debug, Clone)]
 pub enum NullableColumn {
@@ -27,6 +33,56 @@ pub enum NullableColumn {
 impl<'a> NullableColumn {
 
     const NULL : &'a str = "NULL";
+
+    fn write_datum_or_null<T>(buffer : &mut String, e : &Option<T>)
+    where
+        T : std::fmt::Display
+    {
+        match e.as_ref() {
+            Some(e) => write!(buffer, "{}\n", e).unwrap(),
+            None => write!(buffer, "{}\n", Self::NULL).unwrap()
+        }
+    }
+
+    pub fn display_lines(&'a self, prec : Option<usize>, max_rows : Option<usize>) -> String {
+        let mut buffer = String::new();
+        let max_rows = max_rows.unwrap_or(usize::MAX);
+        match self {
+            NullableColumn::Bool(v) => v.iter().take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer, e) ),
+            NullableColumn::I8(v) => v.iter().take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer,e) ),
+            NullableColumn::I16(v) => v.iter().take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer,e) ),
+            NullableColumn::I32(v) => v.iter().take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer,e) ),
+            NullableColumn::U32(v) => v.iter().take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer,e) ),
+            NullableColumn::I64(v) => v.iter().take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer,e) ),
+            NullableColumn::F32(v) => v.iter().take(max_rows).for_each(|e| {
+                match e.as_ref() {
+                    Some(e) => Column::write_with_precision(&mut buffer, *e as f64, prec),
+                    None => write!(&mut buffer, "{}\n", Self::NULL ).unwrap()
+                }
+            }),
+            NullableColumn::F64(v) => v.iter().take(max_rows).for_each(|e| {
+                match e.as_ref() {
+                    Some(e) => Column::write_with_precision(&mut buffer, *e as f64, prec),
+                    None => write!(&mut buffer, "{}\n", Self::NULL ).unwrap()
+                }
+            }),
+            NullableColumn::Numeric(v) => v.iter().take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer,e) ),
+            NullableColumn::Str(v) => v.iter().take(max_rows).for_each(|e| Self::write_datum_or_null(&mut buffer, e) ),
+            NullableColumn::Json(v) => v.iter().take(max_rows).for_each(|e| {
+                match e.as_ref() {
+                    Some(e) => write!(&mut buffer, "{}\n", json_to_string(e) ).unwrap(),
+                    None => write!(&mut buffer, "{}\n", Self::NULL ).unwrap()
+                }
+            } ),
+            NullableColumn::Bytes(v) => v.iter().take(max_rows).for_each(|e| {
+                match e.as_ref() {
+                    Some(e) => write_binary(&mut buffer, &e),
+                    None => write!(&mut buffer, "{}\n", Self::NULL ).unwrap()
+                }
+            })
+        }
+        buffer
+    }
 
     pub fn rearranged(&self, ixs : &[usize]) -> Self {
         match self {

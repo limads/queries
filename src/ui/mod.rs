@@ -66,6 +66,8 @@ mod form;
 
 pub use form::*;
 
+pub type SharedSignal = Rc<RefCell<Option<glib::SignalHandlerId>>>;
+
 // QueriesContent means everything outside the titlebar and sidebar.
 #[derive(Debug, Clone)]
 pub struct QueriesContent {
@@ -450,7 +452,29 @@ impl QueriesWindow {
         settings.settings.dialog().set_transient_for(Some(&window));
 
         settings.react(&titlebar.main_menu);
-        window.add_action(&settings.security_bx.cert_removed);
+        window.add_action(&settings.security_bx.update_action);
+
+        content.results.overview.sec_bx.certificate_lbl.connect_activate_link({
+            let dialog = settings.settings.dialog.clone();
+            let list = settings.settings.list.clone();
+            move |_, _| {
+                dialog.show();
+                list.select_row(list.row_at_index(3).as_ref());
+                Inhibit(true)
+            }
+        });
+        settings.settings.dialog.connect_show({
+            let state = state.clone();
+            let security_bx = settings.security_bx.clone();
+            move |_| {
+                security_bx.update(&state.borrow().conns[..]);
+            }
+        });
+
+        for info in &state.borrow().conns {
+            let new_row = ConnectionRow::from(info);
+            content.results.overview.conn_list.list.append(&new_row.row);
+        }
 
         Self { paned, sidebar, titlebar, content, window, settings, find_dialog }
     }

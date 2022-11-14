@@ -13,11 +13,18 @@ use crate::ui::PackedImageLabel;
 use crate::client::ConnectionSet;
 use std::time::Duration;
 use crate::client::ActiveConnection;
+use crate::ui::settings::SecurityChange;
+use libadwaita::ExpanderRow;
+use crate::ui::settings::QueriesSettings;
+use std::rc::Rc;
+use std::cell::RefCell;
+use crate::ui::SharedSignal;
 
 #[derive(Debug, Clone)]
 pub struct QueriesOverview {
     pub conn_list : ConnectionList,
     pub conn_bx : ConnectionBox,
+    pub sec_bx : SecBox,
     pub detail_bx : DetailBox,
     pub bx : Box,
 }
@@ -28,10 +35,12 @@ impl QueriesOverview {
         let conn_list = ConnectionList::build();
         let conn_bx = ConnectionBox::build();
         conn_list.react(&conn_bx);
+        let sec_bx = SecBox::build();
         let detail_bx = DetailBox::build();
 
         let info_bx = Box::new(Orientation::Vertical, 0);
         info_bx.append(&conn_bx.bx);
+        info_bx.append(&sec_bx.bx);
         info_bx.append(&detail_bx.bx);
         let bx = Box::new(Orientation::Horizontal, 0);
         bx.append(&conn_list.bx);
@@ -39,7 +48,62 @@ impl QueriesOverview {
         bx.set_halign(Align::Center);
         bx.set_valign(Align::Center);
 
-        Self { conn_list, conn_bx, detail_bx, bx }
+        Self { conn_list, conn_bx, detail_bx, sec_bx, bx }
+    }
+
+}
+
+#[derive(Debug, Clone)]
+pub struct SecBox {
+    pub bx : Box,
+    pub encryption_lbl : Label,
+    pub encryption_img : Image,
+    pub certificate_lbl : Label,
+    pub _certificate_img : Image,
+    pub curr_info : Rc<RefCell<Option<ConnectionInfo>>>
+}
+
+impl SecBox {
+
+    pub fn build() -> Self {
+        let bx = Box::new(Orientation::Vertical, 0);
+        bx.set_margin_bottom(18);
+        bx.set_hexpand(true);
+        bx.set_halign(Align::Fill);
+        let title = super::title_label("Security");
+        let encryption = PackedImageLabel::build("padlock2-open-symbolic", "Encryption");
+        let certificate = PackedImageLabel::build("application-certificate-symbolic", "Certificate");
+
+        for item in [&encryption, &certificate].iter() {
+            item.bx.set_hexpand(true);
+            item.bx.set_halign(Align::Fill);
+            item.lbl.set_halign(Align::Start);
+            item.img.set_halign(Align::Start);
+        }
+
+        let encryption_lbl = Label::new(None);
+        let certificate_lbl = Label::new(None);
+        certificate_lbl.set_use_markup(true);
+        for lbl in [&encryption_lbl, &certificate_lbl].iter() {
+            lbl.set_hexpand(true);
+            lbl.set_halign(Align::End);
+        }
+
+        encryption.bx.append(&encryption_lbl);
+        certificate.bx.append(&certificate_lbl);
+
+        bx.append(&title);
+        bx.append(&encryption.bx);
+        bx.append(&certificate.bx);
+
+        Self {
+            bx,
+            encryption_lbl,
+            certificate_lbl,
+            encryption_img : encryption.img.clone(),
+            _certificate_img : certificate.img.clone(),
+            curr_info : Rc::new(RefCell::new(None))
+        }
     }
 
 }
@@ -137,40 +201,147 @@ impl React<ActiveConnection> for DetailBox {
     }
 }
 
+// impl React<QueriesSettings> for SecBox {
+//    fn react(&self, )
+// }
+
+fn update_with_info(
+    encryption_lbl : &Label,
+    certificate_lbl : &Label,
+    encryption_img : &Image,
+    info : &ConnectionInfo
+) {
+    if info.is_default() || info.host.is_empty() || info.is_file() {
+        encryption_lbl.set_text("");
+        certificate_lbl.set_text("");
+        encryption_img.set_from_icon_name(Some("padlock2-open-symbolic"));
+    } else {
+        if info.security.tls_version.is_some() {
+            encryption_lbl.set_text("Enabled");
+            encryption_img.set_from_icon_name(Some("padlock2-symbolic"));
+            if let Some(path) = &info.security.cert_path {
+                if info.is_certificate_valid() {
+                    if let Some(stem) = path.split("/").last() {
+                        let hostname_verified = if info.security.verify_hostname == Some(true) {
+                            "(Host verified ✓)"
+                        } else {
+                            "(Host unverified ⨯)"
+                        };
+                        certificate_lbl.set_markup(&format!("<a href=\"\">{}</a> {}", stem, hostname_verified));
+                    } else {
+                        certificate_lbl.set_markup(&format!("<a href=\"\">Configure</a>"));
+                    }
+                } else {
+                    certificate_lbl.set_markup(&format!("<a href=\"\">Configure</a>"));
+                }
+            } else {
+                certificate_lbl.set_markup(&format!("<a href=\"\">Configure</a>"));
+            }
+        } else {
+            encryption_lbl.set_text("Disabled");
+            certificate_lbl.set_markup(&format!("<a href=\"\">Configure</a>"));
+            encryption_img.set_from_icon_name(Some("padlock2-open-symbolic"));
+        }
+    }
+}
+
+impl React<ConnectionSet> for SecBox {
+
+    fn react(&self, conn_set : &ConnectionSet) {
+        conn_set.connect_updated({
+            let (encryption_lbl, certificate_lbl, encryption_img) = (
+                self.encryption_lbl.clone(),
+                self.certificate_lbl.clone(),
+                self.encryption_img.clone()
+            );
+            let curr_info = self.curr_info.clone();
+            move |(_, conn_info)| {
+                *(curr_info.borrow_mut()) = Some(conn_info.clone());
+                update_with_info(&encryption_lbl, &certificate_lbl, &encryption_img, &conn_info);
+            }
+        });
+        conn_set.connect_selected({
+            let (encryption_lbl, certificate_lbl, encryption_img) = (
+                self.encryption_lbl.clone(),
+                self.certificate_lbl.clone(),
+                self.encryption_img.clone()
+            );
+            let curr_info = self.curr_info.clone();
+            move |opt_sel| {
+                if let Some((_, info)) = opt_sel {
+                    *(curr_info.borrow_mut()) = Some(info.clone());
+                    update_with_info(&encryption_lbl, &certificate_lbl, &encryption_img, &info);
+                } else {
+                    *(curr_info.borrow_mut()) = None;
+                    encryption_lbl.set_text("");
+                    certificate_lbl.set_text("");
+                    encryption_img.set_from_icon_name(Some("padlock2-open-symbolic"));
+                }
+            }
+        });
+    }
+}
+
+impl React<QueriesSettings> for SecBox {
+
+    fn react(&self, settings : &QueriesSettings) {
+        settings.security_bx.update_action.connect_activate({
+            let curr_info = self.curr_info.clone();
+            let (encryption_lbl, certificate_lbl, encryption_img) = (
+                self.encryption_lbl.clone(),
+                self.certificate_lbl.clone(),
+                self.encryption_img.clone(),
+            );
+            move |_, param| {
+                let mut curr_info = curr_info.borrow_mut();
+                if let Some(mut info) = curr_info.as_mut() {
+                    if let Some(param) = param {
+                        let change : SecurityChange = serde_json::from_str(&param.get::<String>().unwrap()).unwrap();
+                        if change.host() == &info.host[..] {
+                            crate::ui::settings::try_modify_security_for_conn(&mut info, &change);
+                            update_with_info(&encryption_lbl, &certificate_lbl, &encryption_img, &info);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+}
+
 #[derive(Debug, Clone)]
 pub struct ConnectionRow {
-    row : ListBoxRow,
-    host : PackedImageLabel,
-    db : PackedImageLabel,
-    user : PackedImageLabel
+    pub row : ListBoxRow,
+    pub host : PackedImageLabel,
+    pub db : PackedImageLabel,
+    pub user : PackedImageLabel
 }
 
 impl ConnectionRow {
 
-    fn from(info : &ConnectionInfo) -> Self {
+    pub fn from(info : &ConnectionInfo) -> Self {
         let row = Self::build();
-        row.host.change_label(&info.host);
-        row.db.change_label(&info.database);
-        row.user.change_label(&info.user);
+        if info.host.is_empty() {
+            row.db.change_label(crate::client::DEFAULT_HOST);
+        } else {
+            row.host.change_label(&info.host);
+        }
+        if info.database.is_empty() {
+            row.db.change_label(crate::client::DEFAULT_DB);
+        } else {
+            row.db.change_label(&info.database);
+        }
+        if info.user.is_empty() {
+            row.user.change_label(crate::client::DEFAULT_USER);
+        } else {
+            row.user.change_label(&info.user);
+        }
         row
-    }
-
-    fn _extract(row : &ListBoxRow) -> Option<Self> {
-        let bx = row.child()?.downcast::<Box>().ok()?;
-        let bx_host = super::get_child_by_index::<Box>(&bx, 0);
-        let bx_db = super::get_child_by_index::<Box>(&bx, 1);
-        let bx_user = super::get_child_by_index::<Box>(&bx, 2);
-        Some(Self {
-            row : row.clone(),
-            host : PackedImageLabel::extract(&bx_host)?,
-            db : PackedImageLabel::extract(&bx_db)?,
-            user : PackedImageLabel::extract(&bx_user)?,
-        })
     }
 
     fn build() -> Self {
         // Change to "network-server-symbolic" when connected
-        let host = PackedImageLabel::build("preferences-system-network-proxy-symbolic", "Host:Port");
+        let host = PackedImageLabel::build("preferences-system-network-proxy-symbolic", "Host");
         let db = PackedImageLabel::build("db-symbolic", "Database");
         let user = PackedImageLabel::build("avatar-default-symbolic", "User");
         let bx = Box::new(Orientation::Vertical, 0);
@@ -246,7 +417,7 @@ impl ConnectionList {
         conn_list
     }
 
-    fn _clear(&self) {
+    /*fn _clear(&self) {
         while self.list.observe_children().n_items() > 1 {
             self.list.remove(&self.list.row_at_index(0).unwrap());
         }
@@ -259,7 +430,7 @@ impl ConnectionList {
             let new_row = ConnectionRow::from(info);
             self.list.insert(&new_row.row, (n-1) as i32);
         }
-    }
+    }*/
 
     fn update(&self) {
         self.list.connect_row_activated({
@@ -326,7 +497,6 @@ impl React<ActiveConnection> for ConnectionList {
 impl React<ConnectionBox> for ConnectionList {
 
     fn react(&self, bx : &ConnectionBox) {
-
         for (ix, entry) in [&bx.host.entry, &bx.db.entry, &bx.user.entry].iter().enumerate() {
             entry.connect_changed({
                 let list = self.list.clone();
@@ -345,18 +515,18 @@ fn change_text_at_conn_row(list : &ListBox, label_ix : usize, entry : &Entry) {
         let bx = vp.child().unwrap().downcast::<Box>().unwrap();
         let child_bx = super::get_child_by_index(&bx, label_ix);
         let lbl = PackedImageLabel::extract(&child_bx).unwrap();
-        let txt = entry.buffer().text();
-        if lbl.lbl.text() != txt { 
-            if txt.is_empty() {
+        let entry_txt = entry.buffer().text();
+        if lbl.lbl.text() != entry_txt {
+            if entry_txt.is_empty() {
                 let placeholder = match label_ix {
-                    0 => "Host:Port",
-                    1 => "User",
-                    2 => "Database",
+                    0 => "Host",
+                    1 => "Database",
+                    2 => "User",
                     _ => ""  
                 };
                 lbl.lbl.set_text(placeholder);
             } else {
-                lbl.lbl.set_text(&txt.as_str());
+                lbl.lbl.set_text(&entry_txt.as_str());
             }
         }
     }
@@ -365,17 +535,28 @@ fn change_text_at_conn_row(list : &ListBox, label_ix : usize, entry : &Entry) {
 #[derive(Debug, Clone)]
 pub struct ConnectionBox {
     pub host : PackedImageEntry,
+    pub port : PackedImageEntry,
     pub user : PackedImageEntry,
     pub db : PackedImageEntry,
     pub password : PackedImagePasswordEntry,
     pub switch : Switch,
-    bx : Box
+    pub bx : Box,
+    pub host_changed : SharedSignal,
+    pub port_changed : SharedSignal,
+    pub user_changed : SharedSignal,
+    pub db_changed : SharedSignal
 }
 
 impl ConnectionBox {
 
     pub fn build() -> Self {
-        let host = PackedImageEntry::build("preferences-system-network-proxy-symbolic", "Host:Port");
+        let host_bx = Box::new(Orientation::Horizontal, 0);
+        let host = PackedImageEntry::build("preferences-system-network-proxy-symbolic", "Host");
+        let port = PackedImageEntry::build("arrow-into-box-symbolic", "Port");
+        port.entry.set_max_width_chars(8);
+        port.entry.set_input_purpose(InputPurpose::Digits);
+        host_bx.append(&host.bx);
+        host_bx.append(&port.bx);
         let db = PackedImageEntry::build("db-symbolic", "Database");
         let cred_bx = Box::new(Orientation::Horizontal, 0);
         let user = PackedImageEntry::build("avatar-default-symbolic", "User");
@@ -389,10 +570,11 @@ impl ConnectionBox {
         let title = super::title_label("Authentication");
         let bx = Box::new(Orientation::Vertical, 0);
         bx.append(&title);
-        bx.append(&host.bx);
+        // bx.append(&host.bx);
+        bx.append(&host_bx);
         bx.append(&db.bx);
         bx.append(&cred_bx);
-        bx.set_margin_bottom(36);
+        bx.set_margin_bottom(18);
 
         host.entry.set_hexpand(true);
         db.entry.set_hexpand(true);
@@ -401,27 +583,32 @@ impl ConnectionBox {
 
         let conn_bx = ConnectionBox {
             host,
+            port,
             user,
             db,
             password,
             bx,
-            switch
+            switch,
+            host_changed : Default::default(),
+            port_changed : Default::default(),
+            user_changed : Default::default(),
+            db_changed : Default::default()
         };
         conn_bx.set_sensitive(false);
         conn_bx
     }
 
-    pub fn entries<'a>(&'a self) -> [&'a Entry; 3] {
-        [&self.host.entry, &self.db.entry, &self.user.entry]
+    pub fn entries<'a>(&'a self) -> [&'a Entry; 4] {
+        [&self.host.entry, &self.port.entry, &self.db.entry, &self.user.entry]
     }
 
     pub fn password_entry<'a>(&'a self) -> &'a PasswordEntry {
         &self.password.entry
     }
 
-    fn _set_db_loaded_mode(&self) {
-        self.entries().iter().for_each(|entry| entry.set_sensitive(false) );
-    }
+    // fn _set_db_loaded_mode(&self) {
+    //    self.entries().iter().for_each(|entry| entry.set_sensitive(false) );
+    // }
 
     pub fn set_non_db_mode(&self) {
         self.entries().iter().for_each(|entry| entry.set_sensitive(true) );
@@ -430,11 +617,12 @@ impl ConnectionBox {
     pub fn update_info(&self, info : &ConnectionInfo) {
         self.user.entry.set_text(&info.user);
         self.host.entry.set_text(&info.host);
+        self.host.entry.set_text(&info.port);
         self.db.entry.set_text(&info.database);
         self.password.entry.set_text("");
     }
 
-    fn _check_entries_clear(&self) -> bool {
+    /*fn _check_entries_clear(&self) -> bool {
         for entry in self.entries().iter().take(3) {
             let txt = entry.text().to_string();
             if !txt.is_empty() {
@@ -442,10 +630,11 @@ impl ConnectionBox {
             }
         }
         true
-    }
+    }*/
 
     fn set_sensitive(&self, sensitive : bool) {
         self.host.entry.set_sensitive(sensitive);
+        self.port.entry.set_sensitive(sensitive);
         self.db.entry.set_sensitive(sensitive);
         self.user.entry.set_sensitive(sensitive);
         self.password.entry.set_sensitive(sensitive);
@@ -460,26 +649,57 @@ impl React<ConnectionSet> for ConnectionBox {
         connections.connect_selected({
             let conn_bx = self.clone();
             move |opt_sel| {
+                let signals = (
+                    &*conn_bx.host_changed.borrow(),
+                    &*conn_bx.port_changed.borrow(),
+                    &*conn_bx.db_changed.borrow(),
+                    &*conn_bx.user_changed.borrow()
+                );
+                if let (Some(host_s), Some(port_s), Some(db_s), Some(user_s)) = signals {
+                    conn_bx.host.entry.block_signal(host_s);
+                    conn_bx.port.entry.block_signal(port_s);
+                    conn_bx.user.entry.block_signal(user_s);
+                    conn_bx.db.entry.block_signal(db_s);
+                }
                 if let Some((_sel_ix, sel_info)) = opt_sel {
                     conn_bx.set_sensitive(true);
-                    if sel_info.is_default() {
+                    println!("Selected: {:?}", sel_info);
+                    if sel_info.host == crate::client::DEFAULT_HOST {
                         conn_bx.host.entry.set_text("");
-                        conn_bx.db.entry.set_text("");
-                        conn_bx.user.entry.set_text("");
-                        conn_bx.password.entry.set_text("");
                     } else {
                         conn_bx.host.entry.set_text(&sel_info.host);
-                        conn_bx.db.entry.set_text(&sel_info.database);
-                        conn_bx.user.entry.set_text(&sel_info.user);
-                        conn_bx.password.entry.set_text("");
-                        conn_bx.password.entry.grab_focus();
                     }
+                    if sel_info.port == crate::client::DEFAULT_PORT {
+                        conn_bx.port.entry.set_text("");
+                    } else {
+                        conn_bx.port.entry.set_text(&sel_info.port);
+                    }
+                    if sel_info.database == crate::client::DEFAULT_DB {
+                        conn_bx.db.entry.set_text("");
+                    } else {
+                        conn_bx.db.entry.set_text(&sel_info.database);
+                    }
+                    if sel_info.user == crate::client::DEFAULT_USER {
+                        conn_bx.user.entry.set_text("");
+                    } else {
+                        conn_bx.user.entry.set_text(&sel_info.user);
+                    }
+                    conn_bx.password.entry.set_text("");
+                    conn_bx.password.entry.grab_focus();
                 } else {
+                    println!("No selection");
                     conn_bx.host.entry.set_text("");
+                    conn_bx.port.entry.set_text("");
                     conn_bx.db.entry.set_text("");
                     conn_bx.user.entry.set_text("");
                     conn_bx.password.entry.set_text("");
                     conn_bx.set_sensitive(false);
+                }
+                if let (Some(host_s), Some(port_s), Some(db_s), Some(user_s)) = signals {
+                    conn_bx.host.entry.unblock_signal(host_s);
+                    conn_bx.port.entry.unblock_signal(port_s);
+                    conn_bx.user.entry.unblock_signal(user_s);
+                    conn_bx.db.entry.unblock_signal(db_s);
                 }
             }
         });

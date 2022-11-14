@@ -19,7 +19,7 @@ use crate::client::{ConnURI, ConnConfig};
 use sqlparser::ast::Statement;
 use futures::future;
 use std::ops::Range;
-use crate::ui::TlsVersion;
+use crate::client::TlsVersion;
 
 pub struct PostgresConnection {
 
@@ -31,56 +31,90 @@ pub struct PostgresConnection {
 
 }
 
-const CERT_ERR : &'static str = r#"
-"Remote connections without an associated TLS/SSL certificate are unsupported.
-Inform a certificate file path for this host at the security settings."
-"#;
+const CERT_ERR : &'static str =
+r#"Remote connections without a root certificate
+are unsupported."#;
+
+const NOT_ENCRYPTED_ERR : &'static str =
+r#"Non-encrypted connections are only supported for
+hosts accessible locally or via a private network"#;
+
+const ERR_MISSING_SSL : &'static str =
+r#"Tried to connect without SSL mode 'require' at connection URL"#;
 
 async fn connect(
     rt : &tokio::runtime::Runtime, 
     uri : &ConnURI
 ) -> Result<tokio_postgres::Client, String> {
 
-    if let Some(cert) = uri.info.cert.as_ref() {
+    if !uri.is_postgres() {
+        return Err(format!("Invalid URL for postgres connection"));
+    }
+
+    if let Some(tls_version) = uri.info.security.tls_version {
 
         use native_tls::{Certificate, TlsConnector};
         use postgres_native_tls::MakeTlsConnector;
         
-        let min_version = match uri.info.min_tls_version {
-            Some(TlsVersion { major : 1, minor : 0 }) => {
+        if !uri.require_tls() {
+            return Err(format!("{}", ERR_MISSING_SSL));
+        }
+        if let Ok(cfg) = tokio_postgres::config::Config::from_str(uri.uri.as_str()) {
+            if cfg.get_ssl_mode() != tokio_postgres::config::SslMode::Require {
+                return Err(format!("{}", ERR_MISSING_SSL));
+            }
+        } else {
+            return Err(format!("Invalid connection string URI"));
+        }
+
+        let cert_content = if let Some(cert) = &uri.info.security.cert_path {
+            match fs::read(cert) {
+                Ok(content) => {
+                    content
+                },
+                Err(e) => {
+                    return Err(format!("Could not read root certificate:\n{}", e) );
+                }
+            }
+        } else {
+            return Err(format!("{}", CERT_ERR));
+        };
+
+        let min_version = match tls_version {
+            TlsVersion { major : 1, minor : 0 } => {
                 native_tls::Protocol::Tlsv10
             },
-            Some(TlsVersion { major : 1, minor : 1 }) => {
+            TlsVersion { major : 1, minor : 1 } => {
                 native_tls::Protocol::Tlsv11
             },
-            Some(TlsVersion { major : 1, minor : 2 }) => {
+            TlsVersion { major : 1, minor : 2 } => {
                 native_tls::Protocol::Tlsv12
             },
-            Some(TlsVersion { major, minor }) => {
+            TlsVersion { major, minor } => {
                 return Err(format!("Unrecognized TLS version: {}.{}", major, minor));
-            },
-            None => {
-                return Err(format!("Unspecified TLS minimum version"));
             }
         };
-        let cert_content = fs::read(cert)
-            .map_err(|e| format!("Could not read certificate:\n{}", e) )?;
+
+        let verify_hostname = if let Some(v) = uri.info.security.verify_hostname {
+            v
+        } else {
+            return Err(format!("Verify hostname setting unspecified"));
+        };
+
         let cert = Certificate::from_pem(&cert_content)
             .map_err(|e| format!("{}", e) )?;
         let connector = TlsConnector::builder()
             .add_root_certificate(cert)
             .use_sni(true)
+            .danger_accept_invalid_hostnames(!verify_hostname)
             .disable_built_in_roots(false)
             .min_protocol_version(Some(min_version))
             .build()
             .map_err(|e| format!("Error establishing TLS connector:\n{}", e) )?;
         
         let connector = MakeTlsConnector::new(connector);
-        if !uri.uri.ends_with("sslmode=require") {
-            return Err(format!("Tried to connect without TLS mode 'require'"));
-        }
         
-        match tokio_postgres::connect(&uri.uri[..], connector).await {
+        match tokio_postgres::connect(uri.uri.as_str(), connector).await {
             Ok((cli, conn)) => {
                 rt.spawn(conn);
                 Ok(cli)
@@ -95,10 +129,10 @@ async fn connect(
     } else {
     
         // Only connect without SSL/TLS when the client is local.
-        if crate::client::is_local(&uri.info)  == Some(true) {
+        if uri.info.is_localhost() || uri.info.is_private_network() {
             
-            if uri.uri.ends_with("sslmode=require") {
-                return Err(format!("Tried to connect without TLS, but connection requires it."));
+            if uri.require_tls() {
+                return Err(format!("Tried to connect without TLS, but connection requires it in its URL."));
             }
             
             match tokio_postgres::connect(&uri.uri[..], tokio_postgres::NoTls{ }).await {
@@ -113,7 +147,7 @@ async fn connect(
                 }
             }
         } else {
-            Err(format!("{}", CERT_ERR))
+            Err(format!("{}", NOT_ENCRYPTED_ERR))
         }
     }
 }
