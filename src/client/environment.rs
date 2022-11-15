@@ -449,12 +449,10 @@ impl Tables {
                         .count();
                     if n_col_names_equal == 0 && n_queries_equal == 0 {
                         EnvironmentUpdate::NewTables(new_cols, self.queries.clone())
+                    } else if self.queries.len() > n_queries_equal && new_cols.len() > n_col_names_equal {
+                        EnvironmentUpdate::AppendTables(new_cols.clone(), self.queries.clone())
                     } else {
-                        if self.queries.len() > n_queries_equal && new_cols.len() > n_col_names_equal {
-                            EnvironmentUpdate::AppendTables(new_cols.clone(), self.queries.clone())
-                        } else {
-                            EnvironmentUpdate::NewTables(new_cols, self.queries.clone())
-                        }
+                        EnvironmentUpdate::NewTables(new_cols, self.queries.clone())
                     }
                 } else {
                     EnvironmentUpdate::NewTables(new_cols, self.queries.clone())

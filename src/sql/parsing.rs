@@ -36,9 +36,9 @@ impl AnyStatement {
 
     pub fn from_sql(sql : &str) -> Option<Self> {
         let dialect = PostgreSqlDialect {};
-        let mut ans = Parser::parse_sql(&dialect, &sql[..]).ok()?;
+        let mut ans = Parser::parse_sql(&dialect, sql).ok()?;
         if ans.len() != 1 {
-            return None;
+            None
         } else {
             Some(AnyStatement::Parsed(ans.remove(0), sql.to_string()))
         }
@@ -90,7 +90,7 @@ where
     let mut program = if let Some(Token::SingleQuotedString(s)) = take_while_not_whitespace(token_iter) {
         Execute{ call : s.clone(), using : None, into : None }
     } else {
-        return Err(format!("Invalid run call"));
+        return Err("Invalid run call".to_string());
     };
 
     match take_while_not_whitespace(token_iter) {
@@ -191,11 +191,9 @@ pub fn split_statement_tokens(mut tokens : Vec<Token>) -> Result<Vec<Vec<Token>>
 
                 if inside_dollar_quote {
                     add_token(&mut stmt_tokens, tk.clone());
-                } else {
-                    if let Some(mut group) = stmt_tokens.take() {
-                        group.push(Token::SemiColon);
-                        split_tokens.push(group);
-                    }
+                } else if let Some(mut group) = stmt_tokens.take() {
+                    group.push(Token::SemiColon);
+                    split_tokens.push(group);
                 }
 
                 last_tk_is_dollar = false;
@@ -207,10 +205,8 @@ pub fn split_statement_tokens(mut tokens : Vec<Token>) -> Result<Vec<Vec<Token>>
                     if last_tk_is_dollar {
                         inside_dollar_quote = false;
                     }
-                } else {
-                    if last_tk_is_dollar {
-                        inside_dollar_quote = true;
-                    }
+                } else if last_tk_is_dollar {
+                    inside_dollar_quote = true;
                 }
 
                 add_token(&mut stmt_tokens, tk.clone());
@@ -252,7 +248,7 @@ pub fn split_statement_tokens(mut tokens : Vec<Token>) -> Result<Vec<Vec<Token>>
     // by semicolons are legal SQL statements, but we do not need to send them to the server
     // since they will not change the output.
     let non_ws_token_groups : Vec<_> = split_tokens.drain(0..)
-        .filter(|group| !group.iter().all(|tk| is_token_whitespace(&tk)) )
+        .filter(|group| !group.iter().all(|tk| is_token_whitespace(tk)) )
         .collect();
 
     Ok(non_ws_token_groups)
@@ -673,13 +669,13 @@ where
             }
             match take_while_not_whitespace(token_iter) {
                 Some(Token::Word(w)) => {
-                    decide_target_keyword(&w)
+                    decide_target_keyword(w)
                 },
                 Some(other) => {
-                    return Err(format!("Invalid target copy token: {}", other));
+                    Err(format!("Invalid target copy token: {}", other))
                 },
                 None => {
-                    return Err(format!("Missing copy target"));
+                    Err(format!("Missing copy target"))
                 }
             }
         },
@@ -687,10 +683,10 @@ where
             decide_target_keyword(&w)
         },
         Some(other) => {
-            return Err(format!("Invalid copy token: {}", other));
+            Err(format!("Invalid copy token: {}", other))
         },
         None => {
-            return Err(format!("Empty copy destination"));
+            Err(format!("Empty copy destination"))
         }
     }
 }
@@ -713,19 +709,17 @@ where
                 } else {
                     Err(format!("Missing program string"))
                 }
-            } else {
-                if &w.value[..] == "FILE" || &w.value[..] == "file" {
-                    if let Some(tk) = take_while_not_whitespace(token_iter) {
-                        match tk {
-                            Token::SingleQuotedString(file) => Ok(copy::CopyClient::File(file.to_string())),
-                            _ => Err(format!("Invalid program string"))
-                        }
-                    } else {
-                        Err(format!("Invalid copy client specification"))
+            } else if &w.value[..] == "FILE" || &w.value[..] == "file" {
+                if let Some(tk) = take_while_not_whitespace(token_iter) {
+                    match tk {
+                        Token::SingleQuotedString(file) => Ok(copy::CopyClient::File(file.to_string())),
+                        _ => Err(format!("Invalid program string"))
                     }
                 } else {
                     Err(format!("Invalid copy client specification"))
                 }
+            } else {
+                Err(format!("Invalid copy client specification"))
             }
         },
         Some(Token::SingleQuotedString(s)) => {

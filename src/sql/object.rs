@@ -49,7 +49,7 @@ impl FromStr for DBType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // The underline prefix to array types is set by the return of proargtypes join typename,
         // the bracket postfix is the return of pg_get_function_identity_arguments.
-        if s.starts_with("_") || s.ends_with("[]") {
+        if s.starts_with('_') || s.ends_with("[]") {
             return Ok(Self::Array)
         }
         match s {
@@ -211,10 +211,10 @@ pub fn build_er_diagram(mut er : String, schemata : &[DBObject]) -> String {
 impl fmt::Display for DBObject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name : &str = match &self {
-            DBObject::Schema{ name, .. } => &name,
-            DBObject::Table{ name, ..} => &name,
-            DBObject::Function{ name, ..} => &name,
-            DBObject::View{ name, ..} => &name
+            DBObject::Schema{ name, .. } => name,
+            DBObject::Table{ name, ..} => name,
+            DBObject::Function{ name, ..} => name,
+            DBObject::View{ name, ..} => name
         };
         write!(f, "{}", name)
     }

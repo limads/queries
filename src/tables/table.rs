@@ -271,68 +271,38 @@ impl Table {
 
             if is_bool {
                 null_cols.push(nullable_from_rows::<bool>(rows, i)?);
+            } else if is_bytea {
+                null_cols.push(nullable_from_rows::<Vec<u8>>(rows, i)?);
+            } else if is_text {
+                null_cols.push(nullable_from_rows::<String>(rows, i)?);
+            } else if is_char {
+                null_cols.push(nullable_from_rows::<i8>(rows, i)?);
+            } else if is_double {
+                null_cols.push(nullable_from_rows::<f64>(rows, i)?);
+            } else if is_float {
+                null_cols.push(nullable_from_rows::<f32>(rows, i)?);
+            } else if is_int {
+                null_cols.push(nullable_from_rows::<i32>(rows, i)?);
+            } else if is_smallint {
+                null_cols.push(nullable_from_rows::<i16>(rows, i)?);
+            } else if is_long {
+                null_cols.push(nullable_from_rows::<i64>(rows, i)?);
+            } else if is_oid {
+                null_cols.push(nullable_from_rows::<u32>(rows, i)?);
+            } else if is_timestamp {
+                null_cols.push(as_nullable_text::<chrono::NaiveDateTime>(rows, i)?);
+            } else if is_date {
+                null_cols.push(as_nullable_text::<chrono::NaiveDate>(rows, i)?);
+            } else if is_time {
+                null_cols.push(as_nullable_text::<chrono::NaiveTime>(rows, i)?);
+            } else if is_numeric {
+                null_cols.push(nullable_from_rows::<Decimal>(rows, i)?);
+            } else if is_json {
+                null_cols.push(nullable_from_rows::<Value>(rows, i)?);
+            } else if let Some(ty) = array_ty {
+                null_cols.push(nullable_from_arr(rows, i, ty)?);
             } else {
-                if is_bytea {
-                    null_cols.push(nullable_from_rows::<Vec<u8>>(rows, i)?);
-                } else {
-                    if is_text {
-                        null_cols.push(nullable_from_rows::<String>(rows, i)?);
-                    } else {
-                        if is_char {
-                            null_cols.push(nullable_from_rows::<i8>(rows, i)?);
-                        } else {
-                            if is_double {
-                                null_cols.push(nullable_from_rows::<f64>(rows, i)?);
-                            } else {
-                                if is_float {
-                                    null_cols.push(nullable_from_rows::<f32>(rows, i)?);
-                                } else {
-                                    if is_int {
-                                        null_cols.push(nullable_from_rows::<i32>(rows, i)?);
-                                    } else {
-                                        if is_smallint {
-                                            null_cols.push(nullable_from_rows::<i16>(rows, i)?);
-                                        } else {
-                                            if is_long {
-                                                null_cols.push(nullable_from_rows::<i64>(rows, i)?);
-                                            } else {
-                                                if is_oid {
-                                                    null_cols.push(nullable_from_rows::<u32>(rows, i)?);
-                                                } else {
-                                                    if is_timestamp {
-                                                        null_cols.push(as_nullable_text::<chrono::NaiveDateTime>(rows, i)?);
-                                                    } else {
-                                                        if is_date {
-                                                            null_cols.push(as_nullable_text::<chrono::NaiveDate>(rows, i)?);
-                                                        } else {
-                                                            if is_time {
-                                                                null_cols.push(as_nullable_text::<chrono::NaiveTime>(rows, i)?);
-                                                            } else {
-                                                                if is_numeric {
-                                                                    null_cols.push(nullable_from_rows::<Decimal>(rows, i)?);
-                                                                } else {
-                                                                    if is_json {
-                                                                        null_cols.push(nullable_from_rows::<Value>(rows, i)?);
-                                                                    } else {
-                                                                        if let Some(ty) = array_ty {
-                                                                            null_cols.push(nullable_from_arr(rows, i, ty)?);
-                                                                        } else {
-                                                                            null_cols.push(nullable_unable_to_parse(rows, col_types[i]));
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                null_cols.push(nullable_unable_to_parse(rows, col_types[i]));
             }
         }
         let cols : Vec<Column> = null_cols.drain(0..names.len())

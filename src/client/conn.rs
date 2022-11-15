@@ -274,13 +274,13 @@ pub struct ConnConfig {
 
 }
 
-pub const DEFAULT_HOST : &'static str = "Host";
+pub const DEFAULT_HOST : &str = "Host";
 
-pub const DEFAULT_PORT : &'static str = "Port";
+pub const DEFAULT_PORT : &str = "Port";
 
-pub const DEFAULT_USER : &'static str = "User";
+pub const DEFAULT_USER : &str = "User";
 
-pub const DEFAULT_DB : &'static str = "Database";
+pub const DEFAULT_DB : &str = "Database";
 
 impl Default for ConnectionInfo {
 
@@ -1283,7 +1283,7 @@ impl ActiveConnection {
 
 }
 
-const CONN_NAME_ERR : &'static str = "Application name at settings contain non-alphanumeric characters";
+const CONN_NAME_ERR : &str = "Application name at settings contain non-alphanumeric characters";
 
 fn augment_uri_with_params(
     uri : &mut String,

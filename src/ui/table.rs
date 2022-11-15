@@ -117,7 +117,7 @@ fn update_cols(tbl : &Table, grid : &Grid, fst_row : usize, max_nrows : usize) {
     }
 }
 
-const HEADER_DARK_CSS : &'static str =r#"
+const HEADER_DARK_CSS : &str =r#"
 label {
   font-weight : bold;
   border-bottom : 1px solid #454545;
@@ -135,7 +135,7 @@ label {
 }
 "#;
 
-const DATA_DARK_CSS : &'static str =r#"
+const DATA_DARK_CSS : &str =r#"
 label {
   padding-left: 10px;
   padding-right: 10px;
@@ -156,7 +156,7 @@ label {
 }
 "#;
 
-const HEADER_WHITE_CSS : &'static str =r#"
+const HEADER_WHITE_CSS : &str =r#"
 label {
   font-weight : bold;
   border-bottom : 1px solid #dcdcdc;
@@ -174,7 +174,7 @@ label {
 }
 "#;
 
-const DATA_WHITE_CSS : &'static str = r#"
+const DATA_WHITE_CSS : &str = r#"
 label {
   padding-left: 10px;
   padding-right: 10px;
@@ -717,10 +717,8 @@ fn set_selected_style(grid : Grid, col : usize, selected : bool) {
             if !ctx.has_class("selected") {
                 ctx.add_class("selected");
             }
-        } else {
-            if ctx.has_class("selected") {
-                ctx.remove_class("selected");
-            }
+        } else if ctx.has_class("selected") {
+            ctx.remove_class("selected");
         }
         row += 1;
     }

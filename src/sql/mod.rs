@@ -612,7 +612,7 @@ pub fn pack_column_types(
     }
     let cols : Vec<(String, DBType, bool)> = col_names.iter()
         .zip(types.iter())
-        .map(|(s1, s2)| (s1.clone(), s2.clone(), pks.iter().find(|pk| &pk[..] == &s1[..]).is_some() ))
+        .map(|(s1, s2)| (s1.clone(), *s2, pks.iter().any(|pk| &pk[..] == &s1[..]) ))
         .collect();
     Ok(cols)
 }
@@ -629,12 +629,12 @@ pub fn substitute_if_required(q : &str, subs : &HashMap<String, String>) -> Stri
 }
 
 pub fn build_error_with_stmt(msg : &str, query : &str) -> String {
-    let compact_query = query.replace("\t", " ").replace("\n", " ");
+    let compact_query = query.replace(['\t', '\n'], " ");
     let query = compact_query.trim();
     let q = if query.len() > 60 {
         &query[0..60]
     } else {
-        &query[..]
+        query
     };
     let ellipsis = if query.len() > 60 { "..." } else { "" };
     format!("<b>Error</b> {}\n<b>Statement</b> {}{}", msg, q, ellipsis)

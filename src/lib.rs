@@ -19,9 +19,9 @@ pub mod server;
 
 pub mod sql;
 
-pub const SETTINGS_FILE : &'static str = "user.json";
+pub const SETTINGS_FILE : &str = "user.json";
 
-pub const APP_ID : &'static str = "io.github.limads.Queries";
+pub const APP_ID : &str = "io.github.limads.Queries";
 
 pub fn register_resources() {
     let bytes = glib::Bytes::from_static(include_bytes!(concat!(env!("OUT_DIR"), "/", "compiled.gresource")));
@@ -99,7 +99,7 @@ pub fn setup(
     user_state.update(queries_win);
 
     // Now the window has been updated by the state, it is safe to add the callback signals.
-    hook_signals(&queries_win, user_state, client);
+    hook_signals(queries_win, user_state, client);
 
     // It is important to make this call to add scripts and connections
     // only after all signals have been setup, to guarantee the GUI will update

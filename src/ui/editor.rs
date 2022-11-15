@@ -761,7 +761,7 @@ impl React<OpenedScripts> for FindDialog {
 
 }
 
-const NO_MATCHES : &'static str = "Matches : 0";
+const NO_MATCHES : &str = "Matches : 0";
 
 fn clear_search(view : &View) -> Option<SearchContext> {
     let buffer = view.buffer();

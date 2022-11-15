@@ -148,7 +148,7 @@ impl ToString for Copy {
     }
 }
 
-const COPY_REGEX : &'static str =
+const COPY_REGEX : &str =
     r"(copy|COPY)\s+.*\s+(from|FROM|to|TO)\s+((program|PROGRAM|variable|VARIABLE)\s)?('.*'|\$\$.*\$\$|stdin|STDIN|stdout|STDOUT)(\s+with.*)?;";
 
 #[derive(Debug, PartialEq, Eq, Clone)]

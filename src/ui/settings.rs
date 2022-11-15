@@ -268,13 +268,13 @@ pub fn set_all_not_selectable(list : &ListBox) {
     }
 }
 
-const TLS_DISABLED : &'static str = "Disabled";
+const TLS_DISABLED : &str = "Disabled";
 
-const TLS_V10 : &'static str = "TLS (Version ≥ 1.0)";
+const TLS_V10 : &str = "TLS (Version ≥ 1.0)";
 
-const TLS_V11 : &'static str = "TLS (Version ≥ 1.1)";
+const TLS_V11 : &str = "TLS (Version ≥ 1.1)";
 
-const TLS_V12 : &'static str = "TLS (Version ≥ 1.2)";
+const TLS_V12 : &str = "TLS (Version ≥ 1.2)";
 
 /* A security settings row, generated dynamically every time
 the settings window is opened. */
@@ -286,15 +286,15 @@ pub struct SecurityRow {
     pub cert_entry : Entry
 }
 
-const TLS_MSG : &'static str =
+const TLS_MSG : &str =
 r#"Connecting with TLS disabled is only supported
 for hosts accessible locally or through a private network."#;
 
-const HOSTNAME_MSG : &'static str =
+const HOSTNAME_MSG : &str =
 r#"Disabling verification is discouraged, unless
 you are connecting through a trusted network."#;
 
-const CERT_MSG : &'static str =
+const CERT_MSG : &str =
 r#"Path to the root certificate
 (.crt or .pem file)."#;
 

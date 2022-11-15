@@ -79,7 +79,7 @@ where
 }
 
 pub fn write_binary(buffer : &mut String, s : &[u8]) {
-    s.iter().take(MAX_WIDTH_CHARS / 2).for_each(|b| write!(buffer, "{:x}\n", b).unwrap() );
+    s.iter().take(MAX_WIDTH_CHARS / 2).for_each(|b| writeln!(buffer, "{:x}", b).unwrap() );
     if s.len() > MAX_WIDTH_CHARS / 2 {
         write!(buffer, "...").unwrap();
     }
@@ -412,42 +412,42 @@ impl<'a> Column {
     pub fn write_with_precision(s : &mut String, value : f64, prec : Option<usize>) {
         match prec {
             Some(prec) => match prec {
-                1 => write!(s, "{:.1}\n", value).unwrap(),
-                2 => write!(s, "{:.2}\n", value).unwrap(),
-                3 => write!(s, "{:.3}\n", value).unwrap(),
-                4 => write!(s, "{:.4}\n", value).unwrap(),
-                5 => write!(s, "{:.5}\n", value).unwrap(),
-                6 => write!(s, "{:.6}\n", value).unwrap(),
-                7 => write!(s, "{:.7}\n", value).unwrap(),
-                8 => write!(s, "{:.8}\n", value).unwrap(),
-                9 => write!(s, "{:.9}\n", value).unwrap(),
-                10 => write!(s, "{:.10}\n", value).unwrap(),
-                11 => write!(s, "{:.11}\n", value).unwrap(),
-                12 => write!(s, "{:.12}\n", value).unwrap(),
-                13 => write!(s, "{:.13}\n", value).unwrap(),
-                14 => write!(s, "{:.14}\n", value).unwrap(),
-                15 => write!(s, "{:.15}\n", value).unwrap(),
-                16 => write!(s, "{:.16}\n", value).unwrap(),
-                17 => write!(s, "{:.17}\n", value).unwrap(),
-                18 => write!(s, "{:.18}\n", value).unwrap(),
-                19 => write!(s, "{:.19}\n", value).unwrap(),
-                20 => write!(s, "{:.20}\n", value).unwrap(),
-                21 => write!(s, "{:.21}\n", value).unwrap(),
-                22 => write!(s, "{:.22}\n", value).unwrap(),
-                23 => write!(s, "{:.23}\n", value).unwrap(),
-                24 => write!(s, "{:.24}\n", value).unwrap(),
-                25 => write!(s, "{:.25}\n", value).unwrap(),
-                26 => write!(s, "{:.26}\n", value).unwrap(),
-                27 => write!(s, "{:.27}\n", value).unwrap(),
-                28 => write!(s, "{:.28}\n", value).unwrap(),
-                29 => write!(s, "{:.29}\n", value).unwrap(),
-                30 => write!(s, "{:.30}\n", value).unwrap(),
-                31 => write!(s, "{:.31}\n", value).unwrap(),
-                32 => write!(s, "{:.32}\n", value).unwrap(),
-                _ => write!(s, "{}\n", value).unwrap()
+                1 => writeln!(s, "{:.1}", value).unwrap(),
+                2 => writeln!(s, "{:.2}", value).unwrap(),
+                3 => writeln!(s, "{:.3}", value).unwrap(),
+                4 => writeln!(s, "{:.4}", value).unwrap(),
+                5 => writeln!(s, "{:.5}", value).unwrap(),
+                6 => writeln!(s, "{:.6}", value).unwrap(),
+                7 => writeln!(s, "{:.7}", value).unwrap(),
+                8 => writeln!(s, "{:.8}", value).unwrap(),
+                9 => writeln!(s, "{:.9}", value).unwrap(),
+                10 => writeln!(s, "{:.10}", value).unwrap(),
+                11 => writeln!(s, "{:.11}", value).unwrap(),
+                12 => writeln!(s, "{:.12}", value).unwrap(),
+                13 => writeln!(s, "{:.13}", value).unwrap(),
+                14 => writeln!(s, "{:.14}", value).unwrap(),
+                15 => writeln!(s, "{:.15}", value).unwrap(),
+                16 => writeln!(s, "{:.16}", value).unwrap(),
+                17 => writeln!(s, "{:.17}", value).unwrap(),
+                18 => writeln!(s, "{:.18}", value).unwrap(),
+                19 => writeln!(s, "{:.19}", value).unwrap(),
+                20 => writeln!(s, "{:.20}", value).unwrap(),
+                21 => writeln!(s, "{:.21}", value).unwrap(),
+                22 => writeln!(s, "{:.22}", value).unwrap(),
+                23 => writeln!(s, "{:.23}", value).unwrap(),
+                24 => writeln!(s, "{:.24}", value).unwrap(),
+                25 => writeln!(s, "{:.25}", value).unwrap(),
+                26 => writeln!(s, "{:.26}", value).unwrap(),
+                27 => writeln!(s, "{:.27}", value).unwrap(),
+                28 => writeln!(s, "{:.28}", value).unwrap(),
+                29 => writeln!(s, "{:.29}", value).unwrap(),
+                30 => writeln!(s, "{:.30}", value).unwrap(),
+                31 => writeln!(s, "{:.31}", value).unwrap(),
+                32 => writeln!(s, "{:.32}", value).unwrap(),
+                _ => writeln!(s, "{}", value).unwrap()
             },
             None => {
-                write!(s, "{}\n", value).unwrap()
+                writeln!(s, "{}", value).unwrap()
             }
         }
     }
@@ -478,15 +478,15 @@ impl<'a> Column {
         let fst_row = fst_row.unwrap_or(1).max(1);
         let fst_row_ix = fst_row - 1;
         match self {
-            Column::Bool(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
-            Column::I8(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
-            Column::I16(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
-            Column::I32(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
-            Column::U32(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
-            Column::I64(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
+            Column::Bool(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| writeln!(&mut buffer, "{}", e).unwrap() ),
+            Column::I8(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| writeln!(&mut buffer, "{}", e).unwrap() ),
+            Column::I16(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| writeln!(&mut buffer, "{}", e).unwrap() ),
+            Column::I32(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| writeln!(&mut buffer, "{}", e).unwrap() ),
+            Column::U32(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| writeln!(&mut buffer, "{}", e).unwrap() ),
+            Column::I64(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| writeln!(&mut buffer, "{}", e).unwrap() ),
             Column::F32(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| Self::write_with_precision(&mut buffer, *e as f64, prec) ),
             Column::F64(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| Self::write_with_precision(&mut buffer, *e as f64, prec) ),
-            Column::Numeric(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write!(&mut buffer, "{}\n", e).unwrap() ),
+            Column::Numeric(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| writeln!(&mut buffer, "{}", e).unwrap() ),
             Column::Str(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write_str(&mut buffer, &e[..]) ),
             Column::Json(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write_str(&mut buffer, &json_to_string(&e) ) ),
             Column::Bytes(v) => v.iter().skip(fst_row_ix).take(max_rows).for_each(|e| write_binary(&mut buffer, &e[..]) ),
@@ -568,14 +568,14 @@ const MAX_WIDTH_CHARS : usize = 140;
 
 pub fn write_str(buffer : &mut String, s : &str) {
     let extrapolated = if s.len() <= MAX_WIDTH_CHARS {
-        write!(buffer, "{}\n", s).unwrap();
+        writeln!(buffer, "{}", s).unwrap();
         false
     } else {
         if let Some((ix, _)) = s.char_indices().nth(MAX_WIDTH_CHARS+1) {
-            write!(buffer, "{}\n", &s[..ix]).unwrap();
+            write!(buffer, "{}", &s[..ix]).unwrap();
             true
         } else {
-            write!(buffer, "{}\n", s).unwrap();
+            write!(buffer, "{}", s).unwrap();
             false
         }
     };

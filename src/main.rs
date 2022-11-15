@@ -5,12 +5,8 @@ For a copy, see http://www.gnu.org/licenses.*/
 
 use gtk4::prelude::*;
 use gtk4::*;
-use libadwaita;
-
-
 use filecase::MultiArchiverImpl;
 use stateful::PersistentState;
-
 use queries::client::*;
 use queries::ui::*;
 
@@ -33,7 +29,7 @@ fn main() {
 
     let user_state = if let Some(mut path) = filecase::get_datadir(queries::APP_ID) {
         path.push(queries::SETTINGS_FILE);
-        SharedUserState::recover(&path.to_str().unwrap()).unwrap_or_default()
+        SharedUserState::recover(path.to_str().unwrap()).unwrap_or_default()
     } else {
         eprintln!("Unable to get datadir for state recovery");
         SharedUserState::default()
@@ -85,7 +81,7 @@ fn main() {
 
     if let Some(mut path) = filecase::get_datadir(queries::APP_ID) {
         path.push(queries::SETTINGS_FILE);
-        user_state.persist(&path.to_str().unwrap());
+        user_state.persist(path.to_str().unwrap());
     } else {
         eprintln!("Unable to get datadir for state persistence");
     }

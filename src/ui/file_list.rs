@@ -178,9 +178,9 @@ impl React<ActiveConnection> for FileList {
     
 }
 
-const ITALIC_SPAN_START : &'static str = "<span font_style=\"italic\">";
+const ITALIC_SPAN_START : &str = "<span font_style=\"italic\">";
 
-const ITALIC_SPAN_END : &'static str = "</span>";
+const ITALIC_SPAN_END : &str = "</span>";
 
 pub fn get_label_child(list : &ListBox, ix : usize) -> Option<Label> {
     if let Some(row) = list.row_at_index(ix as i32) {

@@ -31,15 +31,15 @@ pub struct PostgresConnection {
 
 }
 
-const CERT_ERR : &'static str =
+const CERT_ERR : &str =
 r#"Remote connections without a root certificate
 are unsupported."#;
 
-const NOT_ENCRYPTED_ERR : &'static str =
+const NOT_ENCRYPTED_ERR : &str =
 r#"Non-encrypted connections are only supported for
 hosts accessible locally or via a private network"#;
 
-const ERR_MISSING_SSL : &'static str =
+const ERR_MISSING_SSL : &str =
 r#"Tried to connect without SSL mode 'require' at connection URL"#;
 
 async fn connect(
@@ -239,10 +239,10 @@ async fn run_transaction(client : &mut tokio_postgres::Client, any_stmt : &AnySt
                                 Ok(_) => {
                                     match other {
                                         Statement::Rollback { .. } => {
-                                            StatementOutput::RolledBack(format!("Transaction rolled back"))
+                                            StatementOutput::RolledBack("Transaction rolled back".to_string())
                                         },
                                         _not_rollback_stmt => {
-                                            StatementOutput::RolledBack(format!("Transaction rolled back (invalid end statement)"))
+                                            StatementOutput::RolledBack("Transaction rolled back (invalid end statement)".to_string())
                                         }
                                     }
                                 },
@@ -263,7 +263,7 @@ async fn run_transaction(client : &mut tokio_postgres::Client, any_stmt : &AnySt
             }
         },
         _ => {
-            StatementOutput::Invalid(format!("Expected transaction"), false)
+            StatementOutput::Invalid("Expected transaction".to_string(), false)
         }
     }
 }
@@ -288,7 +288,7 @@ impl PostgresConnection {
 }
 
 fn build_table(rows : &[tokio_postgres::Row], query : &str) -> StatementOutput {
-    if rows.len() == 0 {
+    if rows.is_empty() {
         if let Ok(cols) = crate::sql::parsing::parse_query_cols(query) {
             return StatementOutput::Valid(query.to_string(), Table::empty(cols));
         }
@@ -414,10 +414,10 @@ impl Connection for PostgresConnection {
                      StatementOutput::Invalid(format!("Tried to execute transaction on single exec call."), false)
                 },
                 AnyStatement::Raw(_, _, _) => {
-                    StatementOutput::Invalid(format!("Tried to execute unparsed statement"), false)
+                    StatementOutput::Invalid("Tried to execute unparsed statement".to_string(), false)
                 },
                 AnyStatement::Local(_) => {
-                    StatementOutput::Invalid(format!("Tried to execute unsupported statement"), false)
+                    StatementOutput::Invalid("Tried to execute unsupported statement".to_string(), false)
                 }
             }
         })
@@ -441,9 +441,9 @@ impl Connection for PostgresConnection {
         
         for (schema, tbls) in schemata.iter() {
             for tbl in &tbls[..] {
-                col_queries.push(AnyStatement::from_sql(&COLUMN_QUERY.replace("$TABLE", &tbl).replace("$SCHEMA", &schema)).unwrap());
-                pk_queries.push(AnyStatement::from_sql(&PK_QUERY.replace("$TABLE", &tbl).replace("$SCHEMA", &schema)).unwrap());
-                rel_queries.push(AnyStatement::from_sql(&REL_QUERY.replace("$TABLE", &tbl).replace("$SCHEMA", &schema)).unwrap());
+                col_queries.push(AnyStatement::from_sql(&COLUMN_QUERY.replace("$TABLE", &tbl).replace("$SCHEMA", schema)).unwrap());
+                pk_queries.push(AnyStatement::from_sql(&PK_QUERY.replace("$TABLE", &tbl).replace("$SCHEMA", schema)).unwrap());
+                rel_queries.push(AnyStatement::from_sql(&REL_QUERY.replace("$TABLE", &tbl).replace("$SCHEMA", schema)).unwrap());
             }
             view_queries.push(AnyStatement::from_sql(&VIEW_QUERY.replace("$SCHEMA", schema)).unwrap());
             fn_queries.push(AnyStatement::from_sql(&FN_QUERY.replace("$SCHEMA", schema)).unwrap());
@@ -491,10 +491,10 @@ impl Connection for PostgresConnection {
             tbl_objs.sort_by(|a, b| {
                 a.obj_name().chars().next().unwrap().cmp(&b.obj_name().chars().next().unwrap())
             });
-            if view_objs.len() > 0 {
+            if !view_objs.is_empty() {
                 tbl_objs.push(DBObject::Schema { name : format!("Views ({})", schema), children : view_objs } );
             }
-            if func_objs.len() > 0 {
+            if !func_objs.is_empty() {
                 tbl_objs.push(DBObject::Schema { name : format!("Functions ({})", schema), children : func_objs } );
             }
             let schema_obj = DBObject::Schema{ name : schema.to_string(), children : tbl_objs };
@@ -582,15 +582,15 @@ impl Connection for PostgresConnection {
 
 }
 
-const SERVER_VERSION_QUERY : &'static str = "show server_version";
+const SERVER_VERSION_QUERY : &str = "show server_version";
 
-const COLLATION_QUERY : &'static str = "show lc_collate";
+const COLLATION_QUERY : &str = "show lc_collate";
 
-const SIZE_QUERY : &'static str = r#"
+const SIZE_QUERY : &str = r#"
     select pg_size_pretty(pg_database_size('$DBNAME'));
 "#;
 
-const UPTIME_QUERY : &'static str = r#"
+const UPTIME_QUERY : &str = r#"
 with uptime as (select current_timestamp - pg_postmaster_start_time() as uptime)
 select cast(extract(day from uptime) as integer) || 'd ' ||
     cast(extract(hour from uptime) as integer) || 'h ' ||
@@ -607,26 +607,26 @@ fn query_db_details(cli : &mut PostgresConnection, dbname : &str) -> Result<DBDe
         AnyStatement::from_sql(UPTIME_QUERY).unwrap()
     ]);
     let version = out[0].table_or_error()?.display_content_at(0, 0, None)
-        .ok_or(format!("Missing version"))?;
+        .ok_or("Missing version".to_string())?;
     let version_number = version.split(" ").next()
-        .ok_or(format!("Missing version number"))?;
+        .ok_or("Missing version number".to_string())?;
     details.server = format!("Postgres {}", version_number);
     details.locale = out[1].table_or_error()?
         .display_content_at(0, 0, None)
-        .ok_or(format!("Missing locale"))?.to_string();
+        .ok_or("Missing locale".to_string())?.to_string();
     details.size = out[2].table_or_error()?
         .display_content_at(0, 0, None)
-        .ok_or(format!("Missing size"))?.to_string();
+        .ok_or("Missing size".to_string())?.to_string();
     
     details.uptime = out[3].table_or_error()?
         .display_content_at(0, 0, None)
-        .ok_or(format!("Missing uptime"))?.to_string();
+        .ok_or("Missing uptime".to_string())?.to_string();
     
     Ok(details)
 }
 
 // Function query, that should be parametrized by $SCHEMA before execution.
-const FN_QUERY : &'static str = r#"
+const FN_QUERY : &str = r#"
 select cast (pg_proc.proname as text),
    pg_get_function_identity_arguments(pg_proc.oid) as args,
    cast(pg_type.typname as text) as ret_typename
@@ -639,15 +639,15 @@ order by proname;
 "#;
 
 // Retrieve schemata without parametrizations.
-const SCHEMATA_QUERY : &'static str = r"select schema_name from information_schema.schemata;";
+const SCHEMATA_QUERY : &str = r"select schema_name from information_schema.schemata;";
 
 // Retrieve tables, without parametrizations.
-const TBL_QUERY : &'static str = r#"select schemaname::text, tablename::text
+const TBL_QUERY : &str = r#"select schemaname::text, tablename::text
     from pg_catalog.pg_tables
     where schemaname != 'pg_catalog' and schemaname != 'information_schema';"#;
 
 // View query, that should be parametrized by $SCHEMA before execution.
-const VIEW_QUERY : &'static str = r#"
+const VIEW_QUERY : &str = r#"
 select cast(table_schema as text) as schema_name,
        cast(table_name as text) as view_name
 from information_schema.views
@@ -655,7 +655,7 @@ where table_schema like '$SCHEMA' and table_schema not in ('information_schema',
 order by schema_name, view_name;"#;
 
 // Primary key query, that should be parametrized by $SCHEMA and $TABLE before execution.
-const PK_QUERY : &'static str = r#"select
+const PK_QUERY : &str = r#"select
     cast(tc.table_schema as text) as table_schema,
     cast(tc.constraint_name as text) as constraint_name,
     cast(tc.table_name as text) as table_name,
@@ -672,7 +672,7 @@ where tc.constraint_type = 'PRIMARY KEY' and tc.table_name='$TABLE' and tc.table
 "#;
 
 // Relationship query, that should be parametrized by table and schema.
-const REL_QUERY : &'static str = r#"
+const REL_QUERY : &str = r#"
 select
     cast(tc.table_schema as text) as table_schema,
     cast(tc.constraint_name as text) as constraint_name,
@@ -692,7 +692,7 @@ FROM
 where tc.constraint_type = 'FOREIGN KEY' and tc.table_name='$TABLE' and tc.table_schema='$SCHEMA';
 "#;
 
-const COLUMN_QUERY : &'static str = r#"select column_name::text, data_type::text
+const COLUMN_QUERY : &str = r#"select column_name::text, data_type::text
     from information_schema.columns where table_name = '$TABLE' and table_schema='$SCHEMA';"#;
 
 fn retrieve_functions(fn_info : &Table, schema : &str) -> Option<Vec<DBObject>> {
@@ -706,8 +706,8 @@ fn retrieve_functions(fn_info : &Table, schema : &str) -> Option<Vec<DBObject>> 
         let mut args = Vec::new();
         let mut split_arg = Vec::new();
         if !arg.is_empty() {
-            for arg_str in arg.split(",") {
-                split_arg = arg_str.split(" ").filter(|s| !s.is_empty() ).collect::<Vec<_>>();
+            for arg_str in arg.split(',') {
+                split_arg = arg_str.split(' ').filter(|s| !s.is_empty() ).collect::<Vec<_>>();
 
                 // Some SQL types such as double precision and timestamp with time zone have spaces,
                 // which is why the name is the first field, the type the second..last.
@@ -733,7 +733,7 @@ fn retrieve_functions(fn_info : &Table, schema : &str) -> Option<Vec<DBObject>> 
                     },
                     4 => {
                         // timestamp with time zone | timestamp without time zone will have 4 splits but no arg name
-                        args.push(DBType::from_str(&arg_str[..]).unwrap_or(DBType::Unknown));
+                        args.push(DBType::from_str(arg_str).unwrap_or(DBType::Unknown));
                     },
                     5 => {
                         // timestamp with time zone | timestamp without time zone will have 4 splits but and a type name
@@ -743,7 +743,7 @@ fn retrieve_functions(fn_info : &Table, schema : &str) -> Option<Vec<DBObject>> 
                         }
                     },
                     _n => {
-                        args.push(DBType::from_str(&arg_str[..]).unwrap_or(DBType::Unknown));
+                        args.push(DBType::from_str(arg_str).unwrap_or(DBType::Unknown));
                     }
                 }
             }
@@ -765,7 +765,7 @@ fn retrieve_functions(fn_info : &Table, schema : &str) -> Option<Vec<DBObject>> 
     }
 
     fns.sort_by(|a, b| {
-        a.obj_name().cmp(&b.obj_name())
+        a.obj_name().cmp(b.obj_name())
     });
     Some(fns)
 }
@@ -816,7 +816,7 @@ fn get_postgres_schemata(conn : &mut PostgresConnection) -> Result<HashMap<Strin
                 if let Some(tbl_out) = out.get(1) {
                     match tbl_out {
                         StatementOutput::Valid(_, tbl) => {
-                            schemata = retrieve_schemata(&tbl).unwrap();
+                            schemata = retrieve_schemata(tbl).unwrap();
                         },
                         StatementOutput::Invalid(e, _) => {
                             return Err(format!("{}", e));
@@ -846,7 +846,7 @@ fn get_postgres_schemata(conn : &mut PostgresConnection) -> Result<HashMap<Strin
             }
         }
     } else {
-        Err(format!("Missing schema information"))
+        Err("Missing schema information".to_string())
     }
 
    
@@ -860,7 +860,7 @@ fn retrieve_views(view_info : &Table) -> Option<Vec<DBObject>> {
         views.push(DBObject::View { schema : schema.to_string(), name : name.clone() });
     }
     views.sort_by(|a, b| {
-        a.obj_name().cmp(&b.obj_name())
+        a.obj_name().cmp(b.obj_name())
     });
     Some(views)
 }
@@ -895,14 +895,12 @@ fn retrieve_relations(col_info : &Table) -> Option<Vec<Relation>> {
 fn format_pg_string(e : &mut String) {
     if e.starts_with("db error: ERROR:") || e.starts_with("db error: FATAL:") {
         *e = e.clone().chars().skip(16).collect::<String>();
-    } else {
-        if e.starts_with("db error:") {
-            *e = e.clone().chars().skip(9).collect::<String>();
-        }
+    } else if e.starts_with("db error:") {
+        *e = e.clone().chars().skip(9).collect::<String>();
     }
     *e = e.clone().trim().to_string();
     if e.len() >= 1 {
-        let fst_char = e[0..1].to_uppercase().to_string();
+        let fst_char = e[0..1].to_uppercase();
         e.replace_range(0..1, &fst_char);
     }
     break_string(e, 80);
