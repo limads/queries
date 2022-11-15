@@ -5,7 +5,7 @@
    width="16px"
    version="1.1"
    id="svg163"
-   sodipodi:docname="funnel-symbolic.svg"
+   sodipodi:docname="key-white.svg"
    inkscape:version="1.1.2 (0a00cf5339, 2022-02-04)"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
@@ -22,9 +22,9 @@
      inkscape:pageopacity="0.0"
      inkscape:pagecheckerboard="0"
      showgrid="false"
-     inkscape:zoom="50.5"
-     inkscape:cx="8"
-     inkscape:cy="7.990099"
+     inkscape:zoom="12.452927"
+     inkscape:cx="23.769513"
+     inkscape:cy="26.780853"
      inkscape:window-width="1920"
      inkscape:window-height="1016"
      inkscape:window-x="0"
@@ -264,111 +264,111 @@
        d="m 0 0 h 1024 v 800 h -1024 z"
        id="path106" />
   </clipPath>
-  <path
-     d="m 0 1.007812 h 15 l -6 7 v 6 l -3 2 v -8 z m 0 0"
-     fill="#2e3436"
-     id="path109"
-     style="fill:#000000" />
   <g
      clip-path="url(#c)"
      mask="url(#b)"
-     transform="matrix(1 0 0 1 -720 -664)"
-     id="g113">
+     transform="matrix(1 0 0 1 -60 -356)"
+     id="g111">
     <path
        d="m 562.460938 212.058594 h 10.449218 c -1.183594 0.492187 -1.296875 2.460937 0 3 h -10.449218 z m 0 0"
        fill="#2e3436"
-       id="path111" />
+       id="path109" />
   </g>
   <g
      clip-path="url(#e)"
      mask="url(#d)"
-     transform="matrix(1 0 0 1 -720 -664)"
-     id="g117">
+     transform="matrix(1 0 0 1 -60 -356)"
+     id="g115">
     <path
        d="m 16 632 h 1 v 1 h -1 z m 0 0"
        fill="#2e3436"
        fill-rule="evenodd"
-       id="path115" />
+       id="path113" />
   </g>
   <g
      clip-path="url(#g)"
      mask="url(#f)"
-     transform="matrix(1 0 0 1 -720 -664)"
-     id="g121">
+     transform="matrix(1 0 0 1 -60 -356)"
+     id="g119">
     <path
        d="m 17 631 h 1 v 1 h -1 z m 0 0"
        fill="#2e3436"
        fill-rule="evenodd"
-       id="path119" />
+       id="path117" />
   </g>
   <g
      clip-path="url(#i)"
      mask="url(#h)"
-     transform="matrix(1 0 0 1 -720 -664)"
-     id="g125">
+     transform="matrix(1 0 0 1 -60 -356)"
+     id="g123">
     <path
        d="m 18 634 h 1 v 1 h -1 z m 0 0"
        fill="#2e3436"
        fill-rule="evenodd"
-       id="path123" />
+       id="path121" />
   </g>
   <g
      clip-path="url(#k)"
      mask="url(#j)"
-     transform="matrix(1 0 0 1 -720 -664)"
-     id="g129">
+     transform="matrix(1 0 0 1 -60 -356)"
+     id="g127">
     <path
        d="m 16 634 h 1 v 1 h -1 z m 0 0"
        fill="#2e3436"
        fill-rule="evenodd"
-       id="path127" />
+       id="path125" />
   </g>
   <g
      clip-path="url(#m)"
      mask="url(#l)"
-     transform="matrix(1 0 0 1 -720 -664)"
-     id="g133">
+     transform="matrix(1 0 0 1 -60 -356)"
+     id="g131">
     <path
        d="m 17 635 h 1 v 1 h -1 z m 0 0"
        fill="#2e3436"
        fill-rule="evenodd"
-       id="path131" />
+       id="path129" />
   </g>
   <g
      clip-path="url(#o)"
      mask="url(#n)"
-     transform="matrix(1 0 0 1 -720 -664)"
-     id="g137">
+     transform="matrix(1 0 0 1 -60 -356)"
+     id="g135">
     <path
        d="m 19 635 h 1 v 1 h -1 z m 0 0"
        fill="#2e3436"
        fill-rule="evenodd"
-       id="path135" />
+       id="path133" />
   </g>
   <g
      clip-path="url(#q)"
      mask="url(#p)"
-     transform="matrix(1 0 0 1 -720 -664)"
-     id="g141">
+     transform="matrix(1 0 0 1 -60 -356)"
+     id="g139">
     <path
        d="m 136 660 v 7 h 7 v -7 z m 0 0"
        fill="#2e3436"
-       id="path139" />
+       id="path137" />
   </g>
   <g
      clip-path="url(#s)"
      mask="url(#r)"
-     transform="matrix(1 0 0 1 -720 -664)"
-     id="g145">
+     transform="matrix(1 0 0 1 -60 -356)"
+     id="g143">
     <path
        d="m 199 642 h 3 v 12 h -3 z m 0 0"
        fill="#2e3436"
-       id="path143" />
+       id="path141" />
   </g>
+  <path
+     d="m 5 4 c -2.210938 0 -4 1.789062 -4 4 s 1.789062 4 4 4 c 1.824219 0 3.414062 -1.234375 3.871094 -3 h 4.128906 v 2 h 3 v -4 h -7.132812 c -0.457032 -1.765625 -2.046876 -2.996094 -3.867188 -3 z m 0 2 c 1.105469 0 2 0.894531 2 2 s -0.894531 2 -2 2 s -2 -0.894531 -2 -2 s 0.894531 -2 2 -2 z m 0 0"
+     fill="#2e3436"
+     id="path145"
+     style="fill:#ffffff" />
   <g
      clip-path="url(#u)"
      mask="url(#t)"
-     transform="matrix(1 0 0 1 -720 -664)"
+     transform="matrix(1 0 0 1 -60 -356)"
      id="g149">
     <path
        d="m 209.5 144.160156 c 0.277344 0 0.5 0.222656 0.5 0.5 v 1 c 0 0.277344 -0.222656 0.5 -0.5 0.5 s -0.5 -0.222656 -0.5 -0.5 v -1 c 0 -0.277344 0.222656 -0.5 0.5 -0.5 z m 0 0"
@@ -378,7 +378,7 @@
   <g
      clip-path="url(#w)"
      mask="url(#v)"
-     transform="matrix(1 0 0 1 -720 -664)"
+     transform="matrix(1 0 0 1 -60 -356)"
      id="g153">
     <path
        d="m 206.5 144.160156 c 0.277344 0 0.5 0.222656 0.5 0.5 v 1 c 0 0.277344 -0.222656 0.5 -0.5 0.5 s -0.5 -0.222656 -0.5 -0.5 v -1 c 0 -0.277344 0.222656 -0.5 0.5 -0.5 z m 0 0"
@@ -388,7 +388,7 @@
   <g
      clip-path="url(#y)"
      mask="url(#x)"
-     transform="matrix(1 0 0 1 -720 -664)"
+     transform="matrix(1 0 0 1 -60 -356)"
      id="g157">
     <path
        d="m 229.5 143.160156 c -0.546875 0 -1 0.457032 -1 1 c 0 0.546875 0.453125 1 1 1 s 1 -0.453125 1 -1 c 0 -0.542968 -0.453125 -1 -1 -1 z m 0 0"
@@ -398,7 +398,7 @@
   <g
      clip-path="url(#A)"
      mask="url(#z)"
-     transform="matrix(1 0 0 1 -720 -664)"
+     transform="matrix(1 0 0 1 -60 -356)"
      id="g161">
     <path
        d="m 226.453125 143.160156 c -0.519531 0 -0.953125 0.433594 -0.953125 0.953125 v 0.09375 c 0 0.519531 0.433594 0.953125 0.953125 0.953125 h 0.09375 c 0.519531 0 0.953125 -0.433594 0.953125 -0.953125 v -0.09375 c 0 -0.519531 -0.433594 -0.953125 -0.953125 -0.953125 z m 0 0"

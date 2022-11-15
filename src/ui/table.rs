@@ -30,8 +30,8 @@ fn configure_scale(scale : &Scale) {
     scale.set_has_origin(false);
 }
 
-fn scale_adjustment(max_nrows : usize) -> Adjustment {
-    Adjustment::builder().lower(1.).upper(max_nrows as f64).value(1.).build()
+fn scale_adjustment(nrows : usize) -> Adjustment {
+    Adjustment::builder().lower(1.).upper(nrows as f64).value(1.).build()
 }
 
 impl TablePopover {
@@ -44,11 +44,8 @@ impl TablePopover {
         self.filter_entry.set_text("");
     }
 
-    pub fn new(max_nrows : usize) -> Self {
+    pub fn new(nrows : usize, max_nrows : usize) -> Self {
         let fst_scale = Scale::new(Orientation::Horizontal,Some(&scale_adjustment(max_nrows)));
-
-        fst_scale.set_value_pos(PositionType::Right);
-
         configure_scale(&fst_scale);
 
         let top_bx = Box::new(Orientation::Horizontal, 0);
@@ -61,6 +58,7 @@ impl TablePopover {
         btn_descending.style_context().add_class("flat");
 
         let filter_entry = Entry::new();
+        filter_entry.set_max_width_chars(32);
         filter_entry.set_primary_icon_name(Some("funnel-symbolic"));
 
         top_bx.append(&btn_ascending);
@@ -100,7 +98,7 @@ pub struct TableWidget {
 
     pub scroll_window : ScrolledWindow,
 
-    _parent_ctx : StyleContext,
+    //_parent_ctx : StyleContext,
 
     provider : CssProvider,
 
@@ -124,60 +122,6 @@ impl Drop for TableWidget {
 
 }
 
-const TABLE_WHITE_CSS : &'static str = r#"
-.scrolledwindow {
-  background-color : #FFFFFF;
-}
-
-.table-cell {
-  padding-left: 10px;
-  padding-right: 10px;
-  padding-top: 10px;
-  padding-bottom: 10px;
-  border : 1px solid #F0F0F0;
-  /*border : 1px solid #000000;*/
-  background-color : #FFFFFF;
-}
-
-.selected {
-  background-color : #F5F6F7;
-  border : 1px solid #E9E9E9;
-}
-
-.first-row {
-  /*background-color : #E9E9E9;*/
-  font-weight : bold;
-  border-bottom : 1px solid #F0F0F0;
-}
-"#;
-
-const TABLE_DARK_CSS : &'static str = r#"
-.scrolledwindow {
-  background-color : #1E1E1E;
-}
-
-.table-cell {
-  padding-left: 10px;
-  padding-right: 10px;
-  padding-top: 10px;
-  padding-bottom: 10px;
-  border : 1px solid #454545;
-  /*border : 1px solid #000000;*/
-  background-color : #1E1E1E;
-}
-
-.selected {
-  background-color : #F5F6F7;
-  border : 1px solid #454545;
-}
-
-.first-row {
-  /*background-color : #E9E9E9;*/
-  font-weight : bold;
-  border-bottom : 1px solid #454545;
-}
-"#;
-
 fn update_cols(tbl : &Table, grid : &Grid, fst_row : usize, max_nrows : usize) {
     for col in 0..tbl.size().1 {
         grid.child_at(col as i32, 1).unwrap().downcast::<Label>().unwrap()
@@ -186,22 +130,53 @@ fn update_cols(tbl : &Table, grid : &Grid, fst_row : usize, max_nrows : usize) {
 }
 
 const HEADER_DARK_CSS : &'static str =r#"
+label {
+  font-weight : bold;
+  border-bottom : 1px solid #454545;
+  border-right : 1px solid #454545;
+  padding-left: 10px;
+  padding-right: 10px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  background-color : #1E1E1E;
+}
 
+.selected {
+  background-color : #404040;
+  border : 1px solid #454545;
+}
 "#;
 
 const DATA_DARK_CSS : &'static str =r#"
+label {
+  padding-left: 10px;
+  padding-right: 10px;
+  line-height : 39px;
+  background-color: #1E1E1E;
+  background-size: 1px 39px;
+  background-image: linear-gradient(0deg, #454545, #454545 1px, #1E1E1E 1px, #1E1E1E);
+  border-left : 1px solid #454545;
+  border-right : 1px solid #454545;
+}
 
+.selected {
+  background-color : #F5F6F7;
+  background-size: 1px 39px;
+  background-image: linear-gradient(0deg, #454545, #454545 1px, #404040 1px, #404040);
+  border-left : 1px solid #454545;
+  border-right : 1px solid #454545;
+}
 "#;
 
 const HEADER_WHITE_CSS : &'static str =r#"
 label {
   font-weight : bold;
   border-bottom : 1px solid #dcdcdc;
+  border-right : 1px solid #dcdcdc;
   padding-left: 10px;
   padding-right: 10px;
   padding-top: 10px;
   padding-bottom: 10px;
-  border : 1px solid #F0F0F0;
   background-color : #FFFFFF;
 }
 
@@ -213,6 +188,8 @@ label {
 
 const DATA_WHITE_CSS : &'static str = r#"
 label {
+  padding-left: 10px;
+  padding-right: 10px;
   line-height : 39px;
   background-color: #ffffff;
   background-size: 1px 39px;
@@ -297,13 +274,13 @@ fn set_table_selection_style(grid : &Grid, col : usize, ncols : usize, was_selec
 impl TableWidget {
 
     pub fn new_from_table(tbl : &Table, max_nrows : usize, max_ncols : usize) -> Self {
-        let mut tbl_wid = Self::new(max_nrows);
+        let mut tbl_wid = Self::new(tbl.nrows(), max_nrows);
         tbl_wid.tbl = Rc::new(tbl.clone());
         tbl_wid.update_data(&tbl, Some(1), Some(max_nrows), true);
         tbl_wid
     }
 
-    pub fn new(max_nrows : usize) -> TableWidget {
+    pub fn new(nrows : usize, max_nrows : usize) -> TableWidget {
         let grid = Grid::new();
         let provider = CssProvider::new();
         
@@ -313,7 +290,7 @@ impl TableWidget {
             provider.load_from_data(TABLE_WHITE_CSS.as_bytes());
         }*/
         
-        let parent_ctx = grid.style_context();
+        // let parent_ctx = grid.style_context();
         // parent_ctx.add_provider(&provider,800);
 
         // let msg = Label::new(None);
@@ -323,30 +300,14 @@ impl TableWidget {
         let scroll_window = ScrolledWindow::new();
         scroll_window.set_vexpand(true);
         scroll_window.set_valign(Align::Fill);
-
-        // Some(&Adjustment::new(0.0, 0.0, 100.0, 10.0, 10.0, 100.0)),
-        //    Some(&Adjustment::new(0.0, 0.0, 100.0, 10.0, 10.0, 100.0))
-        // );
-        /*let scroll_window = ScrolledWindow::new(
-            Some(&Adjustment::new(0.0, 0.0, 100.0, 0.0, 0.0, 100.0)),
-            Some(&Adjustment::new(0.0, 0.0, 100.0, 0.0, 0.0, 100.0))
-        );*/
-        // scroll_window.set_shadow_type(ShadowType::None);
-
         scroll_window.set_child(Some(&grid));
-
-        let popover = TablePopover::new(max_nrows);
+        let popover = TablePopover::new(nrows, max_nrows);
         popover.popover.set_parent(&scroll_window);
-
-        // scroll_window.show_all();
-        // let selected = Rc::new(RefCell::new(Vec::new()));
-        // let dims = Rc::new(RefCell::new((0, 0)));
-        // let tbl = Table::new_empty(None);
         TableWidget {
             grid,
             max_nrows,
             scroll_window,
-            _parent_ctx : parent_ctx,
+            // _parent_ctx : parent_ctx,
             provider,
             popover,
             tbl : Rc::new(Table::empty(Vec::new()))
@@ -357,25 +318,6 @@ impl TableWidget {
         self.scroll_window.clone()
     }
 
-    /*fn create_header_cell(
-        &self,
-        data : &str,
-        row : usize,
-        col : usize,
-        nrows : usize,
-        ncols : usize
-    ) -> gtk::EventBox {
-        let label = self.create_data_cell(data, row, col, nrows, ncols);
-        let ev_box = gtk::EventBox::new();
-        //ev_box.set_above_child(true);
-        //ev_box.set_visible_window(true);
-        ev_box.add(&label);
-        if let Ok(mut sel) = self.selected.try_borrow_mut() {
-            sel.push((data.to_string(), col, false));
-        }
-        ev_box
-    }*/
-
     fn create_header_cell(
         &self,
         data : &str,
@@ -385,64 +327,11 @@ impl TableWidget {
         include_header : bool,
         displayed_tbl : &Rc<RefCell<Option<DisplayedTable>>>
     ) -> Label {
-
-        // No allocation happens here
-        let mut trimmed_data = String::new();
-
-        let label_data : &str = if data.len() <= 140 {
-            &data[..]
-        } else {
-            // Only if content is too big, allocate it.
-            trimmed_data += &data[0..140];
-            trimmed_data += "...";
-            &trimmed_data[..]
-        };
         let label = Label::new(None);
         label.set_use_markup(true);
-        label.set_markup(label_data);
+        label.set_markup(&data);
         label.set_hexpand(true);
         let ctx = label.style_context();
-
-        /*label.connect_activate_link(move |_, uri| {
-            if uri.starts_with("queries://") {
-                let split = uri.trim_start_matches("queries://").split("+");
-                if let Some(fn_name) = split.next() {
-                    let mut params = Vec::new();
-                    while let Some(param) = split.next() {
-                        params.push(param.to_string());
-                    }
-                }
-                Inhibit(true)
-            } else {
-                Inhibit(false)
-            }
-        });*/
-
-        /*ctx.add_provider(&(self.provider),800); // PROVIDER_CONTEXT_USER
-        ctx.add_class("table-cell");
-
-        // Add this only when all columns have a title, maybe on a set_header method.
-        if row == 0 {
-            ctx.add_class("first-row");
-        }
-        if row == nrows - 1 {
-            ctx.add_class("last-row");
-        }
-        if col % 2 != 0 {
-            ctx.add_class("odd-col");
-        } else {
-            ctx.add_class("even-col");
-        }
-        if col == ncols-1 {
-            ctx.add_class("last-col");
-        }
-        if (row + 1) % 2 != 0 {
-            ctx.add_class("odd-row");
-        }*/
-
-        // Since the current method is called once for each column, create a separate
-        // gesture for each column.
-
         let cursor = Cursor::builder().name("pointer").build();
         label.set_cursor(Some(&cursor));
         let click = GestureClick::new();
@@ -504,11 +393,10 @@ impl TableWidget {
     }
 
     pub fn add_popover_signals(&self, displayed_tbl : &Rc<RefCell<Option<DisplayedTable>>>) {
-        let max_nrows = self.max_nrows.clone();
         let eff_rows = self.tbl.nrows().min(self.max_nrows) as f64;
-        let fst_adj = Adjustment::new(1., 1., eff_rows, 1.0, 1.0, 10.0);
+        let fst_adj = Adjustment::builder().value(1.).lower(1.).upper(eff_rows).build();
+        let num_adj = Adjustment::builder().value(eff_rows).lower(1.).upper(eff_rows).build();
         self.popover.fst_scale.set_adjustment(&fst_adj);
-        let num_adj = Adjustment::new(eff_rows, 1., eff_rows, 1.0, 1.0, 10.0);
         self.popover.num_scale.set_adjustment(&num_adj);
         self.popover.btn_ascending.connect_toggled({
             let displayed_tbl = displayed_tbl.clone();
@@ -571,7 +459,7 @@ impl TableWidget {
                 if let Ok(displ_tbl) = displayed_tbl.try_borrow() {
                     if let Some(tbl) = &*displ_tbl {
                         let row_limit = tbl.tbl.nrows().min(max_rows);
-                        let rem_rows = row_limit.saturating_sub(fst_row).max(1);
+                        let rem_rows = row_limit.saturating_sub(fst_row.saturating_sub(1)).max(1);
 
                         update_cols(&tbl.tbl, &grid, fst_row, row_limit);
                         num_scale.set_range(1.0, rem_rows as f64);
@@ -665,25 +553,16 @@ impl TableWidget {
                 // It is important to set the new maxima before setting
                 // the new value.
                 if let Some(new_max) = num_scale_new_max {
-                    // num_scale.adjustment().set_upper(new_max);
                     num_scale.set_range(1.0, new_max);
-
-
                 }
                 if let Some(new_max) = fst_scale_new_max {
-                    // fst_scale.adjustment().set_upper(new_max);
                     fst_scale.set_range(1.0, new_max);
-
                 }
                 if let Some(new_val) = num_scale_new_val {
-                    // num_scale.adjustment().set_value(new_val);
                     num_scale.set_value(new_val);
-                    // num_scale.set_fill_level(new_val);
                 }
                 if let Some(new_val) = fst_scale_new_val {
-                    // fst_scale.adjustment().set_value(new_val);
                     fst_scale.set_value(new_val);
-                    // fst_scale.set_fill_level(new_val);
                 }
             }
         });
@@ -695,7 +574,6 @@ impl TableWidget {
         if let Ok(sel) = self.selected.try_borrow() {
             sel.iter().filter(|s| s.2 == true ).map(|s| s.1 ).collect()
         } else {
-            println!("Selected is borrowed");
             Vec::new()
         }
     }
@@ -704,7 +582,6 @@ impl TableWidget {
         let n = if let Ok(sel) = self.selected.try_borrow() {
             sel.len()
         } else {
-            println!("Selected is borrowed");
             return Vec::new();
         };
         let selected = self.selected_cols();
@@ -724,7 +601,6 @@ impl TableWidget {
                 Self::switch_selected(self.grid.clone(), &mut sel, s);
             }
         } else {
-            println!("Could not retrieve mutable reference to selected");
         }
     }
 
@@ -780,13 +656,11 @@ impl TableWidget {
                                 .collect();
                             f(ev_box, ev, sel_ix, n - i - 1);
                         } else {
-                            println!("Unable to retrieve reference to selected vector");
                         }
                     }
                     glib::signal::Inhibit(false)
                 });
             } else {
-                println!("Could not convert widget to event box");
             }
         }
     }*/
@@ -925,7 +799,6 @@ impl TableWidget {
                 Self::switch_selected(self.grid.clone(), &mut sel[..], *i);
             }
         } else {
-            println!("Failed to retrieve mutable reference to selected columns");
         }
     }*/
 
@@ -1003,8 +876,6 @@ fn update_display_table(
             } else {
                 eprintln!("Failed to get new table");
             }
-        } else {
-            println!("Does not require update");
         }
     } else {
         eprintln!("Could not acquire mutable borrow over display table");

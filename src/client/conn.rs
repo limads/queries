@@ -365,7 +365,6 @@ impl ConnectionSet {
 
                     ConnectionAction::Switch(opt_ix) => {
                         curr_conn = opt_ix;
-                        println!("Switching to {:?}", opt_ix);
                         selected.call(opt_ix.map(|ix| (ix, user_state.borrow().conns[ix as usize].clone()) ));
                     },
                     
@@ -392,8 +391,6 @@ impl ConnectionSet {
                             let mut this_conn = &mut us.conns[ix as usize];
 
                             if this_conn.host != updated_host {
-
-                                println!("Updating {} to {}", this_conn.host, updated_host);
 
                                 // If this is a totally new host, it should have its security
                                 // settings re-set to a default value.
@@ -496,7 +493,6 @@ impl React<ConnectionBox> for ConnectionSet {
             let send = self.send.clone();
             move |entry| {
                 let txt = entry.text().to_string();
-                println!("Entry text: {}", txt);
                 if &txt[..] != "" {
                     send.send(ConnectionAction::UpdateHost(txt)).unwrap();
                 } else {

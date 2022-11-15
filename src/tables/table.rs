@@ -36,7 +36,7 @@ pub struct TableSource {
 
 /// Data-owning structure that encapsulate named columns.
 /// Implementation guarantees all columns are of the same size.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Table {
 
     name : Option<String>,
@@ -88,6 +88,16 @@ pub enum HTMLTag {
     TH,
     TBody,
     TD,
+}
+
+impl<'a> Index<&'a str> for Table {
+
+    type Output=Column;
+
+    fn index(&self, ix : &'a str) -> &Column {
+        &self.get_column_by_name(ix).unwrap()
+    }
+
 }
 
 impl Index<usize> for Table {
@@ -1063,7 +1073,7 @@ impl<'a> Columns<'a> {
 
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Format {
     Csv,
     Markdown,
@@ -1084,14 +1094,14 @@ impl FromStr for Format {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Align {
     Left,
     Center,
     Right
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BoolField {
     Char,
     CharUpper,
@@ -1116,7 +1126,7 @@ impl FromStr for BoolField {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum NullField {
     Word,
     WordUpper,
@@ -1137,7 +1147,7 @@ impl FromStr for NullField {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TableSettings {
     pub format : Format,
     pub align : Align,
@@ -1486,6 +1496,43 @@ pub fn nullable_from_arr<'a>(
         }
     };
     Ok(NullableColumn::from(data))
+}
+
+// cargo test -- sorted_table --nocapture
+#[test]
+fn sorted_table() {
+    let seq = (0..10i32);
+    let tbl = Table::new(
+        None,
+        vec![
+            format!("i8"),
+            format!("i16"),
+            format!("i32"),
+            format!("u32"),
+            format!("i64"),
+            format!("f32"),
+            format!("f64"),
+            format!("numeric"),
+            format!("str")
+        ],
+        vec![
+            Column::I8(seq.clone().map(|i| i as i8).collect()),
+            Column::I16(seq.clone().map(|i| i as i16).collect()),
+            Column::I32(seq.clone().map(|i| i as i32).collect()),
+            Column::U32(seq.clone().map(|i| i as u32).collect()),
+            Column::I64(seq.clone().map(|i| i as i64).collect()),
+            Column::F32(seq.clone().map(|i| i as f32).collect()),
+            Column::F64(seq.clone().map(|i| i as f64).collect()),
+            Column::Numeric(seq.clone().map(|i| Decimal::new(i as i64, 2) ).collect()),
+            Column::Str(seq.clone().map(|i| format!("{}", char::from(i as u8 + 100)) ).collect())
+        ]
+    ).unwrap();
+    for i in 0..8 {
+        for j in ((i+1)..9) {
+            assert!(tbl.sorted_by(i, true) == tbl.sorted_by(j, true));
+            assert!(tbl.sorted_by(i, false) == tbl.sorted_by(j, false));
+        }
+    }
 }
 
 

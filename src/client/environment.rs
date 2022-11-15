@@ -524,7 +524,6 @@ impl Tables {
     /// query that yields similarly-named columns. Criteria for removal should be query
     /// content, not query output (e.g. order by will preserve column names but return different data).
     pub fn preserved_since(&self, pos : usize) -> bool {
-        // println!("Current history: {:?}", self.history);
         if pos == self.history.len() - 1 {
             true
         } else {

@@ -75,7 +75,7 @@ const ALL_TYPES : [DBType; 15] = [
 impl SchemaTree {
 
     pub fn build() -> Self {
-        let type_icons = load_type_icons();
+
         let menu = gio::Menu::new();
         menu.append(Some("Query"), Some("win.query"));
         menu.append(Some("Report"), Some("win.report"));
@@ -85,9 +85,17 @@ impl SchemaTree {
 
         let schema_popover = PopoverMenu::builder().menu_model(&menu).build();
 
+        let is_dark = libadwaita::StyleManager::default().is_dark();
+        let type_icons = load_type_icons(is_dark);
+
+        let [TBL_ICON, DB_ICON, FN_ICON, CLOCK_ICON, VIEW_ICON, KEY_ICON] = if is_dark {
+            ["table-white", "db-white", "fn-white", "clock-app-white", "view-white", "key-white"]
+        } else {
+            ["table-symbolic", "db-symbolic", "fn-dark-symbolic", "clock-app-symbolic", "view-symbolic", "key-symbolic"]
+        };
         let mut icons = filecase::load_icons_as_pixbufs_from_resource(
             "/io/github/limads/queries",
-            &["table-symbolic", "db-symbolic", "fn-dark-symbolic", "clock-app-symbolic", "view-symbolic", "key-symbolic"]
+            &[TBL_ICON, DB_ICON, FN_ICON, CLOCK_ICON, VIEW_ICON, KEY_ICON]
         ).unwrap();
         
         /*for (_, ic) in icons.iter() {
@@ -97,7 +105,6 @@ impl SchemaTree {
                 let h = ic.height() as u32;
                 let stride = ic.rowstride() as u32;
                 let nchannels = ic.n_channels() as u32;
-                println!("{:?}", ic.colorspace());
                 ic.fill(0);
                 for x in 0..w {
                     for y in 0..h {
@@ -115,12 +122,12 @@ impl SchemaTree {
             }
         }*/
         
-        let schema_icon = icons.remove("db-symbolic").unwrap();
-        let fn_icon = icons.remove("fn-dark-symbolic").unwrap();
-        let clock_icon = icons.remove("clock-app-symbolic").unwrap();
-        let view_icon = icons.remove("view-symbolic").unwrap();
-        let key_icon = icons.remove("key-symbolic").unwrap();
-        let tbl_icon = icons.remove("table-symbolic").unwrap();
+        let schema_icon = icons.remove(DB_ICON).unwrap();
+        let fn_icon = icons.remove(FN_ICON).unwrap();
+        let clock_icon = icons.remove(CLOCK_ICON).unwrap();
+        let view_icon = icons.remove(VIEW_ICON).unwrap();
+        let key_icon = icons.remove(KEY_ICON).unwrap();
+        let tbl_icon = icons.remove(TBL_ICON).unwrap();
         
         let tree_view = TreeView::new();
         tree_view.set_valign(Align::Fill);
@@ -502,15 +509,15 @@ impl React<ActiveConnection> for SchemaTree {
 
 }
 
-fn load_type_icons() -> Rc<HashMap<DBType, Pixbuf>> {
+fn load_type_icons(is_dark : bool) -> Rc<HashMap<DBType, Pixbuf>> {
     let mut names = Vec::new();
     for ty in ALL_TYPES.iter() {
-        names.push(super::get_type_icon_name(ty));
+        names.push(super::get_type_icon_name(ty, is_dark));
     }
     let pixbufs = filecase::load_icons_as_pixbufs_from_resource("/io/github/limads/queries", &names[..]).unwrap();
     let mut type_icons = HashMap::new();
     for ty in ALL_TYPES.iter() {
-        type_icons.insert(ty.clone(), pixbufs[super::get_type_icon_name(ty)].clone());
+        type_icons.insert(ty.clone(), pixbufs[super::get_type_icon_name(ty, is_dark)].clone());
     }
     Rc::new(type_icons)
 }
@@ -764,21 +771,16 @@ mod imp {
                         let btn1 = btn1.clone();
                         let popover = popover.clone();
                         move|motion| {
-                            println!("Pointed");
-                            println!("Popover classes = {:?}", popover.css_classes());
-                            println!("Button classes = {:?}", btn1.css_classes());
                             btn1.style_context().add_class("raised");
                         }
                     });
                     motion.connect_leave({
                         let btn1 = btn1.clone();
                         move|_| {
-                            println!("Left");
                             btn1.style_context().remove_class("raised");
                         }
                     });
                     //motion.connect_motion(move |motion, x, y| {
-                    //    println!("{} {}", x, y);
                     //});
                     btn1.add_controller(&motion);
 

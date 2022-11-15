@@ -2,7 +2,9 @@
 <img src="https://flathub.org/assets/badges/flathub-badge-i-en.png" width="190px" />
 </a>
 
-<img src="https://raw.githubusercontent.com/limads/queries/master/data/icons/hicolor/scalable/apps/io.github.limads.Queries.svg" width="32px" style="*{ display : inline }" /> <h1> Queries </h1>
+![Queries](https://raw.githubusercontent.com/limads/queries/master/data/icons/hicolor/scalable/apps/io.github.limads.Queries.svg)
+
+# Queries
 
 Queries is a workbench to interact with relational databases, with initial support for Postgres.
 

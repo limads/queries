@@ -14,7 +14,7 @@ use rust_decimal::Decimal;
 use serde_json::Value;
 use std::fmt::Write;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum NullableColumn {
     Bool(Vec<Option<bool>>),
     I8(Vec<Option<i8>>),

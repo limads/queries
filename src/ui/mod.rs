@@ -715,19 +715,35 @@ pub fn configure_dialog(dialog : &impl GtkWindowExt) {
     dialog.set_hide_on_close(true);
 }
 
-pub fn get_type_icon_name(ty : &DBType) -> &'static str {
-    match ty {
-        DBType::Bool => "type-boolean-symbolic",
-        DBType::I16 | DBType::I32 | DBType::I64 => "type-integer-symbolic",
-        DBType::F32 | DBType::F64 | DBType::Numeric => "type-real-symbolic",
-        DBType::Text => "type-text-symbolic",
-        DBType::Date => "type-date-symbolic",
-        DBType::Time => "type-time-symbolic",
-        DBType::Json => "type-json-symbolic",
-        DBType::Xml => "type-xml-symbolic",
-        DBType::Bytes => "type-binary-symbolic",
-        DBType::Array => "type-array-symbolic",
-        DBType::Unknown | DBType::Trigger => "type-unknown-symbolic",
+pub fn get_type_icon_name(ty : &DBType, is_dark : bool) -> &'static str {
+    if is_dark {
+        match ty {
+            DBType::Bool => "type-boolean-white",
+            DBType::I16 | DBType::I32 | DBType::I64 => "type-integer-white",
+            DBType::F32 | DBType::F64 | DBType::Numeric => "type-real-white",
+            DBType::Text => "type-text-white",
+            DBType::Date => "type-date-white",
+            DBType::Time => "type-time-white",
+            DBType::Json => "type-json-white",
+            DBType::Xml => "type-xml-white",
+            DBType::Bytes => "type-binary-white",
+            DBType::Array => "type-array-white",
+            DBType::Unknown | DBType::Trigger => "type-unknown-white",
+        }
+    } else {
+        match ty {
+            DBType::Bool => "type-boolean-symbolic",
+            DBType::I16 | DBType::I32 | DBType::I64 => "type-integer-symbolic",
+            DBType::F32 | DBType::F64 | DBType::Numeric => "type-real-symbolic",
+            DBType::Text => "type-text-symbolic",
+            DBType::Date => "type-date-symbolic",
+            DBType::Time => "type-time-symbolic",
+            DBType::Json => "type-json-symbolic",
+            DBType::Xml => "type-xml-symbolic",
+            DBType::Bytes => "type-binary-symbolic",
+            DBType::Array => "type-array-symbolic",
+            DBType::Unknown | DBType::Trigger => "type-unknown-symbolic",
+        }
     }
 }
 

@@ -723,7 +723,7 @@ pub struct QueriesSettings {
     pub security_bx : SecurityBox
 }
 
-const SETTINGS : [&'static str; 4] = ["Connection", "Editor", "Execution", "Security"];
+const SETTINGS : [&'static str; 4] = ["Connection", "Editor", "Statements", "Security"];
 
 impl QueriesSettings {
 

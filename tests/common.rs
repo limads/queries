@@ -1,6 +1,10 @@
 use queries::client::*;
 use std::sync::Arc;
 use std::process::{Command, Stdio};
+use std::env;
+use queries::server::*;
+use std::error::Error;
+use url::Url;
 
 /*// Launch a test run of Queries. This differs from a regular launch
 // in that no user state is read/written into disk. Takes a closure F
@@ -102,39 +106,73 @@ pub fn run_loop_for_ms(ms : usize) {
 }
 
 /* Represents a temporary database created by the test set. */
-#[derive(Debug, Clone)]
 pub struct TempDB {
     pub user : String,
-    pub db : String
+    pub db : String,
+    pub uri : ConnURI,
+    pub conn : PostgresConnection
 }
 
 impl TempDB {
 
     pub fn uri(&self) -> ConnURI {
+        self.uri.clone()
+    }
+
+    pub fn new(user : &str, db : &str) -> Result<Self, Box<dyn Error>> {
         let mut info = ConnectionInfo::default();
-        info.user = self.user.to_string();
-        info.database = self.db.to_string();
+        info.user = user.to_string();
+        info.database = db.to_string();
         info.host = "localhost:5432".to_string();
         let pwd = info.user.to_string();
-        let uri = ConnURI::new(info, &pwd).unwrap();
-        println!("Using URI: {}", uri.uri);
-        uri 
+        let uri = ConnURI::new(info.clone(), &pwd).unwrap();
+        let conn = PostgresConnection::try_new(uri.clone())?;
+        Ok(Self { user : user.to_string(), db : db.to_string(), conn, uri })
     }
-    
+
 }
 
 pub struct ExistingDB {
+    pub user : String,
+    pub db : String,
+    pub conn : PostgresConnection
+}
+
+impl ExistingDB {
+
+    pub fn from_env() -> Result<Self, Box<dyn Error>> {
+        let info = ConnectionInfo {
+            engine : Engine::Postgres,
+            host : env::var("HOSTNAME").or(Err("Missing hostname"))?,
+            port : env::var("PORT").or(Err("Missing port"))?,
+            user : env::var("USERNAME").or(Err("Missing user"))?,
+            database : env::var("DBNAME").or(Err("Missing database"))?,
+            security : Security {
+                tls_version : Some(TlsVersion { major : 1, minor : 0 }),
+                cert_path : Some(env::var("PGSSLROOTCERT").or(Err("Missing hostname"))?),
+                verify_hostname : Some(true)
+            }
+        };
+        let mut uri = ConnURI::new(info.clone(), &env::var("PGPASSWORD").or(Err("Missing password"))?)?;
+        uri.uri = Url::parse(&format!("{}?application_name=Queries&sslmode=require", uri.uri)).unwrap();
+        let conn = PostgresConnection::try_new(uri.clone())?;
+        let edb = ExistingDB { user : info.user.clone(), db : info.database.clone(), conn };
+        Ok(edb)
+    }
 
 }
 
 // This runs the closure with an existing database, with credentials
 // queries from psql's connection environment variables. Exits with
-// success if the credentials are not set.
-pub fn run_with_existing_db<F>(f : F)
+// error if the credential environment vars are not set. This establishes
+// a secure connection and requires a path to a root certificate.
+pub fn run_with_existing_db<F>(f : F) -> Result<(), Box<dyn Error>>
 where
-    F : Fn(&ExistingDB)
+    F : Fn(ExistingDB)
 {
-
+    let edb = ExistingDB::from_env()?;
+    f(edb);
+    Ok(())
 }
 
 // Creates a temporary database at localhost with the username and password
@@ -156,7 +194,7 @@ pub fn run_with_temp_db(f : impl FnOnce(TempDB) + std::panic::UnwindSafe) {
     // an existing database
     run(&format!("createdb {}", dbname));
     
-    let temp_db = TempDB { user : user.clone(),  db : dbname.clone() };
+    let temp_db = TempDB::new(&user, &dbname).unwrap();
     
     f(temp_db);
     

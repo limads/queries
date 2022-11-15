@@ -1,35 +1,65 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <gresources>
   <gresource prefix="/io/github/limads/queries">
+  
+    <!-- Used at schema tree -->
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/table-symbolic.svg">../icons/hicolor/symbolic/actions/table-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/db-symbolic.svg">../icons/hicolor/symbolic/actions/db-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/fn-dark-symbolic.svg">../icons/hicolor/symbolic/actions/fn-dark-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/clock-app-symbolic.svg">../icons/hicolor/symbolic/actions/clock-app-symbolic.svg</file>
-    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/sidebar-symbolic.svg">../icons/hicolor/symbolic/actions/sidebar-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/view-symbolic.svg">../icons/hicolor/symbolic/actions/view-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/key-symbolic.svg">../icons/hicolor/symbolic/actions/key-symbolic.svg</file>
+    
+    <!-- Used at schema tree (dark variant) -->
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/table-white.svg">../icons/hicolor/scalable/actions/table-white.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/db-white.svg">../icons/hicolor/scalable/actions/db-white.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/fn-white.svg">../icons/hicolor/scalable/actions/fn-white.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/clock-app-white.svg">../icons/hicolor/scalable/actions/clock-app-white.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/view-white.svg">../icons/hicolor/scalable/actions/view-white.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/key-white.svg">../icons/hicolor/scalable/actions/key-white.svg</file>
+    
+    <!-- Custom type icons used at schema tree -->
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-boolean-symbolic.svg">../icons/hicolor/symbolic/actions/type-boolean-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-json-symbolic.svg">../icons/hicolor/symbolic/actions/type-json-symbolic.svg</file>
-    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/view-symbolic.svg">../icons/hicolor/symbolic/actions/view-symbolic.svg</file>
-    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/full-symbolic.svg">../icons/hicolor/symbolic/actions/full-symbolic.svg</file>
-    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/left-symbolic.svg">../icons/hicolor/symbolic/actions/left-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-unknown-symbolic.svg">../icons/hicolor/symbolic/actions/type-unknown-symbolic.svg</file>
-    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/db-symbolic.svg">../icons/hicolor/symbolic/actions/db-symbolic.svg</file>
-    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/funnel-symbolic.svg">../icons/hicolor/symbolic/actions/funnel-symbolic.svg</file>
-    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/table-symbolic.svg">../icons/hicolor/symbolic/actions/table-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-array-symbolic.svg">../icons/hicolor/symbolic/actions/type-array-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-date-symbolic.svg">../icons/hicolor/symbolic/actions/type-date-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-real-symbolic.svg">../icons/hicolor/symbolic/actions/type-real-symbolic.svg</file>
-    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/download-db-symbolic.svg">../icons/hicolor/symbolic/actions/download-db-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-text-symbolic.svg">../icons/hicolor/symbolic/actions/type-text-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-xml-symbolic.svg">../icons/hicolor/symbolic/actions/type-xml-symbolic.svg</file>
-    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/inner-symbolic.svg">../icons/hicolor/symbolic/actions/inner-symbolic.svg</file>
-    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/right-symbolic.svg">../icons/hicolor/symbolic/actions/right-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-binary-symbolic.svg">../icons/hicolor/symbolic/actions/type-binary-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-integer-symbolic.svg">../icons/hicolor/symbolic/actions/type-integer-symbolic.svg</file>
-    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/upload-db-symbolic.svg">../icons/hicolor/symbolic/actions/upload-db-symbolic.svg</file>
-    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/fn-dark-symbolic.svg">../icons/hicolor/symbolic/actions/fn-dark-symbolic.svg</file>
-    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/key-symbolic.svg">../icons/hicolor/symbolic/actions/key-symbolic.svg</file>
-    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/roll-symbolic.svg">../icons/hicolor/symbolic/actions/roll-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-time-symbolic.svg">../icons/hicolor/symbolic/actions/type-time-symbolic.svg</file>
+    
+    <!-- Custom type icons used at schema tree -->
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-boolean-white.svg">../icons/hicolor/scalable/actions/type-boolean-white.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-json-white.svg">../icons/hicolor/scalable/actions/type-json-white.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-unknown-white.svg">../icons/hicolor/scalable/actions/type-unknown-white.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-array-white.svg">../icons/hicolor/scalable/actions/type-array-white.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-date-white.svg">../icons/hicolor/scalable/actions/type-date-white.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-real-white.svg">../icons/hicolor/scalable/actions/type-real-white.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-text-white.svg">../icons/hicolor/scalable/actions/type-text-white.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-xml-white.svg">../icons/hicolor/scalable/actions/type-xml-white.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-binary-white.svg">../icons/hicolor/scalable/actions/type-binary-white.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-integer-white.svg">../icons/hicolor/scalable/actions/type-integer-white.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-time-white.svg">../icons/hicolor/scalable/actions/type-time-white.svg</file>
+    
+    <!-- Custom type icons used at schema tree (dark variant) -->
+    
+    <!-- Other icons (all symbolic) -->
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/sidebar-symbolic.svg">../icons/hicolor/symbolic/actions/sidebar-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/full-symbolic.svg">../icons/hicolor/symbolic/actions/full-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/left-symbolic.svg">../icons/hicolor/symbolic/actions/left-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/funnel-symbolic.svg">../icons/hicolor/symbolic/actions/funnel-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/download-db-symbolic.svg">../icons/hicolor/symbolic/actions/download-db-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/inner-symbolic.svg">../icons/hicolor/symbolic/actions/inner-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/right-symbolic.svg">../icons/hicolor/symbolic/actions/right-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/upload-db-symbolic.svg">../icons/hicolor/symbolic/actions/upload-db-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/roll-symbolic.svg">../icons/hicolor/symbolic/actions/roll-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/arrow-into-box-symbolic.svg">../icons/hicolor/symbolic/actions/arrow-into-box-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/padlock2-symbolic.svg">../icons/hicolor/symbolic/actions/padlock2-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/padlock2-open-symbolic.svg">../icons/hicolor/symbolic/actions/padlock2-open-symbolic.svg</file>
+    
   </gresource>
 </gresources>
 

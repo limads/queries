@@ -68,8 +68,14 @@ pub struct EditorSettings {
 impl Default for EditorSettings {
 
     fn default() -> Self {
+        let is_dark = libadwaita::StyleManager::default().is_dark();
+        let scheme = if is_dark {
+            String::from("Adwaita-dark")
+        } else {
+            String::from("Adwaita")
+        };
         Self {
-            scheme : String::from("Adwaita"),
+            scheme,
             font_family : String::from("Source Code Pro"),
             font_size : 16,
             show_line_numbers : true,
@@ -296,10 +302,10 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
         });
 
         // Execution
-        win.settings.exec_bx.row_limit_spin.adjustment().connect_value_changed({
+        win.settings.exec_bx.row_limit_spin.connect_value_changed({
             let state = self.clone();
-            move |adj| {
-                state.borrow_mut().execution.row_limit = adj.value() as i32;
+            move |spin| {
+                state.borrow_mut().execution.row_limit = spin.value() as i32;
             }
         });
         win.settings.exec_bx.schedule_scale.adjustment().connect_value_changed({

@@ -77,7 +77,11 @@ impl Form {
                     self.dialog.set_title(Some(&format!("Insert ({})", name)));
                     for (ix, col) in cols.iter().enumerate() {
                         self.entries[ix].set_visible(true);
-                        self.entries[ix].set_primary_icon_name(Some(super::get_type_icon_name(&col.1)));
+
+                        /* The theme variant does not matter here, since the symbolic icon
+                        should be rendered according to the theme. */
+                        self.entries[ix].set_primary_icon_name(Some(super::get_type_icon_name(&col.1, false)));
+
                         self.entries[ix].set_placeholder_text(Some(&col.0));
                     }
                     self.bx.grab_focus();
@@ -105,7 +109,11 @@ impl Form {
                     self.btn_ok.set_sensitive(true);
                     for (ix, arg) in args.iter().enumerate() {
                         self.entries[ix].set_visible(true);
-                        self.entries[ix].set_primary_icon_name(Some(super::get_type_icon_name(&arg)));
+
+                        /* The theme variant does not matter here, since the symbolic icon
+                        should be rendered according to the theme. */
+                        self.entries[ix].set_primary_icon_name(Some(super::get_type_icon_name(&arg, false)));
+
                         if let Some(names) = &arg_names {
                             self.entries[ix].set_placeholder_text(Some(&names[ix]));
                         }

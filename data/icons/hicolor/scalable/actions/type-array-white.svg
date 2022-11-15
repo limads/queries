@@ -4,11 +4,11 @@
 <svg
    width="16"
    height="16"
-   viewBox="0 0 4.2333332 4.2333335"
+   viewBox="0 0 4.2333333 4.2333335"
    version="1.1"
    id="svg8"
    inkscape:version="1.1.2 (0a00cf5339, 2022-02-04)"
-   sodipodi:docname="type-real.svg"
+   sodipodi:docname="type-array-white.svg"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
@@ -25,9 +25,9 @@
      borderopacity="1.0"
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
-     inkscape:zoom="15.839192"
-     inkscape:cx="-16.730651"
-     inkscape:cy="8.870402"
+     inkscape:zoom="35.735196"
+     inkscape:cx="3.1621486"
+     inkscape:cy="6.8140105"
      inkscape:document-units="mm"
      inkscape:current-layer="layer1"
      showgrid="false"
@@ -54,16 +54,19 @@
      inkscape:groupmode="layer"
      id="layer1"
      transform="translate(0,-292.76665)">
-    <text
-       xml:space="preserve"
-       style="font-style:normal;font-weight:normal;font-size:0.705556px;line-height:1;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.264583"
-       x="0.70555556"
-       y="296.35934"
-       id="text817"><tspan
-         sodipodi:role="line"
-         id="tspan815"
-         x="0.70555556"
-         y="296.35934"
-         style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:5.67972px;font-family:'Ubuntu Mono';-inkscape-font-specification:'Ubuntu Mono Bold';fill:#000000;fill-opacity:1;stroke-width:0.264583">÷</tspan></text>
+    <g
+       aria-label="[ ]"
+       transform="scale(0.95491229,1.0472166)"
+       id="text817"
+       style="font-size:4.71457px;letter-spacing:0px;word-spacing:0px;stroke-width:0.117864;fill:#ffffff">
+      <path
+         d="M 0.48648155,280.17228 H 1.4492135 v 0.34881 H 1.0135812 v 2.13321 h 0.4356323 v 0.34881 H 0.48648155 Z"
+         style="-inkscape-font-specification:Sans;fill:#ffffff"
+         id="path824" />
+      <path
+         d="M 3.9482858,283.00311 H 2.9855539 v -0.34881 h 0.4356323 v -2.13321 H 2.9855539 v -0.34881 h 0.9627319 z"
+         style="-inkscape-font-specification:Sans;fill:#ffffff"
+         id="path826" />
+    </g>
   </g>
 </svg>

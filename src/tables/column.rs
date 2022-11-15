@@ -10,14 +10,14 @@ use super::field::Field;
 use std::borrow::Cow;
 use serde_json;
 use itertools::Itertools;
-use std::cmp::{PartialOrd, Ordering};
+use std::cmp::{PartialOrd, PartialEq, Ordering};
 use std::convert::TryInto;
 use std::str::FromStr;
 use std::fmt::Write;
 
 /// Densely packed column, where each variant is a vector of some
 /// element that implements postgres::types::ToSql.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Column {
     Bool(Vec<bool>),
     I8(Vec<i8>),
