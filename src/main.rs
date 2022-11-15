@@ -43,8 +43,6 @@ fn main() {
     // closure, but we need to keep a reference to its state after that happens.
     let script_final_state = client.scripts.final_state();
 
-    // let conn_final_state = client.conn_set.final_state();
-
     application.set_accels_for_action("win.save_file", &["<Ctrl>S"]);
     application.set_accels_for_action("win.open_file", &["<Ctrl>O"]);
     application.set_accels_for_action("win.new_file", &["<Ctrl>N"]);

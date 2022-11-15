@@ -17,11 +17,9 @@ use std::thread;
 use crate::sql::object::{DBInfo};
 use crate::sql::StatementOutput;
 use crate::ui::ExecButton;
-
 use serde::{Serialize, Deserialize};
 use std::rc::Rc;
 use std::cell::RefCell;
-
 use crate::sql::object::DBObject;
 use crate::ui::{SchemaTree};
 use crate::sql::object::DBType;
@@ -33,8 +31,6 @@ use super::listener::ExecMode;
 use crate::tables::table::Table;
 use std::str::FromStr;
 use std::net::Ipv4Addr;
-
-
 use crate::client::UserState;
 use url::Url;
 use std::fmt;
@@ -1335,13 +1331,6 @@ pub fn connect_to_postgres(
         },
         Err(e) => {
 
-            // Conn switch turned off.
-            // if cancel_rx.try_recv().is_ok() {
-                // User canceled connection, so no need to show error message.
-            //    send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(), format!("Connection cancelled by user"))).unwrap();
-            //    return cancel_rx;
-            // }
-
             send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(), e)).unwrap();
         }
     }
@@ -1492,10 +1481,6 @@ impl React<ExecButton> for ActiveConnection {
             let is_scheduled = is_scheduled.clone();
             let exec_btn = btn.btn.clone();
             move |_action, param| {
-
-                // Perhaps replace by a ValuedCallback that just fetches the contents of editor.
-                // Then impl React<ExecBtn> for Editor, then React<Editor> for ActiveConnection,
-                // where editor exposes on_script_read(.).
 
                 let mut is_scheduled = is_scheduled.borrow_mut();
 

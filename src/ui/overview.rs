@@ -14,7 +14,6 @@ use crate::client::ConnectionSet;
 use std::time::Duration;
 use crate::client::ActiveConnection;
 use crate::ui::settings::SecurityChange;
-
 use crate::ui::settings::QueriesSettings;
 use std::rc::Rc;
 use std::cell::RefCell;
