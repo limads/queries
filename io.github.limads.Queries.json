@@ -47,13 +47,13 @@
             "sources" : [
                 {
                     "type" : "archive",
-                    "url" : "https://limads.sfo3.cdn.digitaloceanspaces.com/queries-vendored/v0.1.4/vendored.tar.gz",
-                    "sha256" : "30c3d851b51f1e5e6dd270c6b4e5a453fbee9115b7148b5bb811edba669e1a67"
+                    "url" : "https://limads.sfo3.cdn.digitaloceanspaces.com/queries-vendored/v0.1.5/vendored.tar.gz",
+                    "sha256" : "e8c7c1408990633b40abf59e25097bbb08ff7362e4d0d4d3c39d5207c2e60967"
                 },
                 {
                     "type" : "git",
                     "url" : "https://github.com/limads/queries.git",
-                    "tag" : "v0.1.4"
+                    "tag" : "v0.1.5"
                 }
             ],
             "post-install" : [

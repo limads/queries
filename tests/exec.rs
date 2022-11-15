@@ -2,7 +2,6 @@ use filecase::*;
 use queries::client::*;
 use gtk4::glib;
 mod common;
-
 use queries::sql::StatementOutput;
 use std::rc::Rc;
 use std::cell::RefCell;

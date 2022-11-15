@@ -55,6 +55,15 @@
     
     <releases>
     
+       <release version="0.1.5" date="2022-11-15">
+            <description>
+                <p>Added a new security settings menu</p>
+                <p>Added support for table navigation (sort, filter, offset, limit)</p>
+                <p>Improved performance for large tables</p>
+                <p>Bugfixes</p>
+            </description>
+        </release>
+
         <release version="0.1.4" date="2022-10-16">
             <description>
                 <p>Bugfix release</p>
