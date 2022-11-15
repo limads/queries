@@ -590,10 +590,6 @@ impl ConnectionBox {
         &self.password.entry
     }
 
-    // fn _set_db_loaded_mode(&self) {
-    //    self.entries().iter().for_each(|entry| entry.set_sensitive(false) );
-    // }
-
     pub fn set_non_db_mode(&self) {
         self.entries().iter().for_each(|entry| entry.set_sensitive(true) );
     }
@@ -605,16 +601,6 @@ impl ConnectionBox {
         self.db.entry.set_text(&info.database);
         self.password.entry.set_text("");
     }
-
-    /*fn _check_entries_clear(&self) -> bool {
-        for entry in self.entries().iter().take(3) {
-            let txt = entry.text().to_string();
-            if !txt.is_empty() {
-                return false;
-            }
-        }
-        true
-    }*/
 
     fn set_sensitive(&self, sensitive : bool) {
         self.host.entry.set_sensitive(sensitive);
@@ -702,9 +688,18 @@ impl React<ConnectionSet> for ConnectionBox {
 impl React<ActiveConnection> for ConnectionBox {
 
     fn react(&self, conn : &ActiveConnection) {
-        let switch = self.switch.clone();
-        conn.connect_db_conn_failure(move |_| {
-            disconnect_with_delay(switch.clone());
+        conn.connect_db_conn_failure({
+            let switch = self.switch.clone();
+            move |_| {
+                switch.set_sensitive(true);
+                disconnect_with_delay(switch.clone());
+            }
+        });
+        conn.connect_db_connected({
+            let switch = self.switch.clone();
+            move |_| {
+                switch.set_sensitive(true);
+            }
         });
     }
 

@@ -12,8 +12,8 @@ use std::rc::Rc;
 use std::cell::RefCell;
 
 #[derive(Debug, Clone)]
-pub struct TablePopover {
-    pub popover : Popover,
+pub struct TableAction {
+    pub action : ActionBar,
     pub fst_scale : Scale,
     pub num_scale : Scale,
     pub filter_entry : Entry,
@@ -34,13 +34,11 @@ fn scale_adjustment(nrows : usize) -> Adjustment {
     Adjustment::builder().lower(1.).upper(nrows as f64).value(1.).build()
 }
 
-impl TablePopover {
+impl TableAction {
 
     pub fn reset_navigation(&self) {
         self.fst_scale.adjustment().set_value(1.0);
         self.num_scale.adjustment().set_value(std::f64::MAX);
-        // self.fst_scale.set_fill_level(1.0);
-        // self.num_scale.set_fill_level(std::f64::MAX);
         self.filter_entry.set_text("");
     }
 
@@ -48,10 +46,10 @@ impl TablePopover {
         let fst_scale = Scale::new(Orientation::Horizontal,Some(&scale_adjustment(max_nrows)));
         configure_scale(&fst_scale);
 
-        let top_bx = Box::new(Orientation::Horizontal, 0);
-        let middle_bx = Box::new(Orientation::Horizontal, 0);
-        let bottom_bx = Box::new(Orientation::Horizontal, 0);
-        top_bx.style_context().add_class("linked");
+        let sort_bx = Box::new(Orientation::Horizontal, 0);
+        let offset_bx = Box::new(Orientation::Horizontal, 0);
+        let num_bx = Box::new(Orientation::Horizontal, 0);
+        sort_bx.style_context().add_class("linked");
         let btn_ascending = ToggleButton::builder().icon_name("view-sort-ascending-symbolic").build();
         let btn_descending = ToggleButton::builder().icon_name("view-sort-descending-symbolic").build();
         btn_ascending.style_context().add_class("flat");
@@ -61,32 +59,42 @@ impl TablePopover {
         filter_entry.set_max_width_chars(32);
         filter_entry.set_primary_icon_name(Some("funnel-symbolic"));
 
-        top_bx.append(&btn_ascending);
-        top_bx.append(&btn_descending);
-        top_bx.append(&filter_entry);
+        sort_bx.append(&btn_ascending);
+        sort_bx.append(&btn_descending);
+
         btn_ascending.set_group(Some(&btn_descending));
         btn_ascending.set_active(true);
 
         let line_img = Image::from_icon_name("view-continuous-symbolic");
-        middle_bx.append(&line_img);
-        middle_bx.append(&fst_scale);
+        offset_bx.append(&line_img);
+        offset_bx.append(&fst_scale);
+        offset_bx.set_hexpand(true);
+        offset_bx.set_hexpand(true);
 
         let num_img = Image::from_icon_name("type-integer-symbolic");
         let num_scale = Scale::new(Orientation::Horizontal,Some(&scale_adjustment(max_nrows)));
 
         configure_scale(&num_scale);
 
-        bottom_bx.append(&num_img);
-        bottom_bx.append(&num_scale);
+        num_bx.append(&num_img);
+        num_bx.append(&num_scale);
 
-        let popover = Popover::new();
-        let bx = Box::new(Orientation::Vertical, 0);
-        bx.append(&top_bx);
-        bx.append(&middle_bx);
-        bx.append(&bottom_bx);
-        popover.set_child(Some(&bx));
-        popover.set_position(PositionType::Right);
-        Self { popover, btn_ascending, btn_descending, filter_entry, fst_scale, num_scale }
+        let action = ActionBar::new();
+        let bx = Box::new(Orientation::Horizontal, 12);
+        action.set_revealed(false);
+        action.set_valign(Align::End);
+        action.set_vexpand(false);
+        bx.append(&sort_bx);
+        bx.append(&filter_entry);
+        bx.append(&offset_bx);
+        bx.append(&num_bx);
+        bx.set_halign(Align::Fill);
+        bx.set_hexpand(true);
+        bx.set_margin_start(128);
+        bx.set_margin_end(128);
+        action.set_center_widget(Some(&bx));
+
+        Self { action, btn_ascending, btn_descending, filter_entry, fst_scale, num_scale }
     }
 
 }
@@ -94,15 +102,14 @@ impl TablePopover {
 #[derive(Clone, Debug)]
 pub struct TableWidget {
 
+    pub bx : Box,
     pub grid : Grid,
 
     pub scroll_window : ScrolledWindow,
 
-    //_parent_ctx : StyleContext,
-
     provider : CssProvider,
 
-    popover : TablePopover,
+    action : TableAction,
 
     tbl : Rc<Table>,
 
@@ -110,22 +117,11 @@ pub struct TableWidget {
 
 }
 
-impl Drop for TableWidget {
-
-    fn drop(&mut self) {
-        // This avoids the following warning when the ScrolledWindow is dropped:
-        // Finalizing GtkScrolledWindow 0x560206700e60, but it still has children left:
-        if self.popover.popover.parent().is_some() {
-            self.popover.popover.unparent();
-        }
-    }
-
-}
-
 fn update_cols(tbl : &Table, grid : &Grid, fst_row : usize, max_nrows : usize) {
     for col in 0..tbl.size().1 {
-        grid.child_at(col as i32, 1).unwrap().downcast::<Label>().unwrap()
-            .set_text(&tbl.display_lines(col, Some(fst_row), Some(max_nrows)));
+        let lbl = grid.child_at(col as i32, 1).unwrap().downcast::<Label>().unwrap();
+        lbl.set_text(&tbl.display_lines(col, Some(fst_row), Some(max_nrows)));
+        lbl.set_visible(tbl.nrows() >= 1);
     }
 }
 
@@ -223,15 +219,10 @@ pub struct DisplayedTable {
 pub fn column_label(tbl : &Table, col : usize, fst_row : Option<usize>, nrows : Option<usize>) -> Label {
     let lbl = Label::new(Some(&tbl.display_lines(col, fst_row, nrows)));
     lbl.set_justify(Justification::Center);
-    //lbl.set_height_request(nrows.unwrap_or(tbl.nrows()) as i32*39);
     lbl.set_vexpand(false);
     lbl.set_hexpand(true);
     lbl.set_halign(Align::Fill);
     lbl.set_valign(Align::Start);
-    // let provider = CssProvider::new();
-    // provider.load_from_data(css.as_bytes());
-    // let parent_ctx = lbl.style_context();
-    // parent_ctx.add_provider(&provider,800);
     lbl
 }
 
@@ -284,32 +275,24 @@ impl TableWidget {
         let grid = Grid::new();
         let provider = CssProvider::new();
         
-        /*if libadwaita::StyleManager::default().is_dark() {
-            provider.load_from_data(TABLE_DARK_CSS.as_bytes());
-        } else {
-            provider.load_from_data(TABLE_WHITE_CSS.as_bytes());
-        }*/
-        
-        // let parent_ctx = grid.style_context();
-        // parent_ctx.add_provider(&provider,800);
-
-        // let msg = Label::new(None);
-        // let box_container = Box::new(Orientation::Vertical, 0);
-        // box_container.append(&grid, true, true, 0);
-        // box_container.pack_start(&msg, true, true, 0);
         let scroll_window = ScrolledWindow::new();
         scroll_window.set_vexpand(true);
         scroll_window.set_valign(Align::Fill);
+
         scroll_window.set_child(Some(&grid));
-        let popover = TablePopover::new(nrows, max_nrows);
-        popover.popover.set_parent(&scroll_window);
+        let bx = Box::new(Orientation::Vertical, 0);
+        bx.append(&scroll_window);
+        let action = TableAction::new(nrows, max_nrows);
+        bx.append(&action.action);
+
+        // popover.popover.set_parent(&scroll_window);
         TableWidget {
             grid,
+            bx,
             max_nrows,
             scroll_window,
-            // _parent_ctx : parent_ctx,
             provider,
-            popover,
+            action,
             tbl : Rc::new(Table::empty(Vec::new()))
         }
     }
@@ -340,7 +323,7 @@ impl TableWidget {
         click.connect_pressed({
             let grid = self.grid.clone();
             let label = label.clone();
-            let popover = self.popover.clone();
+            let action = self.action.clone();
             let tbl = self.tbl.clone();
             let max_nrows = self.max_nrows.clone();
             let displayed_tbl = displayed_tbl.clone();
@@ -348,9 +331,33 @@ impl TableWidget {
                 let ctx = label.style_context();
                 let was_selected = ctx.has_class("selected");
                 if !was_selected {
-                    popover.popover.set_pointing_to(Some(&label.allocation()));
-                    popover.popover.popup();
-                    if popover.btn_ascending.is_active() {
+                    let lbl_alloc = label.allocation();
+
+                    /*// Although the bottom position can be frustrating because it
+                    // hides content, this protects against a GTK bug that tries to
+                    // allocate a widget with negative size if the popover has position
+                    // left or right and the column header happens to be close to the windows limits:
+                    // (queries:354661): Gtk-WARNING **: 10:17:57.669: gtk_widget_size_allocate(): attempt to
+                    // allocate GtkBox box 0x5561986911d0 with width -18 and height -18
+                    // *** BUG *** In pixman_region32_init_rect: Invalid rectangle passed
+                    if ncols == 1 {
+                        popover.popover.set_position(PositionType::Bottom);
+                    } else {
+                        // With at least two columns, it is safe to show popover
+                        // to the left or right. Show to left by default, unless
+                        // this is the first column.
+                        if col == 0 {
+                            popover.popover.set_position(PositionType::Right)
+                        } else {
+                            popover.popover.set_position(PositionType::Left)
+                        }
+                    }
+
+                    popover.popover.set_pointing_to(Some(&lbl_alloc));*/
+                    // popover.popover.popup();
+                    action.action.set_revealed(true);
+
+                    if action.btn_ascending.is_active() {
                         update_display_table(
                             &tbl,
                             &displayed_tbl,
@@ -361,23 +368,24 @@ impl TableWidget {
                             max_nrows
                         );
                         set_table_selection_style(&grid, col, ncols, was_selected);
-                        popover.reset_navigation();
+                        action.reset_navigation();
                     } else {
                         // Setting the style before setting the button active is important
                         // so the right selected column is retrieved.
                         set_table_selection_style(&grid, col, ncols, was_selected);
 
                         // Call update_display_table on the on_toggle signal of the button
-                        popover.btn_ascending.set_active(true);
+                        action.btn_ascending.set_active(true);
                     }
                 } else {
                     set_table_selection_style(&grid, col, ncols, was_selected);
-                    popover.popover.hide();
+                    // popover.popover.hide();
+                    action.action.set_revealed(false);
                 }
             }
         });
 
-        self.popover.popover.connect_closed({
+        /*self.popover.popover.connect_closed({
             let label = label.clone();
             let grid = self.grid.clone();
             move |_| {
@@ -387,20 +395,20 @@ impl TableWidget {
                     set_selected_style(grid.clone(), col, false);
                 }
             }
-        });
+        });*/
 
         label
     }
 
-    pub fn add_popover_signals(&self, displayed_tbl : &Rc<RefCell<Option<DisplayedTable>>>) {
+    pub fn add_action_signals(&self, displayed_tbl : &Rc<RefCell<Option<DisplayedTable>>>) {
         let eff_rows = self.tbl.nrows().min(self.max_nrows) as f64;
         let fst_adj = Adjustment::builder().value(1.).lower(1.).upper(eff_rows).build();
         let num_adj = Adjustment::builder().value(eff_rows).lower(1.).upper(eff_rows).build();
-        self.popover.fst_scale.set_adjustment(&fst_adj);
-        self.popover.num_scale.set_adjustment(&num_adj);
-        self.popover.btn_ascending.connect_toggled({
+        self.action.fst_scale.set_adjustment(&fst_adj);
+        self.action.num_scale.set_adjustment(&num_adj);
+        self.action.btn_ascending.connect_toggled({
             let displayed_tbl = displayed_tbl.clone();
-            let popover = self.popover.clone();
+            let action = self.action.clone();
             let max_nrows = self.max_nrows.clone();
             let tbl = self.tbl.clone();
             let grid = self.grid.clone();
@@ -416,16 +424,16 @@ impl TableWidget {
                             &grid,
                             max_nrows
                         );
-                        popover.reset_navigation();
+                        action.reset_navigation();
                     } else {
                         eprintln!("No column selected");
                     }
                 }
             }
         });
-        self.popover.btn_descending.connect_toggled({
+        self.action.btn_descending.connect_toggled({
             let displayed_tbl = displayed_tbl.clone();
-            let popover = self.popover.clone();
+            let action = self.action.clone();
             let max_nrows = self.max_nrows.clone();
             let tbl = self.tbl.clone();
             let grid = self.grid.clone();
@@ -441,7 +449,7 @@ impl TableWidget {
                             &grid,
                             max_nrows
                         );
-                        popover.reset_navigation();
+                        action.reset_navigation();
                     } else {
                         eprintln!("No column selected");
                     }
@@ -450,7 +458,7 @@ impl TableWidget {
         });
         fst_adj.connect_value_changed({
             let grid = self.grid.clone();
-            let num_scale = self.popover.num_scale.clone();
+            let num_scale = self.action.num_scale.clone();
             let displayed_tbl = displayed_tbl.clone();
             let max_rows = self.max_nrows.clone();
             move|adj| {
@@ -480,7 +488,7 @@ impl TableWidget {
 
         num_adj.connect_value_changed({
             let grid = self.grid.clone();
-            let fst_scale = self.popover.fst_scale.clone();
+            let fst_scale = self.action.fst_scale.clone();
             let displayed_tbl = displayed_tbl.clone();
             move |adj| {
                 let num_rows = adj.value() as usize;
@@ -497,10 +505,10 @@ impl TableWidget {
             }
         });
 
-        self.popover.filter_entry.connect_changed({
+        self.action.filter_entry.connect_changed({
             let grid = self.grid.clone();
-            let fst_scale = self.popover.fst_scale.clone();
-            let num_scale = self.popover.num_scale.clone();
+            let fst_scale = self.action.fst_scale.clone();
+            let num_scale = self.action.num_scale.clone();
             let displayed_tbl = displayed_tbl.clone();
             let max_nrows = self.max_nrows.clone();
             let orig_tbl = self.tbl.clone();
@@ -568,103 +576,6 @@ impl TableWidget {
         });
     }
 
-    /*/// Returns selected columns, as a continuous index from the first
-    /// column of the current table
-    pub fn selected_cols(&self) -> Vec<usize> {
-        if let Ok(sel) = self.selected.try_borrow() {
-            sel.iter().filter(|s| s.2 == true ).map(|s| s.1 ).collect()
-        } else {
-            Vec::new()
-        }
-    }
-
-    pub fn unselected_cols(&self) -> Vec<usize> {
-        let n = if let Ok(sel) = self.selected.try_borrow() {
-            sel.len()
-        } else {
-            return Vec::new();
-        };
-        let selected = self.selected_cols();
-        let mut unselected = Vec::new();
-        for i in 0..n {
-            if !selected.iter().any(|s| i == *s) {
-                unselected.push(i);
-            }
-        }
-        unselected
-    }
-
-    pub fn unselect_all(&self) {
-        let selected = self.selected_cols();
-        if let Ok(mut sel) = self.selected.try_borrow_mut() {
-            for s in selected {
-                Self::switch_selected(self.grid.clone(), &mut sel, s);
-            }
-        } else {
-        }
-    }
-
-    fn switch_all(grid : Grid, cols : &mut [(String, usize, bool)]) {
-        let switch_to = !cols.iter().any(|c| c.2);
-        let n = cols.len();
-        for i in 0..n {
-            Self::switch_to(grid.clone(), &mut cols[i], n, switch_to);
-        }
-    }
-
-    pub fn expose_event_box(&self, ix : usize) -> Option<EventBox> {
-        // let children = self.grid.get_children();
-
-        // TODO correct "attempted to subtract with overflow: changing from one
-        // mapping to the other leads to search for inexistent table.
-        let (nrows, ncols) = self.dimensions();
-        let children = self.grid.get_children();
-        let header_iter = children.iter()
-            .skip(ncols * nrows - ncols);
-        let n = header_iter.clone().count();
-        let wid = header_iter.skip(n-ix-1).next()?;
-        if let Ok(ev_box) = wid.clone().downcast::<EventBox>() {
-            Some(ev_box.clone())
-        } else {
-            None
-        }
-    }
-
-    /// Function supplied by user should take all selected columns at
-    /// the third argument and the index of the last selected column at
-    /// the last argument.
-    pub fn set_selected_action<F>(&self, f : F, btn : u32)
-    where
-        F : Clone,
-        for<'r,'s> F : Fn(&'r EventBox, &'s gdk::EventButton, Vec<usize>, usize)->Inhibit+'static
-    {
-        let children = self.grid.get_children();
-        let (nrows, ncols) = self.dimensions();
-        let header_iter = children.iter()
-            .skip(ncols * nrows - ncols);
-        let n = header_iter.clone().count();
-        for (i, wid) in header_iter.enumerate() {
-            if let Ok(ev_box) = wid.clone().downcast::<EventBox>() {
-                let selected = self.selected.clone();
-                let f = f.clone();
-                ev_box.connect_button_press_event(move |ev_box, ev| {
-                    if ev.get_button() == btn {
-                        if let Ok(sel) = selected.try_borrow() {
-                            let sel_ix : Vec<_> = sel.iter()
-                                .filter(|c| c.2)
-                                .map(|c| c.1)
-                                .collect();
-                            f(ev_box, ev, sel_ix, n - i - 1);
-                        } else {
-                        }
-                    }
-                    glib::signal::Inhibit(false)
-                });
-            } else {
-            }
-        }
-    }*/
-
     fn update_data(&self, tbl : &Table, fst_row : Option<usize>, num_rows : Option<usize>, include_header : bool) {
         if include_header {
             self.clear_table();
@@ -672,9 +583,6 @@ impl TableWidget {
             self.clear_table_data();
         }
 
-        // if data.len() == 0 {
-        //    return;
-        // }
         let (nrows, ncols) = tbl.size();
         if nrows == 0 || ncols == 0 {
             return;
@@ -692,7 +600,7 @@ impl TableWidget {
             add_header_css(&cell);
             self.grid.attach(&cell, j as i32, 0 as i32, 1, 1);
         }
-        self.add_popover_signals(&displayed_tbl);
+        self.add_action_signals(&displayed_tbl);
 
         // Add data column
         for j in 0..ncols {
@@ -701,60 +609,6 @@ impl TableWidget {
             self.grid.attach(&cell, j as i32, 1, 1, 1);
         }
     }
-
-    /*fn update_data<I, S>(&self, mut data : Vec<I>, include_header : bool)
-    where
-        I : ExactSizeIterator<Item=S>,
-        S : AsRef<str>
-    {
-        if include_header {
-            self.clear_table();
-        } else {
-            self.clear_table_data();
-        }
-
-        if data.len() == 0 {
-            return;
-        }
-        let nrows = data.len();
-        let mut ncols = 0;
-        for (i, row) in data.iter_mut().enumerate().take(nrows) {
-            if i == 0 {
-                ncols = row.len();
-                if ncols == 0 {
-                    return;
-                }
-
-                // Dimensions are defined here, when table is created. This assumes
-                // any new tables generated by sorting/filtering will have number of
-                // rows smaller than or equal to the first table.
-                if include_header {
-                    self.update_table_dimensions(nrows as i32, ncols as i32);
-                }
-            }
-            if include_header {
-                for (j, col) in row.enumerate() {
-                    let cell = self.create_data_cell(col.as_ref(), i, j, nrows, ncols, include_header);
-                    self.grid.attach(&cell, j as i32, i as i32, 1, 1);
-                }
-            } else {
-                for (j, col) in row.enumerate() {
-                    let cell = self.create_data_cell(col.as_ref(), i+1, j, nrows, ncols, include_header);
-                    self.grid.attach(&cell, j as i32, (i+1) as i32, 1, 1);
-                }
-            }
-        }
-    }*/
-
-    /*fn clear_tail(&self, remaining_rows : usize) {
-        while self.grid.child_at(0, (remaining_rows-1) as i32).is_some() {
-            self.grid.remove_row((remaining_rows-1) as i32);
-        }
-    }
-
-    fn grow_tail(&self, _new_sz : usize) {
-
-    }*/
 
     // Removes all rows of table, including header
     fn clear_table(&self) {
@@ -792,42 +646,7 @@ impl TableWidget {
 
     }
 
-    /*pub fn set_selected(&self, new_sel : &[usize]) {
-        self.unselect_all();
-        if let Ok(mut sel) = self.selected.try_borrow_mut() {
-            for i in new_sel.iter() {
-                Self::switch_selected(self.grid.clone(), &mut sel[..], *i);
-            }
-        } else {
-        }
-    }*/
-
-    /*pub fn dimensions(&self) -> (usize, usize) {
-        self.dims.borrow().clone()
-    }*/
-
 }
-
-/*fn switch_to(
-    grid : Grid,
-    col : &mut (String, usize, bool),
-    ncols : usize,
-    selected : bool
-) {
-    set_selected_style(grid.clone(), ncols, col.1, selected);
-    *col = (col.0.clone(), col.1, selected);
-}
-
-fn _switch_selected(grid : Grid, cols : &mut [(String, usize, bool)], pos : usize) {
-    let ncols = cols.len();
-    if let Some(col) = cols.get_mut(pos) {
-        if col.2 == true {
-            switch_to(grid.clone(), col, ncols, false);
-        } else {
-            switch_to(grid.clone(), col, ncols, true);
-        }
-    }
-}*/
 
 // This shows the full table from row 1 up to max_rows.
 fn update_display_table(
@@ -901,7 +720,6 @@ fn selected_col(grid : &Grid, ncols : usize) -> Option<usize> {
 
 fn set_selected_style(grid : Grid, col : usize, selected : bool) {
     let mut row = 0;
-    // for wid in grid.children().iter().skip(ncols - col - 1).step_by(ncols) {
     while let Some(wid) = grid.child_at(col as i32, row) {
         let wid = wid.clone().downcast::<Label>().unwrap();
         let ctx = wid.style_context();

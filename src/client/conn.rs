@@ -360,6 +360,7 @@ impl ConnectionSet {
 
             let (selected, added, updated, removed) = (selected.clone(), added.clone(), updated.clone(), removed.clone());
             let user_state = user_state.clone();
+
             move |action| {
                 match action {
 
@@ -653,7 +654,6 @@ impl ConnURI {
         uri += password;
 
         uri += "@";
-        // let (host_prefix, port) = split_host_port(&info.host)?;
         
         uri += &info.host;
         uri += ":";        
@@ -871,8 +871,7 @@ impl ActiveConnection {
             // then when eventually the connection is established or timed out, it should be
             // left to die without any error messages (irrespective of whether it was successful)
             // since the user turning off the switch should mean the user gave up on the connection.
-            let (cancel_tx, cancel_rx) = mpsc::channel::<()>();
-            // let mut cancel_rx : Option<mpsc::Receiver<()>> = Some(cancel_rx);
+            let mut attempting_conn = false;
             
             move |action| {
                 match action {
@@ -882,21 +881,20 @@ impl ActiveConnection {
                     // the entries, so no certificate is associated with it yet.
                     ActiveConnectionAction::ConnectRequest(uri) => {
 
-                        // if cancel_rx.is_none() {
-                        //    on_error.call(format!("Previous connection attempt not finished yet"));
-                        //    return glib::source::Continue(true);
-                        // }
-                        
-                        // trying_connection = true;
+                        if attempting_conn {
+                            send.send(ActiveConnectionAction::ConnectFailure(
+                                uri.info.clone(),
+                                format!("Previous connection attempt not finished yet")
+                            )).unwrap();
+                            return glib::Continue(true);
+                        }
+                        attempting_conn = true;
                         
                         // Spawn a thread that captures the database connection URI. The URI
                         // carrying the password is forgotten when this thread dies.
                         thread::spawn({
                             let send = send.clone();
                             let us : UserState = user_state.borrow().clone();
-
-                            // let conn_kept = conn_kept.clone();
-                            // let cancel_rx = cancel_rx.take().unwrap();
                             move || {
                                 match uri.info.engine {
                                     Engine::Postgres => {
@@ -916,10 +914,7 @@ impl ActiveConnection {
                     // At this stage, the connection is active, and the URI is already
                     // forgotten.
                     ActiveConnectionAction::ConnectAccepted(conn, db_info) => {
-                        
-                        // trying_connection = false;
-                        // *(conn_kept.lock().unwrap()) = true;
-
+                        attempting_conn = false;
                         schema = db_info.as_ref().map(|info| info.schema.clone() );
                         selected_obj = None;
                         let info = conn.conn_info();
@@ -930,23 +925,14 @@ impl ActiveConnection {
                     },
                     
                     ActiveConnectionAction::Disconnect => {
-
                         // This means the switch has been turned off while the application
                         // was still trying to make a connection. Send a message to ignore
                         // this connection, so that the connecting threads does not send a
                         // connect_accepted message back.
-                        //if cancel_rx.is_none() {
-                        //    cancel_tx.send(());
-                        //    return glib::source::Continue(true);
-                        // } else {
-                        // If the cancel_rx is available, that means there is
-                        // an active connection. Call the disconnect callback in
-                        // this case and clear the state.
                         schema = None;
                         selected_obj = None;
                         active_schedule.replace(false);
                         on_disconnected.call(());
-                        // }
                     },
                     
                     // When the user clicks the exec button or activates the execute action.
@@ -1106,8 +1092,6 @@ impl ActiveConnection {
                     
                     // A new set of results arrived to the client.
                     ActiveConnectionAction::ExecutionCompleted(results) => {
-                    
-                        // assert!(!listener.is_running());
                         
                         let fst_error = results.iter()
                             .filter_map(|res| {
@@ -1184,7 +1168,7 @@ impl ActiveConnection {
                     },
                     
                     ActiveConnectionAction::ConnectFailure(info, e) => {
-                        // trying_connection = false;
+                        attempting_conn = false;
                         on_conn_failure.call((info, e.clone()));
                     },
                     
@@ -1305,7 +1289,13 @@ const MANY_CERTS : &'static str = "Multiple SSL certificates associated with thi
 
 const CONN_NAME_ERR : &'static str = "Application name at settings contain non-alphanumeric characters";
 
-fn augment_uri_with_params(uri : &mut String, extra_args : &[String]) {
+fn augment_uri_with_params(
+    uri : &mut String,
+    extra_args : &[String]
+) -> Result<(), std::boxed::Box<dyn Error>> {
+    if Url::parse(&uri)?.query().is_some() {
+        return Err(format!("Attempted to configure connection URL query string multiple times").into());
+    }
     let n = extra_args.len();
     if n >= 1 {
         *uri += "?";
@@ -1315,6 +1305,10 @@ fn augment_uri_with_params(uri : &mut String, extra_args : &[String]) {
         }
         *uri += &extra_args[n-1][..];
     }
+    if Url::parse(&uri)?.query_pairs().count() != extra_args.len() {
+        return Err(format!("Malformed query string at connection URL").into());
+    }
+    Ok(())
 }
 
 pub fn connect_to_postgres(
@@ -1325,14 +1319,6 @@ pub fn connect_to_postgres(
     let timeout_secs = us.execution.statement_timeout;
     match PostgresConnection::try_new(uri.clone()) {
         Ok(mut conn) => {
-
-            // Conn switch turned off.
-            //if cancel_rx.try_recv().is_ok() {
-                // Connection dies here.
-            //    send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(),
-            // format!("Connection cancelled by user"))).unwrap();
-            //    return cancel_rx;
-            // }
 
             let db_info = match conn.db_info() {
                 Ok(info) => Some(info),
@@ -1363,7 +1349,6 @@ pub fn connect_to_postgres(
             send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(), e)).unwrap();
         }
     }
-    // cancel_rx
 }
 
 // Returns extra arguments to the connection string based on connection state and security settings
@@ -1441,7 +1426,15 @@ impl React<ConnectionBox> for ActiveConnection {
                         match get_user_state_conn_params(&us, &uri.info.security) {
                             Ok(params) => {
                                 let mut uri_str = uri.uri.as_str().to_string();
-                                augment_uri_with_params(&mut uri_str, &params[..]);
+                                match augment_uri_with_params(&mut uri_str, &params[..]) {
+                                    Ok(_) => { },
+                                    Err(e) => {
+                                        send.send(ActiveConnectionAction::ConnectFailure(
+                                            uri.info.clone(),
+                                            format!("{}", e)
+                                        )).unwrap();
+                                    }
+                                }
 
                                 // Guarantee the URI is valid after being augmented with the
                                 // user state parameters.
@@ -1456,6 +1449,7 @@ impl React<ConnectionBox> for ActiveConnection {
                                         match uri.verify_integrity() {
                                             Ok(_) => {
                                                 send.send(ActiveConnectionAction::ConnectRequest(uri)).unwrap();
+                                                switch.set_sensitive(false);
                                             },
                                             Err(e) => {
                                                 send.send(ActiveConnectionAction::ConnectFailure(
