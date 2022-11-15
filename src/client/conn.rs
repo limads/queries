@@ -17,11 +17,11 @@ use std::thread;
 use crate::sql::object::{DBInfo};
 use crate::sql::StatementOutput;
 use crate::ui::ExecButton;
-use chrono::prelude::*;
+
 use serde::{Serialize, Deserialize};
 use std::rc::Rc;
 use std::cell::RefCell;
-use crate::ui::QueriesWindow;
+
 use crate::sql::object::DBObject;
 use crate::ui::{SchemaTree};
 use crate::sql::object::DBType;
@@ -33,8 +33,8 @@ use super::listener::ExecMode;
 use crate::tables::table::Table;
 use std::str::FromStr;
 use std::net::Ipv4Addr;
-use crate::ui::SecurityChange;
-use std::sync::mpsc;
+
+
 use crate::client::UserState;
 use url::Url;
 use std::fmt;
@@ -373,7 +373,7 @@ impl ConnectionSet {
 
                         // If the user clicked the 'plus' button, this will be None. If the connection
                         // was added from the settings file, there will be a valid value here.
-                        let mut conn = ConnectionInfo::default();
+                        let conn = ConnectionInfo::default();
                         
                         user_state.borrow_mut().conns.push(conn.clone());
 

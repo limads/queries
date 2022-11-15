@@ -2,7 +2,7 @@ use filecase::*;
 use queries::client::*;
 use gtk4::glib;
 mod common;
-use std::thread;
+
 use queries::sql::StatementOutput;
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -454,7 +454,7 @@ pub fn execution() {
             let stmt_ix = stmt_ix.clone(); 
             let sender = conn.sender().clone();
             let all_stmts = all_stmts.clone();
-            move |update| {
+            move |_update| {
                 // Called after create table/create view statements
                 exec_next_statement(&stmt_ix, &all_stmts[..], &sender);
             }

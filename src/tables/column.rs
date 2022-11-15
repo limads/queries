@@ -11,7 +11,7 @@ use std::borrow::Cow;
 use serde_json;
 use itertools::Itertools;
 use std::cmp::{PartialOrd, PartialEq, Ordering};
-use std::convert::TryInto;
+
 use std::str::FromStr;
 use std::fmt::Write;
 
@@ -134,13 +134,13 @@ impl<'a> Column {
                     .unzip();
                 Some((ixs, Column::from(vec)))
             },
-            Column::Bytes(vs) => {
+            Column::Bytes(_vs) => {
                 None
             },
-            Column::Json(vs) => {
+            Column::Json(_vs) => {
                 None
             },
-            Column::Nullable(vs) => {
+            Column::Nullable(_vs) => {
                 None
             }
         }
@@ -178,10 +178,10 @@ impl<'a> Column {
             Column::Str(vs) => {
                 rearrange(&vs[..], ixs)
             },
-            Column::Bytes(vs) => {
+            Column::Bytes(_vs) => {
                 Column::from(self.display_content(None)).rearranged(ixs)
             },
-            Column::Json(vs) => {
+            Column::Json(_vs) => {
                 Column::from(self.display_content(None)).rearranged(ixs)
             },
             Column::Nullable(vs) => {
@@ -224,10 +224,10 @@ impl<'a> Column {
             Column::Str(vs) => {
                 sorted(&vs[..], ascending)
             },
-            Column::Bytes(vs) => {
+            Column::Bytes(_vs) => {
                 Column::from(self.display_content(None)).sorted(ascending)
             },
-            Column::Json(vs) => {
+            Column::Json(_vs) => {
                 Column::from(self.display_content(None)).sorted(ascending)
             },
             Column::Nullable(vs) => {

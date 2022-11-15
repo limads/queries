@@ -6,6 +6,8 @@ use queries::server::*;
 use std::error::Error;
 use url::Url;
 
+#![allow(warnings)]
+
 /*// Launch a test run of Queries. This differs from a regular launch
 // in that no user state is read/written into disk. Takes a closure F
 // that executes in a parallel thread while the GUI is open to change queries

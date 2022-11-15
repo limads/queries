@@ -9,9 +9,6 @@ use libadwaita;
 use stateful::React;
 use super::MainMenu;
 use sourceview5;
-use std::thread;
-use std::path::Path;
-use std::sync::mpsc;
 use libadwaita::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -259,109 +256,6 @@ impl ExecutionBox {
         set_all_not_selectable(&list);
         
         Self { list, row_limit_spin, /*col_limit_spin*/ schedule_scale, timeout_scale, dml_switch, ddl_switch, async_switch }
-    }
-
-}
-
-#[derive(Debug, Clone)]
-pub struct EditableCombo {
-    pub bx : Box,
-    pub combo : ComboBoxText
-}
-
-impl EditableCombo {
-
-    fn build() -> Self {
-        let bx = super::ButtonPairBox::build("list-remove-symbolic", "list-add-symbolic");
-        let combo = ComboBoxText::with_entry();
-        let combo_entry = combo.child().unwrap().downcast::<Entry>().unwrap();
-
-        let (path_send, path_recv) = mpsc::channel::<String>();
-        let (exists_send, exists_recv) = glib::MainContext::channel::<bool>(glib::source::PRIORITY_DEFAULT);
-        thread::spawn(move || {
-            loop {
-                if let Ok(path) = path_recv.recv() {
-                    if Path::new(&path).exists() {
-                        exists_send.send(true).unwrap();
-                    } else {
-                        exists_send.send(false).unwrap();
-                    }
-                }
-            }
-        });
-
-        exists_recv.attach(None, {
-            let combo = combo.clone();
-            move |exists| {
-                // TODO perhaps receive custom validator function in addition to exists.
-                if combo.active_text().is_some() {
-                    if exists {
-                        combo.style_context().add_class("success");
-                    } else {
-                        combo.style_context().add_class("error");
-                    }
-                } else {
-                    combo.style_context().add_class("regular");
-                }
-                Continue(true)
-            }
-        });
-        let (remove_btn, add_btn) = (bx.left_btn.clone(), bx.right_btn.clone());
-        remove_btn.connect_clicked({
-            let combo = combo.clone();
-            let combo_entry = combo_entry.clone();
-            move |_| {
-                if let Some(id) = combo.active_id() {
-                    combo_entry.set_text("");
-                    combo.remove(id.parse::<i32>().unwrap());
-                    combo.set_active_id(None);
-                }
-
-            }
-        });
-        add_btn.connect_clicked({
-            let combo = combo.clone();
-            let combo_entry = combo_entry.clone();
-            move |_| {
-                if let Some(model) = combo.model() {
-                    let mut n = 0;
-                    model.foreach(|_, _, _| { n += 1; false } );
-                    let id = n.to_string();
-                    let text = combo_entry.text();
-                    let txt = text.as_str();
-                    if !txt.is_empty() {
-                        combo.append(Some(&id), txt);
-                        combo_entry.set_text("");
-                        combo.set_active_id(Some(&id));
-                    }
-                }
-            }
-        });
-        combo.connect_changed({
-            move |combo| {
-                if let Some(txt) = combo.active_text() {
-                    path_send.send(txt.as_str().to_string()).unwrap();
-                }
-            }
-        });
-        combo_entry.connect_changed({
-            let add_btn = add_btn.clone();
-            let remove_btn = remove_btn.clone();
-            move |entry| {
-                let text = entry.text();
-                let txt = text.as_str();
-                if txt.is_empty() {
-                    add_btn.set_sensitive(false);
-                    remove_btn.set_sensitive(false);
-                } else {
-                    add_btn.set_sensitive(true);
-                    remove_btn.set_sensitive(true);
-                }
-            }
-        });
-
-        bx.bx.prepend(&combo);
-        Self { bx : bx.bx, combo }
     }
 
 }
@@ -628,7 +522,7 @@ impl SecurityRow {
         hostname_switch.connect_state_set({
             let action = action.clone();
             let host = info.host.to_string();
-            let exp_row = exp_row.clone();
+            let _exp_row = exp_row.clone();
             move |switch, _| {
                 let change = SecurityChange::Hostname { host : host.clone(), verify : Some(switch.is_active()) };
                 action.activate(Some(&serde_json::to_string(&change).unwrap().to_variant()));

@@ -1501,7 +1501,7 @@ pub fn nullable_from_arr<'a>(
 // cargo test -- sorted_table --nocapture
 #[test]
 fn sorted_table() {
-    let seq = (0..10i32);
+    let seq = 0..10i32;
     let tbl = Table::new(
         None,
         vec![
@@ -1528,7 +1528,7 @@ fn sorted_table() {
         ]
     ).unwrap();
     for i in 0..8 {
-        for j in ((i+1)..9) {
+        for j in (i+1)..9 {
             assert!(tbl.sorted_by(i, true) == tbl.sorted_by(j, true));
             assert!(tbl.sorted_by(i, false) == tbl.sorted_by(j, false));
         }

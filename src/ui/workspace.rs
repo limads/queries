@@ -12,8 +12,8 @@ use super::table::*;
 use crate::tables::table::Table;
 use crate::ui::PlotView;
 use papyri::render::Panel;
-use std::rc::Rc;
-use std::cell::RefCell;
+
+
 
 use crate::client::UserState;
 

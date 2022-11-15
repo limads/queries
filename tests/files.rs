@@ -7,7 +7,7 @@ mod common;
 // cargo test -- --nocapture
 #[test]
 pub fn files() {
-    gtk4::init();
+    gtk4::init().unwrap();
     let scripts = OpenedScripts::new();
     scripts.connect_new(|_f : OpenedFile| {
         println!("Created");

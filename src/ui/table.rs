@@ -6,7 +6,6 @@ For a copy, see http://www.gnu.org/licenses.*/
 use gtk4::*;
 use gtk4::prelude::*;
 use crate::tables::table::Table;
-use std::iter::ExactSizeIterator;
 use gtk4::gdk::Cursor;
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -101,8 +100,6 @@ pub struct TableWidget {
     pub grid : Grid,
 
     pub scroll_window : ScrolledWindow,
-
-    provider : CssProvider,
 
     action : TableAction,
 
@@ -259,7 +256,7 @@ fn set_table_selection_style(grid : &Grid, col : usize, ncols : usize, was_selec
 
 impl TableWidget {
 
-    pub fn new_from_table(tbl : &Table, max_nrows : usize, max_ncols : usize) -> Self {
+    pub fn new_from_table(tbl : &Table, max_nrows : usize, _max_ncols : usize) -> Self {
         let mut tbl_wid = Self::new(tbl.nrows(), max_nrows);
         tbl_wid.tbl = Rc::new(tbl.clone());
         tbl_wid.update_data(&tbl, Some(1), Some(max_nrows), true);
@@ -268,7 +265,6 @@ impl TableWidget {
 
     pub fn new(nrows : usize, max_nrows : usize) -> TableWidget {
         let grid = Grid::new();
-        let provider = CssProvider::new();
         
         let scroll_window = ScrolledWindow::new();
         scroll_window.set_vexpand(true);
@@ -286,7 +282,6 @@ impl TableWidget {
             bx,
             max_nrows,
             scroll_window,
-            provider,
             action,
             tbl : Rc::new(Table::empty(Vec::new()))
         }
@@ -300,16 +295,16 @@ impl TableWidget {
         &self,
         data : &str,
         col : usize,
-        nrows : usize,
+        _nrows : usize,
         ncols : usize,
-        include_header : bool,
+        _include_header : bool,
         displayed_tbl : &Rc<RefCell<Option<DisplayedTable>>>
     ) -> Label {
         let label = Label::new(None);
         label.set_use_markup(true);
         label.set_markup(&data);
         label.set_hexpand(true);
-        let ctx = label.style_context();
+        let _ctx = label.style_context();
         let cursor = Cursor::builder().name("pointer").build();
         label.set_cursor(Some(&cursor));
         let click = GestureClick::new();
@@ -326,7 +321,7 @@ impl TableWidget {
                 let ctx = label.style_context();
                 let was_selected = ctx.has_class("selected");
                 if !was_selected {
-                    let lbl_alloc = label.allocation();
+                    let _lbl_alloc = label.allocation();
 
                     /*// Although the bottom position can be frustrating because it
                     // hides content, this protects against a GTK bug that tries to
@@ -458,7 +453,7 @@ impl TableWidget {
             let max_rows = self.max_nrows.clone();
             move|adj| {
                 let fst_row = adj.value() as usize;
-                let num_rows = num_scale.adjustment().value() as usize;
+                let _num_rows = num_scale.adjustment().value() as usize;
                 if let Ok(displ_tbl) = displayed_tbl.try_borrow() {
                     if let Some(tbl) = &*displ_tbl {
                         let row_limit = tbl.tbl.nrows().min(max_rows);
@@ -641,19 +636,6 @@ impl TableWidget {
             self.grid.insert_row(r);
         }
     }
-
-    fn update_table_dimensions(&self, nrows : i32, ncols : i32) {
-
-        for c in 0..ncols {
-            self.grid.insert_column(c);
-        }
-
-        for r in 0..nrows {
-            self.grid.insert_row(r);
-        }
-
-    }
-
 }
 
 // This shows the full table from row 1 up to max_rows.

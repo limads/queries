@@ -3,7 +3,7 @@
 This work is licensed under the terms of the GPL v3.0 License.  
 For a copy, see http://www.gnu.org/licenses.*/
 
-use super::{ConnectionSet, ConnectionInfo, OpenedScripts};
+use super::{ConnectionInfo, OpenedScripts};
 use filecase::OpenedFile;
 use serde::{Serialize, Deserialize};
 use crate::ui::QueriesWindow;

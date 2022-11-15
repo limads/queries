@@ -4,11 +4,11 @@ This work is licensed under the terms of the GPL v3.0 License.
 For a copy, see http://www.gnu.org/licenses.*/
 
 use super::column::*;
-use tokio_postgres::types::{ToSql   };
-use std::marker::Sync;
-use std::convert::{TryFrom, TryInto};
+
+
+
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+
 use crate::tables::field::Field;
 use rust_decimal::Decimal;
 use serde_json::Value;
@@ -123,10 +123,10 @@ impl<'a> NullableColumn {
             NullableColumn::Str(vs) => {
                 rearrange(&vs[..], ixs)
             },
-            NullableColumn::Bytes(vs) => {
+            NullableColumn::Bytes(_vs) => {
                 NullableColumn::from(self.display_opt_content(None)).rearranged(ixs)
             },
-            NullableColumn::Json(vs) => {
+            NullableColumn::Json(_vs) => {
                 NullableColumn::from(self.display_opt_content(None)).rearranged(ixs)
             }
         }
@@ -164,10 +164,10 @@ impl<'a> NullableColumn {
             NullableColumn::Str(vs) => {
                 sorted(&vs[..], ascending)
             },
-            NullableColumn::Bytes(vs) => {
+            NullableColumn::Bytes(_vs) => {
                 NullableColumn::from(self.display_opt_content(None)).sorted(ascending)
             },
-            NullableColumn::Json(vs) => {
+            NullableColumn::Json(_vs) => {
                 NullableColumn::from(self.display_opt_content(None)).sorted(ascending)
             }
         }
@@ -208,7 +208,7 @@ impl<'a> NullableColumn {
     }
 
     /// Returns a string field carrying null if value is not present.
-    pub fn at(&self, ix : usize, missing : Option<&str>) -> Option<Field> {
+    pub fn at(&self, ix : usize, _missing : Option<&str>) -> Option<Field> {
         match self {
             NullableColumn::Bool(v) => v.get(ix).cloned().map(|f| f.map(|f| Field::Bool(f)  ).unwrap_or(Field::Str(String::from(Self::NULL))) ),
             NullableColumn::I8(v) => v.get(ix).cloned().map(|f| f.map(|f| Field::I8(f) ).unwrap_or(Field::Str(String::from(Self::NULL))) ),
