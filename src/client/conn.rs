@@ -1283,10 +1283,6 @@ impl ActiveConnection {
 
 }
 
-const NO_CERT : &'static str = "No SSL certificate associated with this host.\nConfigure one at the security settings";
-
-const MANY_CERTS : &'static str = "Multiple SSL certificates associated with this host.\nRemove the duplicates at the security settings";
-
 const CONN_NAME_ERR : &'static str = "Application name at settings contain non-alphanumeric characters";
 
 fn augment_uri_with_params(
@@ -1416,7 +1412,7 @@ impl React<ConnectionBox> for ActiveConnection {
                             send.send(ActiveConnectionAction::ConnectFailure(
                                 uri.info.clone(),
                                 format!("Security not configured for this host"))
-                            );
+                            ).unwrap();
                             return Inhibit(false);
                         };
 

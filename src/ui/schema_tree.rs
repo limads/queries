@@ -88,46 +88,22 @@ impl SchemaTree {
         let is_dark = libadwaita::StyleManager::default().is_dark();
         let type_icons = load_type_icons(is_dark);
 
-        let [TBL_ICON, DB_ICON, FN_ICON, CLOCK_ICON, VIEW_ICON, KEY_ICON] = if is_dark {
+        let [tbl_icon, db_icon, fn_icon, clock_icon, view_icon, key_icon] = if is_dark {
             ["table-white", "db-white", "fn-white", "clock-app-white", "view-white", "key-white"]
         } else {
             ["table-symbolic", "db-symbolic", "fn-dark-symbolic", "clock-app-symbolic", "view-symbolic", "key-symbolic"]
         };
         let mut icons = filecase::load_icons_as_pixbufs_from_resource(
             "/io/github/limads/queries",
-            &[TBL_ICON, DB_ICON, FN_ICON, CLOCK_ICON, VIEW_ICON, KEY_ICON]
+            &[tbl_icon, db_icon, fn_icon, clock_icon, view_icon, key_icon]
         ).unwrap();
         
-        /*for (_, ic) in icons.iter() {
-            if libadwaita::StyleManager::default().is_dark() {
-                let bytes = ic.pixel_bytes().unwrap();
-                let w = ic.width() as u32;
-                let h = ic.height() as u32;
-                let stride = ic.rowstride() as u32;
-                let nchannels = ic.n_channels() as u32;
-                ic.fill(0);
-                for x in 0..w {
-                    for y in 0..h {
-                        if let Some(r) = bytes.get((y*stride + x*nchannels) as usize) {
-                            if let Some(g) = bytes.get((y*stride + x*nchannels + 1) as usize) {
-                                if let Some(b) = bytes.get((y*stride + x*nchannels + 2) as usize) {                            
-                                    // ic.put_pixel(x, y, 255 - r, 255 - g, 255 - b, 255);
-                                    // ic.put_pixel(x+1, y, 255, 255, 255, 255);
-                                    // ic.put_pixel(x+2, y, 255, 255, 255, 255);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }*/
-        
-        let schema_icon = icons.remove(DB_ICON).unwrap();
-        let fn_icon = icons.remove(FN_ICON).unwrap();
-        let clock_icon = icons.remove(CLOCK_ICON).unwrap();
-        let view_icon = icons.remove(VIEW_ICON).unwrap();
-        let key_icon = icons.remove(KEY_ICON).unwrap();
-        let tbl_icon = icons.remove(TBL_ICON).unwrap();
+        let schema_icon = icons.remove(db_icon).unwrap();
+        let fn_icon = icons.remove(fn_icon).unwrap();
+        let clock_icon = icons.remove(clock_icon).unwrap();
+        let view_icon = icons.remove(view_icon).unwrap();
+        let key_icon = icons.remove(key_icon).unwrap();
+        let tbl_icon = icons.remove(tbl_icon).unwrap();
         
         let tree_view = TreeView::new();
         tree_view.set_valign(Align::Fill);

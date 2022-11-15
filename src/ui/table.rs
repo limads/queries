@@ -43,41 +43,36 @@ impl TableAction {
     }
 
     pub fn new(nrows : usize, max_nrows : usize) -> Self {
-        let fst_scale = Scale::new(Orientation::Horizontal,Some(&scale_adjustment(max_nrows)));
-        configure_scale(&fst_scale);
-
         let sort_bx = Box::new(Orientation::Horizontal, 0);
-        let offset_bx = Box::new(Orientation::Horizontal, 0);
-        let num_bx = Box::new(Orientation::Horizontal, 0);
         sort_bx.style_context().add_class("linked");
         let btn_ascending = ToggleButton::builder().icon_name("view-sort-ascending-symbolic").build();
         let btn_descending = ToggleButton::builder().icon_name("view-sort-descending-symbolic").build();
         btn_ascending.style_context().add_class("flat");
         btn_descending.style_context().add_class("flat");
+        sort_bx.append(&btn_ascending);
+        sort_bx.append(&btn_descending);
+        btn_ascending.set_group(Some(&btn_descending));
+        btn_ascending.set_active(true);
 
         let filter_entry = Entry::new();
         filter_entry.set_max_width_chars(32);
         filter_entry.set_primary_icon_name(Some("funnel-symbolic"));
 
-        sort_bx.append(&btn_ascending);
-        sort_bx.append(&btn_descending);
-
-        btn_ascending.set_group(Some(&btn_descending));
-        btn_ascending.set_active(true);
-
+        let offset_bx = Box::new(Orientation::Horizontal, 0);
         let line_img = Image::from_icon_name("view-continuous-symbolic");
+        let fst_scale = Scale::new(Orientation::Horizontal,Some(&scale_adjustment(max_nrows.min(nrows))));
+        configure_scale(&fst_scale);
         offset_bx.append(&line_img);
         offset_bx.append(&fst_scale);
         offset_bx.set_hexpand(true);
-        offset_bx.set_hexpand(true);
 
+        let num_bx = Box::new(Orientation::Horizontal, 0);
         let num_img = Image::from_icon_name("type-integer-symbolic");
-        let num_scale = Scale::new(Orientation::Horizontal,Some(&scale_adjustment(max_nrows)));
-
+        let num_scale = Scale::new(Orientation::Horizontal,Some(&scale_adjustment(max_nrows.min(nrows))));
         configure_scale(&num_scale);
-
         num_bx.append(&num_img);
         num_bx.append(&num_scale);
+        num_bx.set_hexpand(true);
 
         let action = ActionBar::new();
         let bx = Box::new(Orientation::Horizontal, 12);
@@ -401,11 +396,11 @@ impl TableWidget {
     }
 
     pub fn add_action_signals(&self, displayed_tbl : &Rc<RefCell<Option<DisplayedTable>>>) {
-        let eff_rows = self.tbl.nrows().min(self.max_nrows) as f64;
-        let fst_adj = Adjustment::builder().value(1.).lower(1.).upper(eff_rows).build();
-        let num_adj = Adjustment::builder().value(eff_rows).lower(1.).upper(eff_rows).build();
-        self.action.fst_scale.set_adjustment(&fst_adj);
-        self.action.num_scale.set_adjustment(&num_adj);
+        // let eff_rows = self.tbl.nrows().min(self.max_nrows) as f64;
+        // let fst_adj = Adjustment::builder().value(1.).lower(1.).upper(eff_rows).build();
+        // let num_adj = Adjustment::builder().value(eff_rows).lower(1.).upper(eff_rows).build();
+        // self.action.fst_scale.set_adjustment(&fst_adj);
+        // self.action.num_scale.set_adjustment(&num_adj);
         self.action.btn_ascending.connect_toggled({
             let displayed_tbl = displayed_tbl.clone();
             let action = self.action.clone();
@@ -456,7 +451,7 @@ impl TableWidget {
                 }
             }
         });
-        fst_adj.connect_value_changed({
+        self.action.fst_scale.adjustment().connect_value_changed({
             let grid = self.grid.clone();
             let num_scale = self.action.num_scale.clone();
             let displayed_tbl = displayed_tbl.clone();
@@ -486,7 +481,7 @@ impl TableWidget {
             }
         });
 
-        num_adj.connect_value_changed({
+        self.action.num_scale.adjustment().connect_value_changed({
             let grid = self.grid.clone();
             let fst_scale = self.action.fst_scale.clone();
             let displayed_tbl = displayed_tbl.clone();
@@ -512,6 +507,7 @@ impl TableWidget {
             let displayed_tbl = displayed_tbl.clone();
             let max_nrows = self.max_nrows.clone();
             let orig_tbl = self.tbl.clone();
+            let btn_ascending = self.action.btn_ascending.clone();
             move |entry| {
                 let txt = entry.buffer().text();
                 let mut num_scale_new_val = None;
@@ -520,29 +516,41 @@ impl TableWidget {
                 let mut fst_scale_new_max = None;
                 if let Ok(mut displ_tbl) = displayed_tbl.try_borrow_mut() {
                     if let Some(mut displ_tbl) = displ_tbl.as_mut() {
-
+                        let ascending = btn_ascending.is_active();
                         if let Some(sel_col) = selected_col(&grid, orig_tbl.ncols()) {
                             if txt.is_empty() {
-                                update_cols(&orig_tbl, &grid, 1, max_nrows);
-                                let rem_rows = orig_tbl.nrows().min(max_nrows).max(1) as f64;
-                                fst_scale_new_val = Some(1.0);
-                                num_scale_new_val = Some(rem_rows);
-                                num_scale_new_max = Some(rem_rows);
-                                fst_scale_new_max = Some(rem_rows);
-                                displ_tbl.tbl = orig_tbl.as_ref().clone();
-                                displ_tbl.filtered_by = None;
-                            } else {
-
-                                // filtering preserves the order.
-                                if let Some(filtered_tbl) = orig_tbl.filtered_by(sel_col, &txt) {
-                                    let rem_rows = filtered_tbl.nrows().min(max_nrows).max(1) as f64;
-                                    update_cols(&filtered_tbl, &grid, 1, max_nrows);
+                                if let Some(orig_sorted) = orig_tbl.sorted_by(sel_col, ascending) {
+                                    update_cols(&orig_sorted, &grid, 1, max_nrows);
+                                    let rem_rows = orig_sorted.nrows().min(max_nrows).max(1) as f64;
                                     fst_scale_new_val = Some(1.0);
                                     num_scale_new_val = Some(rem_rows);
                                     num_scale_new_max = Some(rem_rows);
                                     fst_scale_new_max = Some(rem_rows);
-                                    displ_tbl.tbl = filtered_tbl;
-                                    displ_tbl.filtered_by = Some(txt.to_string());
+                                    displ_tbl.tbl = orig_sorted;
+                                    displ_tbl.sorted_by = sel_col;
+                                    displ_tbl.ascending = ascending;
+                                    displ_tbl.filtered_by = None;
+                                } else {
+                                    eprintln!("Unable to sort filtered table");
+                                }
+                            } else {
+
+                                // filtering preserves the order.
+                                if let Some(filtered_tbl) = orig_tbl.filtered_by(sel_col, &txt) {
+                                    if let Some(filtered_sorted_tbl) = filtered_tbl.sorted_by(sel_col, ascending) {
+                                        let rem_rows = filtered_sorted_tbl.nrows().min(max_nrows).max(1) as f64;
+                                        update_cols(&filtered_sorted_tbl, &grid, 1, max_nrows);
+                                        fst_scale_new_val = Some(1.0);
+                                        num_scale_new_val = Some(rem_rows);
+                                        num_scale_new_max = Some(rem_rows);
+                                        fst_scale_new_max = Some(rem_rows);
+                                        displ_tbl.tbl = filtered_sorted_tbl;
+                                        displ_tbl.sorted_by = sel_col;
+                                        displ_tbl.ascending = ascending;
+                                        displ_tbl.filtered_by = Some(txt.to_string());
+                                    } else {
+                                        eprintln!("Unable to sort filtered table");
+                                    }
                                 } else {
                                     eprintln!("Could not filter table");
                                 }
