@@ -20,6 +20,8 @@ use crate::client::SharedUserState;
 
 // TODO set find/replace insensitive when workspace is selected.
 
+pub mod plots;
+
 pub use overview::*;
 
 mod title;
@@ -374,6 +376,7 @@ pub struct QueriesWindow {
     pub titlebar : QueriesTitlebar,
     pub sidebar : QueriesSidebar,
     pub content : QueriesContent,
+    pub graph_win : plots::GraphWindow,
     pub settings : QueriesSettings,
     pub find_dialog : FindDialog
 }
@@ -422,6 +425,7 @@ impl QueriesWindow {
         window.add_action(&titlebar.main_menu.action_save);
         window.add_action(&titlebar.main_menu.action_find_replace);
         window.add_action(&titlebar.main_menu.action_save_as);
+        window.add_action(&titlebar.main_menu.action_graph);
         window.add_action(&titlebar.main_menu.action_export);
         window.add_action(&titlebar.main_menu.action_settings);
         window.add_action(&titlebar.main_menu.action_about);
@@ -483,8 +487,12 @@ impl QueriesWindow {
             content.results.overview.conn_list.list.append(&new_row.row);
         }
 
-        Self { paned, sidebar, titlebar, content, window, settings, find_dialog }
+        let graph_win = plots::GraphWindow::build();
+        graph_win.react(&titlebar.main_menu);
+
+        Self { paned, sidebar, titlebar, content, window, settings, find_dialog, graph_win }
     }
+
 }
 
 impl React<QueriesTitlebar> for QueriesWindow {

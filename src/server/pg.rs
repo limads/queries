@@ -47,6 +47,7 @@ async fn connect(
     uri : &ConnURI
 ) -> Result<tokio_postgres::Client, String> {
 
+    uri.verify_integrity().map_err(|e| format!("{}",e) )?;
     if !uri.is_postgres() {
         return Err(format!("Invalid URL for postgres connection"));
     }
