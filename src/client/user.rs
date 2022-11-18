@@ -201,6 +201,11 @@ pub fn user_state_integrity_check(state : &UserState) -> Result<(), std::boxed::
             }
         }
     }
+
+    if !state.conn.app_name.chars().all(|c| c.is_alphanumeric() ) {
+        return Err("Application name contains non-alphanumeric character(s)".into());
+    }
+
     Ok(())
 }
 
@@ -426,6 +431,10 @@ impl PersistentState<QueriesWindow> for SharedUserState {
     fn persist(&self, path : &str) -> JoinHandle<bool> {
         match self.try_borrow_mut() {
             Ok(mut s) => {
+
+                if !s.conn.app_name.chars().all(|c| c.is_alphanumeric() ) {
+                    s.conn.app_name = "Queries".into();
+                }
 
                 assert_user_state_integrity(&s);
 

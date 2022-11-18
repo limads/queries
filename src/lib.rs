@@ -86,6 +86,8 @@ fn hook_signals(
     queries_win.window.add_action(&queries_win.find_dialog.replace_all_action);
 
     queries_win.content.editor.react(&queries_win.settings);
+
+    queries_win.graph_win.react(&client.active_conn);
     user_state.react(&client.scripts);
 }
 

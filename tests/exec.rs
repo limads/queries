@@ -481,7 +481,7 @@ pub fn execution() {
                 let changed_schema = res.iter().any(|o| {
                     match o {
                         StatementOutput::Modification(s) => {
-                            s.starts_with("Create") || s.starts_with("Alter") || s.starts_with("Drop")
+                            s.starts_with("CREATE") || s.starts_with("ALTER") || s.starts_with("DROP")
                         },
                         _ => {
                             false

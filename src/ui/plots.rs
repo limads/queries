@@ -1,3 +1,8 @@
+/*Copyright (c) 2022 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.
+For a copy, see http://www.gnu.org/licenses.*/
+
 use gtk4::*;
 use gtk4::prelude::*;
 use stateful::React;
@@ -9,6 +14,8 @@ use papyri::model::MappingType;
 use std::rc::Rc;
 use std::cell::RefCell;
 use gdk::RGBA;
+use crate::client::ActiveConnection;
+use crate::sql::object::DBObject;
 
 /*
 Typical query built:
@@ -257,25 +264,6 @@ fn icon_for_mapping(ty : MappingType) -> &'static str {
 }
 
 #[derive(Debug, Clone)]
-pub struct GraphWindow {
-    win : Window,
-    width_entry : Entry,
-    height_entry : Entry,
-    btn_clear : Button,
-    btn_sql : Button,
-    btn_plot : Button,
-    toggle_unique : ToggleButton,
-    toggle_vertical : ToggleButton,
-    toggle_horizontal : ToggleButton,
-    toggle_three_top : ToggleButton,
-    toggle_three_left : ToggleButton,
-    toggle_three_right : ToggleButton,
-    toggle_three_bottom : ToggleButton,
-    toggle_four : ToggleButton,
-    plot_rows : Rc<RefCell<Vec<PlotRow>>>
-}
-
-#[derive(Debug, Clone)]
 pub struct PlotRow {
     exp : ExpanderRow,
     add_btn : Button,
@@ -287,7 +275,15 @@ pub struct PlotRow {
 
 impl PlotRow {
 
-    pub fn build() -> Self {
+    pub fn visit_data_entries(&self, f : impl Fn(&Entry)) {
+        for m in self.mappings.borrow().iter() {
+            for e in m.data.entries.iter() {
+                f(e);
+            }
+        }
+    }
+
+    pub fn build(cols_model : &Rc<RefCell<Option<ListStore>>>) -> Self {
         let exp = ExpanderRow::new();
         exp.set_selectable(false);
         exp.set_activatable(false);
@@ -388,8 +384,17 @@ impl PlotRow {
         for (btn, ty) in btns {
             let mappings = mappings.clone();
             let exp = exp.clone();
+            let cols_model = cols_model.clone();
             btn.clone().connect_clicked(move |_| {
                 let row = MappingRow::build(ty);
+                if let Some(model) = &*cols_model.borrow() {
+                    println!("Added model");
+                    for e in &row.data.entries {
+                        add_completion(&e, &model);
+                    }
+                } else {
+                    println!("No model to be added");
+                }
                 exp.add_row(&row.row);
                 row.exclude_btn.connect_clicked({
                     let exp = exp.clone();
@@ -562,6 +567,28 @@ impl MappingRow {
 
 }
 
+
+#[derive(Debug, Clone)]
+pub struct GraphWindow {
+    win : Window,
+    width_entry : Entry,
+    height_entry : Entry,
+    btn_clear : Button,
+    btn_sql : Button,
+    btn_plot : Button,
+    toggle_unique : ToggleButton,
+    toggle_vertical : ToggleButton,
+    toggle_horizontal : ToggleButton,
+    toggle_three_top : ToggleButton,
+    toggle_three_left : ToggleButton,
+    toggle_three_right : ToggleButton,
+    toggle_three_bottom : ToggleButton,
+    toggle_four : ToggleButton,
+    plot_rows : Rc<RefCell<Vec<PlotRow>>>,
+    objs : Rc<RefCell<Vec<DBObject>>>,
+    cols_model : Rc<RefCell<Option<ListStore>>>
+}
+
 impl GraphWindow {
 
     pub fn build() -> Self {
@@ -652,7 +679,8 @@ impl GraphWindow {
         let list = ListBox::new();
         list.set_halign(Align::Center);
 
-        let pr = PlotRow::build();
+        let cols_model = Rc::new(RefCell::new(None));
+        let pr = PlotRow::build(&cols_model);
 
         let plot_rows = Rc::new(RefCell::new(Vec::new()));
         plot_rows.borrow_mut().push(pr.clone());
@@ -671,10 +699,102 @@ impl GraphWindow {
             toggle_three_right,
             toggle_three_bottom,
             toggle_four,
-            plot_rows
+            plot_rows,
+            objs : Default::default(),
+            cols_model
         }
     }
 
+}
+
+impl React<ActiveConnection> for GraphWindow {
+
+    fn react(&self, conn : &ActiveConnection) {
+        conn.connect_db_connected({
+            let objs = self.objs.clone();
+            let pl_rows = self.plot_rows.clone();
+            let cols_model = self.cols_model.clone();
+            move |(_, info)| {
+                if let Some(info) = info {
+                    update_completion_with_schema(objs.clone(), cols_model.clone(), pl_rows.clone(), Some(info.schema));
+                }
+            }
+        });
+        conn.connect_schema_update({
+            let objs = self.objs.clone();
+            let pl_rows = self.plot_rows.clone();
+            let cols_model = self.cols_model.clone();
+            move |schema| {
+                update_completion_with_schema(objs.clone(), cols_model.clone(), pl_rows.clone(), schema);
+            }
+        });
+    }
+
+}
+
+fn update_completion_with_schema(
+    objs : Rc<RefCell<Vec<DBObject>>>,
+    cols_model : Rc<RefCell<Option<ListStore>>>,
+    pl_rows : Rc<RefCell<Vec<PlotRow>>>,
+    schema : Option<Vec<DBObject>>
+) {
+    let mut objs = objs.borrow_mut();
+    let mut cols_model = cols_model.borrow_mut();
+    objs.clear();
+    if let Some(schema) = schema {
+        let col_types: [glib::Type; 1] = [glib::Type::STRING];
+        let model = ListStore::new(&col_types);
+        let mut data = Vec::new();
+        for new_obj in &schema {
+            match &new_obj {
+                DBObject::Schema { children, .. } => {
+                    for child in children.iter() {
+                        match child {
+                            DBObject::Table { name, cols, .. } => {
+                                for (c, _, _) in cols.iter() {
+                                    data.push(format!("{}.{}", name, c));
+                                }
+                            },
+                            DBObject::View { name, .. } => {
+
+                            },
+                            _ =>  { }
+                        }
+                    }
+                },
+                _ => { }
+            }
+        }
+        for d in &data {
+            model.set(&model.append(), &[(0, d)]);
+        }
+        for pl in pl_rows.borrow().iter() {
+            pl.visit_data_entries(|e| {
+                add_completion(&e, &model);
+            });
+        }
+        println!("Updating model with {:?}", data);
+
+        // Any mappings added later will use this information.
+        *objs = schema;
+        *cols_model = Some(model);
+    } else {
+        for pl in pl_rows.borrow().iter() {
+            pl.visit_data_entries(|e| {
+                e.set_completion(None);
+            });
+        }
+        *cols_model = None;
+    }
+}
+
+fn add_completion(e : &Entry, model : &ListStore) {
+    let compl = EntryCompletion::new();
+    compl.set_text_column(0);
+    compl.set_minimum_key_length(1);
+    compl.set_popup_completion(true);
+    compl.set_model(Some(model));
+    e.set_completion(Some(&compl));
 }
 
 impl React<MainMenu> for GraphWindow {

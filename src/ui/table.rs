@@ -307,6 +307,8 @@ impl TableWidget {
         let _ctx = label.style_context();
         let cursor = Cursor::builder().name("pointer").build();
         label.set_cursor(Some(&cursor));
+
+        // TODO disable selection at Esc key press
         let click = GestureClick::new();
         click.set_button(gdk::BUTTON_PRIMARY);
         label.add_controller(&click);
