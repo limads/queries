@@ -8,9 +8,9 @@ use gtk4::prelude::*;
 use std::fs::File;
 use crate::sql::*;
 use std::path::Path;
-use stateful::{Callbacks};
 use crate::tables::table::Table;
 use stateful::React;
+use stateful::Callbacks;
 use crate::client::ActiveConnection;
 use crate::tables::table::TableSettings;
 use crate::tables::table::Columns;
@@ -111,6 +111,7 @@ impl Environment {
                             on_tbl_update.call(tables.tables.clone());
                         }
                     },
+
                     EnvironmentAction::Select(opt_pos) => {
                         selected = opt_pos;
                     },

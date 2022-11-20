@@ -6,7 +6,7 @@ For a copy, see http://www.gnu.org/licenses.*/
 use crate::sql::{*, object::*};
 use std::error::Error;
 use crate::tables::table::{Table};
-use crate::sql::object::{DBObject, DBType, DBInfo};
+use crate::sql::object::{DBObject, DBType, DBInfo, DBColumn};
 use crate::sql::parsing::AnyStatement;
 use super::Connection;
 use std::collections::HashMap;
@@ -437,16 +437,21 @@ impl Connection for PostgresConnection {
             Ok(s) => s,
             Err(e) => Err(e)?
         };
-        let mut view_queries = Vec::new();
+        // let mut view_queries = Vec::new();
         let mut fn_queries = Vec::new();
         
-        for (schema, tbls) in schemata.iter() {
-            for tbl in &tbls[..] {
+        for (schema, objs) in schemata.iter() {
+
+            for tbl in &objs.tables[..] {
                 col_queries.push(AnyStatement::from_sql(&COLUMN_QUERY.replace("$TABLE", &tbl).replace("$SCHEMA", schema)).unwrap());
                 pk_queries.push(AnyStatement::from_sql(&PK_QUERY.replace("$TABLE", &tbl).replace("$SCHEMA", schema)).unwrap());
                 rel_queries.push(AnyStatement::from_sql(&REL_QUERY.replace("$TABLE", &tbl).replace("$SCHEMA", schema)).unwrap());
             }
-            view_queries.push(AnyStatement::from_sql(&VIEW_QUERY.replace("$SCHEMA", schema)).unwrap());
+            // view_queries.push(AnyStatement::from_sql(&VIEW_QUERY.replace("$SCHEMA", schema)).unwrap());
+            for vw in &objs.views[..] {
+                col_queries.push(AnyStatement::from_sql(&COLUMN_QUERY.replace("$TABLE", &vw).replace("$SCHEMA", schema)).unwrap());
+            }
+
             fn_queries.push(AnyStatement::from_sql(&FN_QUERY.replace("$SCHEMA", schema)).unwrap());
         }
         
@@ -454,28 +459,31 @@ impl Connection for PostgresConnection {
         let col_range = Range { start : 0, end : col_queries.len() };
         let pk_range = Range { start : col_range.end, end : col_range.end + pk_queries.len() };
         let rel_range = Range { start : pk_range.end, end : pk_range.end + rel_queries.len() };
-        let view_range = Range { start : rel_range.end, end : rel_range.end + view_queries.len() };
-        let fn_range = Range { start : view_range.end, end : view_range.end + fn_queries.len() };
+        // let view_range = Range { start : rel_range.end, end : rel_range.end + view_queries.len() };
+        // let fn_range = Range { start : view_range.end, end : view_range.end + fn_queries.len() };
+        let fn_range = Range { start : rel_range.end, end : rel_range.end + fn_queries.len() };
         all_queries.extend(col_queries);
         all_queries.extend(pk_queries);
         all_queries.extend(rel_queries);
-        all_queries.extend(view_queries);
+        // all_queries.extend(view_queries);
         all_queries.extend(fn_queries);
+        debug_assert!(all_queries.len() == fn_range.end);
         
         let out = self.query_async(&all_queries[..]);
         let col_outs : Vec<&Table> = out[col_range].iter().map(|o| o.table().unwrap() ).collect();
         let pk_outs : Vec<&Table> = out[pk_range].iter().map(|o| o.table().unwrap() ).collect();
         let rel_outs : Vec<&Table> = out[rel_range].iter().map(|o| o.table().unwrap() ).collect();
-        let view_outs : Vec<&Table> = out[view_range].iter().map(|o| o.table().unwrap() ).collect();
+        // let view_outs : Vec<&Table> = out[view_range].iter().map(|o| o.table().unwrap() ).collect();
         let fn_outs : Vec<&Table> = out[fn_range].iter().map(|o| o.table().unwrap() ).collect();
         
         let mut top_objs = Vec::new();
         let mut tbl_ix = 0;
+        let mut view_ix = 0;
         let mut schema_ix = 0;
-        for (schema, tbls) in schemata.iter() {
+        for (schema, objs) in schemata.iter() {
             let mut tbl_objs = Vec::new();
-            for tbl in &tbls[..] {
-                let names = col_outs[tbl_ix].get_column(0)
+            for tbl in &objs.tables[..] {
+                let names = col_outs[view_ix].get_column(0)
                     .and_then(|c| { let s : Option<Vec<String>> = c.clone().try_into().ok(); s }).unwrap_or(Vec::new());
                 let col_types = col_outs[tbl_ix].get_column(1)
                     .and_then(|c| { let s : Option<Vec<String>> = c.clone().try_into().ok(); s }).unwrap_or(Vec::new());
@@ -485,9 +493,25 @@ impl Connection for PostgresConnection {
                 let obj = DBObject::Table{ schema : schema.to_string(), name : tbl.to_string(), cols, rels };
                 tbl_objs.push(obj);
                 tbl_ix += 1;
+                view_ix += 1;
             }
+
+            let mut view_objs = Vec::new();
+            for vw in &objs.views[..] {
+                let names = col_outs[view_ix].get_column(0)
+                    .and_then(|c| { let s : Option<Vec<String>> = c.clone().try_into().ok(); s }).unwrap_or(Vec::new());
+                let col_types = col_outs[view_ix].get_column(1)
+                    .and_then(|c| { let s : Option<Vec<String>> = c.clone().try_into().ok(); s }).unwrap_or(Vec::new());
+                let no_pks = Vec::new();
+                let cols = crate::sql::pack_column_types(names, col_types, no_pks).ok().unwrap_or(Vec::new());
+                let obj = DBObject::View{ schema : schema.to_string(), name : vw.to_string(), cols };
+                view_objs.push(obj);
+                view_ix += 1;
+            }
+
             let func_objs = retrieve_functions(&fn_outs[schema_ix], &schema).unwrap_or(Vec::new());
-            let view_objs = retrieve_views(&view_outs[schema_ix]).unwrap_or(Vec::new());
+            // let view_objs = retrieve_views(&view_outs[schema_ix]).unwrap_or(Vec::new());
+
             schema_ix += 1;
             tbl_objs.sort_by(|a, b| {
                 a.obj_name().chars().next().unwrap().cmp(&b.obj_name().chars().next().unwrap())
@@ -647,6 +671,10 @@ const TBL_QUERY : &str = r#"select schemaname::text, tablename::text
     from pg_catalog.pg_tables
     where schemaname != 'pg_catalog' and schemaname != 'information_schema';"#;
 
+const VIEW_QUERY2 : &str = r#"
+    select schemaname::text, viewname::text from pg_catalog.pg_views
+    where schemaname != 'pg_catalog' and schemaname != 'information_schema';"#;
+
 // View query, that should be parametrized by $SCHEMA before execution.
 const VIEW_QUERY : &str = r#"
 select cast(table_schema as text) as schema_name,
@@ -695,6 +723,19 @@ where tc.constraint_type = 'FOREIGN KEY' and tc.table_name='$TABLE' and tc.table
 
 const COLUMN_QUERY : &str = r#"select column_name::text, data_type::text
     from information_schema.columns where table_name = '$TABLE' and table_schema='$SCHEMA';"#;
+
+/*
+Perhaps compress all view names in an array, then ungroup them afterwards.
+select cast(attrelid::regclass as text), attname AS column_name, format_type(atttypid, atttypmod) AS data_type
+from pg_attribute
+where attrelid = any(array['public.myview'::regclass])
+order by attnum;
+
+const VIEW_COLUMN_QUERY : &str = r#"
+select attname AS column_name, format_type(atttypid, atttypmod) AS data_type
+from pg_attribute
+where attrelid = '$SCHEMA.$VIEW'::regclass
+order by attnum;"#;*/
 
 fn retrieve_functions(fn_info : &Table, schema : &str) -> Option<Vec<DBObject>> {
     let mut fns = Vec::new();
@@ -771,70 +812,97 @@ fn retrieve_functions(fn_info : &Table, schema : &str) -> Option<Vec<DBObject>> 
     Some(fns)
 }
 
-fn retrieve_schemata(table : &Table) -> Option<HashMap<String, Vec<String>>> {
+fn retrieve_schemata_with_tables_or_views(
+    tbl_table : &Table,
+    view_table : &Table
+) -> Option<HashMap<String, SchemaObjs>> {
     let mut schem_hash = HashMap::new();
-    if table.shape().0 == 0 {
+
+    // If both those tables are empty, we still need to
+    // add the public schema, which always exist.
+    if tbl_table.shape().0 == 0 && view_table.shape().0 == 0 {
         let mut empty = HashMap::new();
-        empty.insert(String::from("public"), Vec::new());
+        empty.insert(String::from("public"), SchemaObjs::default());
         return Some(empty);
     }
-    let schemata = table.get_column(0).and_then(|c| {
-        let s : Option<Vec<String>> = c.clone().try_into().ok();
-        s
-    });
-    let names = table.get_column(1).and_then(|c| {
-        let s : Option<Vec<String>> = c.clone().try_into().ok();
-        s
-    });
-    if let Some(schemata) = schemata {
-        if let Some(names) = names {
-            for (schema, table) in schemata.iter().zip(names.iter()) {
-                let tables = schem_hash.entry(schema.clone()).or_insert(Vec::new());
-                tables.push(table.clone());
+
+    for (i, tbl) in [tbl_table, view_table].iter().enumerate() {
+        let schemata = tbl_table.get_column(0).and_then(|c| {
+            let s : Option<Vec<String>> = c.clone().try_into().ok();
+            s
+        });
+        let names = tbl_table.get_column(1).and_then(|c| {
+            let s : Option<Vec<String>> = c.clone().try_into().ok();
+            s
+        });
+        if let Some(schemata) = schemata {
+            if let Some(names) = names {
+                for (schema, table) in schemata.iter().zip(names.iter()) {
+                    let objs = schem_hash.entry(schema.clone()).or_insert(SchemaObjs::default());
+                    if i == 0 {
+                        objs.tables.push(table.clone());
+                    } else {
+                        objs.views.push(table.clone());
+                    }
+                }
+            } else {
+                eprintln!("Could not load table/view names to String vector");
+                return None;
             }
-            Some(schem_hash)
         } else {
-            eprintln!("Could not load table names to String vector");
-            None
+            eprintln!("Could not load schema column to String vector");
+            return None;
         }
-    } else {
-        eprintln!("Could not load schema column to String vector");
-        None
     }
+
+    Some(schem_hash)
 }
 
-/// Return HashMap of Schema->Tables
-fn get_postgres_schemata(conn : &mut PostgresConnection) -> Result<HashMap<String, Vec<String>>, String> {
+#[derive(Debug, Default, Clone)]
+pub struct SchemaObjs {
+    tables : Vec<String>,
+    views : Vec<String>
+}
 
-    let out = conn.query_async(&[AnyStatement::from_sql(SCHEMATA_QUERY).unwrap(), AnyStatement::from_sql(TBL_QUERY).unwrap()]);
+/// Return HashMap of Schema->(Tables, Views)
+fn get_postgres_schemata(conn : &mut PostgresConnection) -> Result<HashMap<String, SchemaObjs>, String> {
+
+    let out = conn.query_async(&[
+        AnyStatement::from_sql(SCHEMATA_QUERY).unwrap(),
+        AnyStatement::from_sql(TBL_QUERY).unwrap(),
+        AnyStatement::from_sql(VIEW_QUERY2).unwrap()
+    ]);
     if let Some(schem_out) = out.get(0) {
         match schem_out {
             StatementOutput::Valid(_, schem_tbl) => {
+
+                // This contains the names of all defined schemata,
+                // irrespective of whether they are empty or not.
                 let schem_names = Vec::<String>::try_from(schem_tbl.get_column(0).unwrap().clone()).ok().unwrap();
                 
-                // Retrieve schemata that have at least one table.
+                // Retrieve schemata that have at least one table or view.
                 let mut schemata;
-                if let Some(tbl_out) = out.get(1) {
-                    match tbl_out {
-                        StatementOutput::Valid(_, tbl) => {
-                            schemata = retrieve_schemata(tbl).unwrap();
+                if let (Some(tbl_out), Some(view_out)) = (out.get(1), out.get(2)) {
+                    match (tbl_out, view_out) {
+                        (StatementOutput::Valid(_, tbl_table), StatementOutput::Valid(_, view_table)) => {
+                            schemata = retrieve_schemata_with_tables_or_views(tbl_table, view_table).unwrap();
                         },
-                        StatementOutput::Invalid(e, _) => {
+                        (StatementOutput::Invalid(e, _), _) | (_, StatementOutput::Invalid(e, _)) => {
                             return Err(format!("{}", e));
                         },
                         _ => unimplemented!()
                     }
                 } else {
-                    return Err(format!("Missing table output"));
+                    return Err(format!("Missing table or view output"));
                 }
                 
-                // Insert schemata without tables.
+                // Insert remaining schemata without tables or views.
                 for n in schem_names {
                     if n.starts_with("pg") || &n[..] == "information_schema" {
                         continue;
                     }
                     if schemata.get(&n).is_none() {
-                        schemata.insert(n.to_string(), Vec::new());
+                        schemata.insert(n.to_string(), SchemaObjs::default());
                     }
                 }
                 Ok(schemata)
@@ -853,7 +921,7 @@ fn get_postgres_schemata(conn : &mut PostgresConnection) -> Result<HashMap<Strin
    
 }
 
-fn retrieve_views(view_info : &Table) -> Option<Vec<DBObject>> {
+/*fn retrieve_views(view_info : &Table) -> Option<Vec<DBObject>> {
     let mut views = Vec::new();
     let schema_info = Vec::<String>::try_from(view_info.get_column(0).unwrap().clone()).ok()?;
     let name_info = Vec::<String>::try_from(view_info.get_column(1).unwrap().clone()).ok()?;
@@ -864,7 +932,7 @@ fn retrieve_views(view_info : &Table) -> Option<Vec<DBObject>> {
         a.obj_name().cmp(b.obj_name())
     });
     Some(views)
-}
+}*/
 
 fn retrieve_pks(col_info : &Table) -> Option<Vec<String>> {
     let cols = col_info.get_column(3)

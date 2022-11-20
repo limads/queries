@@ -1603,8 +1603,8 @@ impl React<SchemaTree> for ActiveConnection {
 
                 match obj {
                     DBObject::Table { schema, name, cols, .. } => {
-                        let names : Vec<String> = cols.iter().map(|col| col.0.clone() ).collect();
-                        let tys : Vec<DBType> = cols.iter().map(|col| col.1 ).collect();
+                        let names : Vec<String> = cols.iter().map(|col| col.name.clone() ).collect();
+                        let tys : Vec<DBType> = cols.iter().map(|col| col.ty ).collect();
                         match sql_literal_tuple(&entries, Some(&names), &tys) {
                             Ok(tuple) => {
                                 let tpl_names = crate::tables::table::insertion_tuple(&names);

@@ -110,16 +110,23 @@ pub struct Relation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DBColumn {
+    pub name : String,
+    pub ty : DBType,
+    pub is_pk : bool
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DBObject {
 
     // In practice, children will always hold table variants.
     Schema{ name : String, children : Vec<DBObject> },
 
-    Table{ schema : String, name : String, cols : Vec<(String, DBType, bool)>, rels : Vec<Relation> },
+    Table{ schema : String, name : String, cols : Vec<DBColumn>, rels : Vec<Relation> },
 
     Function { schema : String, name : String, args : Vec<DBType>, arg_names : Option<Vec<String>>, ret : Option<DBType> },
 
-    View { schema : String, name : String }
+    View { schema : String, name : String, cols : Vec<DBColumn> }
 
 }
 
@@ -195,7 +202,7 @@ pub fn build_er_diagram(mut er : String, schemata : &[DBObject]) -> String {
                 er = build_er_diagram(er, children);
             },
             DBObject::Table { schema: _, name, cols, rels } => {
-                let cols : String = cols.iter().map(|c| c.0.clone() ).collect::<Vec<_>>().join("\\n");
+                let cols : String = cols.iter().map(|c| c.name.clone() ).collect::<Vec<_>>().join("\\n");
                 let mut tbl = format!("{} [ label = \"{} | {} \"];\n", name, name, cols);
                 for rel in rels.iter() {
                     tbl += &format!("{} -- {} [label=\"1:n\"];\n", rel.tgt_tbl, name);

@@ -567,20 +567,24 @@ pub fn json_to_string(v : &serde_json::Value) -> String {
 const MAX_WIDTH_CHARS : usize = 140;
 
 pub fn write_str(buffer : &mut String, s : &str) {
-    let extrapolated = if s.len() <= MAX_WIDTH_CHARS {
-        writeln!(buffer, "{}", s).unwrap();
-        false
+    if s.contains("\n") {
+        write_str(buffer, &s.replace("\n", "\\n"));
     } else {
-        if let Some((ix, _)) = s.char_indices().nth(MAX_WIDTH_CHARS+1) {
-            write!(buffer, "{}", &s[..ix]).unwrap();
-            true
-        } else {
-            write!(buffer, "{}", s).unwrap();
+        let extrapolated = if s.len() <= MAX_WIDTH_CHARS {
+            writeln!(buffer, "{}", s).unwrap();
             false
+        } else {
+            if let Some((ix, _)) = s.char_indices().nth(MAX_WIDTH_CHARS+1) {
+                write!(buffer, "{}", &s[..ix]).unwrap();
+                true
+            } else {
+                write!(buffer, "{}", s).unwrap();
+                false
+            }
+        };
+        if extrapolated {
+            write!(buffer, "...").unwrap()
         }
-    };
-    if extrapolated {
-        write!(buffer, "...").unwrap()
     }
 }
 

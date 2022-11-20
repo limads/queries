@@ -16,6 +16,7 @@ use std::cell::RefCell;
 use gdk::RGBA;
 use crate::client::ActiveConnection;
 use crate::sql::object::DBObject;
+use gdk_pixbuf::Pixbuf;
 
 /*
 Typical query built:
@@ -195,8 +196,7 @@ impl ScaleBox {
         let entry_max = Entry::builder().primary_icon_name("scale-superior-symbolic").placeholder_text("Upper").build();
         entry_min.set_max_width_chars(8);
         entry_max.set_max_width_chars(8);
-        let log_switch = Switch::new();
-        let invert_switch = Switch::new();
+
         bx_top.append(&label_entry);
         limits_bx.append(&entry_min);
         limits_bx.append(&entry_max);
@@ -270,7 +270,8 @@ pub struct PlotRow {
     hscale : ScaleBox,
     vscale : ScaleBox,
     design : DesignBox,
-    mappings : Rc<RefCell<Vec<MappingRow>>>
+    mappings : Rc<RefCell<Vec<MappingRow>>>,
+    //completions : Rc<RefCell<Vec<EntryCompletion>>>
 }
 
 impl PlotRow {
@@ -381,16 +382,19 @@ impl PlotRow {
             (&bar_btn,MappingType::Bar),
             (&interval_btn, MappingType::Interval)
         ];
+
+        //let completions = Rc::new(RefCell::new(Vec::new()));
         for (btn, ty) in btns {
             let mappings = mappings.clone();
             let exp = exp.clone();
             let cols_model = cols_model.clone();
+            //let completions = completions.clone();
             btn.clone().connect_clicked(move |_| {
                 let row = MappingRow::build(ty);
                 if let Some(model) = &*cols_model.borrow() {
                     println!("Added model");
                     for e in &row.data.entries {
-                        add_completion(&e, &model);
+                        /*completions.borrow_mut().push(*/ add_completion(&e, &model);
                     }
                 } else {
                     println!("No model to be added");
@@ -415,7 +419,7 @@ impl PlotRow {
         }
 
         exp.set_expanded(true);
-        Self { exp, add_btn, hscale, vscale, design, mappings }
+        Self { exp, add_btn, hscale, vscale, design, mappings, /*completions*/ }
     }
 
 }
@@ -566,7 +570,6 @@ impl MappingRow {
     }
 
 }
-
 
 #[derive(Debug, Clone)]
 pub struct GraphWindow {
@@ -742,17 +745,37 @@ fn update_completion_with_schema(
     let mut cols_model = cols_model.borrow_mut();
     objs.clear();
     if let Some(schema) = schema {
-        let col_types: [glib::Type; 1] = [glib::Type::STRING];
+        let col_types: [glib::Type; 2] = [Pixbuf::static_type(), glib::Type::STRING];
+
+        /*let pix_renderer = CellRendererPixbuf::new();
+        pix_renderer.set_padding(6, 6);
+
+        let pix_col = TreeViewColumn::new();
+        pix_col.pack_start(&pix_renderer, false);
+        pix_col.add_attribute(&pix_renderer, "pixbuf", 0);
+
+        let txt_col = TreeViewColumn::new();
+        let txt_renderer = CellRendererText::new();
+        txt_col.pack_start(&txt_renderer, true);
+
+        tree_view.append_column(&pix_col);
+        tree_view.append_column(&txt_col);*/
+
         let model = ListStore::new(&col_types);
         let mut data = Vec::new();
         for new_obj in &schema {
             match &new_obj {
-                DBObject::Schema { children, .. } => {
+                DBObject::Schema { name, children, .. } => {
+                    let schema_name = &name;
                     for child in children.iter() {
                         match child {
                             DBObject::Table { name, cols, .. } => {
-                                for (c, _, _) in cols.iter() {
-                                    data.push(format!("{}.{}", name, c));
+                                for col in cols.iter() {
+                                    if &schema_name[..] == "public" {
+                                        data.push(format!("{}.{}", name, col.name));
+                                    } else {
+                                        data.push(format!("{}.{}.{}", schema_name, name, col.name));
+                                    }
                                 }
                             },
                             DBObject::View { name, .. } => {
@@ -765,15 +788,19 @@ fn update_completion_with_schema(
                 _ => { }
             }
         }
+
         for d in &data {
-            model.set(&model.append(), &[(0, d)]);
+            model.set(&model.append(), &[
+                (0, &Pixbuf::from_resource("/io/github/limads/queries/icons/scalable/actions/table-symbolic.svg").unwrap()),
+                (1, d),
+            ]);
         }
+
         for pl in pl_rows.borrow().iter() {
             pl.visit_data_entries(|e| {
                 add_completion(&e, &model);
             });
         }
-        println!("Updating model with {:?}", data);
 
         // Any mappings added later will use this information.
         *objs = schema;
@@ -788,13 +815,21 @@ fn update_completion_with_schema(
     }
 }
 
-fn add_completion(e : &Entry, model : &ListStore) {
+fn add_completion(e : &Entry, model : &ListStore) -> EntryCompletion {
     let compl = EntryCompletion::new();
-    compl.set_text_column(0);
+    let pix_renderer = CellRendererPixbuf::new();
+    pix_renderer.set_padding(6, 6);
+    compl.pack_start(&pix_renderer, false);
+    compl.add_attribute(&pix_renderer, "pixbuf", 0);
+    let txt_renderer = CellRendererText::new();
+    compl.pack_start(&txt_renderer, true);
+    compl.add_attribute(&txt_renderer, "text", 1);
+    compl.set_model(Some(model));
+    compl.set_property("text-column", 1);
     compl.set_minimum_key_length(1);
     compl.set_popup_completion(true);
-    compl.set_model(Some(model));
     e.set_completion(Some(&compl));
+    compl
 }
 
 impl React<MainMenu> for GraphWindow {

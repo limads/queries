@@ -25,6 +25,7 @@ fn main() {
 
     let style_manager = libadwaita::StyleManager::default();
     style_manager.set_color_scheme(libadwaita::ColorScheme::Default);
+
     // style_manager.set_color_scheme(libadwaita::ColorScheme::ForceDark);
 
     let user_state = if let Some(mut path) = filecase::get_datadir(queries::APP_ID) {

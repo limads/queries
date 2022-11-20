@@ -11,7 +11,7 @@ use stateful::React;
 use crate::client::Environment;
 use crate::sql::StatementOutput;
 use crate::client::OpenedScripts;
-use crate::sql::object::{DBType};
+use crate::sql::object::{DBType, DBColumn};
 mod overview;
 use core::cell::RefCell;
 use std::rc::Rc;

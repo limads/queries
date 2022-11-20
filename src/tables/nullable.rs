@@ -4,11 +4,7 @@ This work is licensed under the terms of the GPL v3.0 License.
 For a copy, see http://www.gnu.org/licenses.*/
 
 use super::column::*;
-
-
-
 use std::borrow::Cow;
-
 use crate::tables::field::Field;
 use rust_decimal::Decimal;
 use serde_json::Value;

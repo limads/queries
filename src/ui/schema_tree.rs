@@ -273,19 +273,18 @@ impl SchemaTree {
     fn grow_tree(&self, model : &TreeStore, parent : Option<&TreeIter>, obj : DBObject) {
         match obj {
             DBObject::Schema{ name, children } => {
-                let schema_pos = model.append(parent);
-                model.set(&schema_pos, &[(0, &self.schema_icon), (1, &name)]);
+                let schema_iter = model.append(parent);
+                model.set(&schema_iter, &[(0, &self.schema_icon), (1, &name)]);
                 for child in children {
-                    self.grow_tree(&model, Some(&schema_pos), child);
+                    self.grow_tree(&model, Some(&schema_iter), child);
                 }
             },
             DBObject::Table{ name, cols, rels, .. } => {
-                let tbl_pos = model.append(parent);
-                model.set(&tbl_pos, &[(0, &self.tbl_icon), (1, &name.to_value())]);
+                let tbl_iter = model.append(parent);
+                model.set(&tbl_iter, &[(0, &self.tbl_icon), (1, &name.to_value())]);
                 for c in cols {
-                    let col_pos = model.append(Some(&tbl_pos));
-                    let is_pk = c.2;
-                    let opt_rel = rels.iter().find(|rel| &rel.src_col[..] == &c.0[..] );
+                    let col_iter = model.append(Some(&tbl_iter));
+                    let opt_rel = rels.iter().find(|rel| &rel.src_col[..] == &c.name[..] );
                     let is_fk = opt_rel.is_some();
                     let name : String = if let Some(rel) = opt_rel {
                         let tgt_schema = if &rel.tgt_schema[..] == "public" {
@@ -293,26 +292,31 @@ impl SchemaTree {
                         } else {
                             format!("{}.", rel.tgt_schema)
                         };
-                        format!("{} ({}{})", c.0, tgt_schema, rel.tgt_tbl )
+                        format!("{} ({}{})", c.name, tgt_schema, rel.tgt_tbl )
                     } else {
-                        format!("{}", c.0)
+                        format!("{}", c.name)
                     };
-                    let icon = if is_fk || is_pk {
+                    let icon = if is_fk || c.is_pk {
                         &self.key_icon
                     } else {
-                        &self.type_icons[&c.1]
+                        &self.type_icons[&c.ty]
                     };
-                    model.set(&col_pos, &[(0, icon), (1, &name.to_value())]);
+                    model.set(&col_iter, &[(0, icon), (1, &name.to_value())]);
                 }
             },
             DBObject::Function { name, .. } => {
-                let schema_pos = model.append(parent);
+                let fn_iter = model.append(parent);
                 let sig = format!("{}", name);
-                model.set(&schema_pos, &[(0, &self.fn_icon.to_value()), (1, &sig.to_value())]);
+                model.set(&fn_iter, &[(0, &self.fn_icon.to_value()), (1, &sig.to_value())]);
             },
-            DBObject::View { name, .. } => {
-                let schema_pos = model.append(parent);
-                model.set(&schema_pos, &[(0, &self.view_icon.to_value()), (1, &name.to_value())]);
+            DBObject::View { name, cols, .. } => {
+                let view_iter = model.append(parent);
+                model.set(&view_iter, &[(0, &self.view_icon.to_value()), (1, &name.to_value())]);
+                for c in cols.iter() {
+                    let col_iter = model.append(Some(&view_iter));
+                    let icon = &self.type_icons[&c.ty];
+                    model.set(&col_iter, &[(0, icon), (1, &c.name.to_value())]);
+                }
             }
         }
     }

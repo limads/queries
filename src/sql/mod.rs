@@ -7,7 +7,7 @@ use std::fmt::Display;
 use std::fmt;
 use std::error::Error;
 use crate::tables::table::*;
-use crate::sql::object::{DBType};
+use crate::sql::object::{DBType, DBColumn};
 use std::collections::HashMap;
 use std::string::ToString;
 use std::cmp::{PartialEq, Eq};
@@ -598,7 +598,7 @@ pub fn pack_column_types(
     col_names : Vec<String>,
     col_types : Vec<String>,
     pks : Vec<String>
-) -> Result<Vec<(String, DBType, bool)>, Box<dyn Error>> {
+) -> Result<Vec<DBColumn>, Box<dyn Error>> {
     if col_names.len() != col_types.len() {
         return Err("Column names different than column types length".into());
     }
@@ -610,9 +610,9 @@ pub fn pack_column_types(
             return Err(format!("Unable to parse type: {:?}", ty).into());
         }
     }
-    let cols : Vec<(String, DBType, bool)> = col_names.iter()
+    let cols : Vec<DBColumn> = col_names.iter()
         .zip(types.iter())
-        .map(|(s1, s2)| (s1.clone(), *s2, pks.iter().any(|pk| &pk[..] == &s1[..]) ))
+        .map(|(s1, s2)| DBColumn { name : s1.clone(), ty : *s2, is_pk : pks.iter().any(|pk| &pk[..] == &s1[..]) })
         .collect();
     Ok(cols)
 }

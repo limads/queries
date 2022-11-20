@@ -80,9 +80,9 @@ impl Form {
 
                         /* The theme variant does not matter here, since the symbolic icon
                         should be rendered according to the theme. */
-                        self.entries[ix].set_primary_icon_name(Some(super::get_type_icon_name(&col.1, false)));
+                        self.entries[ix].set_primary_icon_name(Some(super::get_type_icon_name(&col.ty, false)));
 
-                        self.entries[ix].set_placeholder_text(Some(&col.0));
+                        self.entries[ix].set_placeholder_text(Some(&col.name));
                     }
                     self.bx.grab_focus();
                     self.btn_ok.set_label("Insert");
