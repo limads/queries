@@ -469,7 +469,9 @@ impl Connection for PostgresConnection {
         all_queries.extend(fn_queries);
         debug_assert!(all_queries.len() == fn_range.end);
         
+        // Send schema/tables/views queries to database
         let out = self.query_async(&all_queries[..]);
+
         let col_outs : Vec<&Table> = out[col_range].iter().map(|o| o.table().unwrap() ).collect();
         let pk_outs : Vec<&Table> = out[pk_range].iter().map(|o| o.table().unwrap() ).collect();
         let rel_outs : Vec<&Table> = out[rel_range].iter().map(|o| o.table().unwrap() ).collect();
@@ -477,36 +479,36 @@ impl Connection for PostgresConnection {
         let fn_outs : Vec<&Table> = out[fn_range].iter().map(|o| o.table().unwrap() ).collect();
         
         let mut top_objs = Vec::new();
-        let mut tbl_ix = 0;
-        let mut view_ix = 0;
+        let mut rel_ix = 0;
+        let mut col_ix = 0;
         let mut schema_ix = 0;
         for (schema, objs) in schemata.iter() {
             let mut tbl_objs = Vec::new();
             for tbl in &objs.tables[..] {
-                let names = col_outs[view_ix].get_column(0)
+                let names = col_outs[col_ix].get_column(0)
                     .and_then(|c| { let s : Option<Vec<String>> = c.clone().try_into().ok(); s }).unwrap_or(Vec::new());
-                let col_types = col_outs[tbl_ix].get_column(1)
+                let col_types = col_outs[col_ix].get_column(1)
                     .and_then(|c| { let s : Option<Vec<String>> = c.clone().try_into().ok(); s }).unwrap_or(Vec::new());
-                let pks = retrieve_pks(pk_outs[tbl_ix]).unwrap_or(Vec::new());
+                let pks = retrieve_pks(pk_outs[rel_ix]).unwrap_or(Vec::new());
                 let cols = crate::sql::pack_column_types(names, col_types, pks).ok().unwrap_or(Vec::new());
-                let rels = retrieve_relations(&rel_outs[tbl_ix]).unwrap_or(Vec::new());
+                let rels = retrieve_relations(&rel_outs[rel_ix]).unwrap_or(Vec::new());
                 let obj = DBObject::Table{ schema : schema.to_string(), name : tbl.to_string(), cols, rels };
                 tbl_objs.push(obj);
-                tbl_ix += 1;
-                view_ix += 1;
+                rel_ix += 1;
+                col_ix += 1;
             }
 
             let mut view_objs = Vec::new();
             for vw in &objs.views[..] {
-                let names = col_outs[view_ix].get_column(0)
+                let names = col_outs[col_ix].get_column(0)
                     .and_then(|c| { let s : Option<Vec<String>> = c.clone().try_into().ok(); s }).unwrap_or(Vec::new());
-                let col_types = col_outs[view_ix].get_column(1)
+                let col_types = col_outs[col_ix].get_column(1)
                     .and_then(|c| { let s : Option<Vec<String>> = c.clone().try_into().ok(); s }).unwrap_or(Vec::new());
                 let no_pks = Vec::new();
                 let cols = crate::sql::pack_column_types(names, col_types, no_pks).ok().unwrap_or(Vec::new());
                 let obj = DBObject::View{ schema : schema.to_string(), name : vw.to_string(), cols };
                 view_objs.push(obj);
-                view_ix += 1;
+                col_ix += 1;
             }
 
             let func_objs = retrieve_functions(&fn_outs[schema_ix], &schema).unwrap_or(Vec::new());

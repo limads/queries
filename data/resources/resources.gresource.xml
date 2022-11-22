@@ -83,6 +83,8 @@
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/scale-vertical-symbolic.svg">../icons/hicolor/symbolic/actions/scale-vertical-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/scale-inferior-symbolic.svg">../icons/hicolor/symbolic/actions/scale-inferior-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/scale-superior-symbolic.svg">../icons/hicolor/symbolic/actions/scale-superior-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/scale-left-symbolic.svg">../icons/hicolor/symbolic/actions/scale-left-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/scale-right-symbolic.svg">../icons/hicolor/symbolic/actions/scale-right-symbolic.svg</file>
 
   </gresource>
 </gresources>
