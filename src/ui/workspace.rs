@@ -12,9 +12,6 @@ use super::table::*;
 use crate::tables::table::Table;
 use crate::ui::PlotView;
 use papyri::render::Panel;
-
-
-
 use crate::client::UserState;
 
 #[derive(Debug, Clone)]

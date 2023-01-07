@@ -316,14 +316,20 @@ impl React<OpenedScripts> for SaveDialog {
 
     fn react(&self, scripts : &OpenedScripts) {
         let dialog = self.0.dialog.clone();
-        scripts.connect_save_unknown_path(move |path| {
-            let _ = dialog.set_file(&gio::File::for_path(path));
+        scripts.connect_save_unknown_path(move |name| {
+            dialog.set_current_name(&name);
             dialog.show();
         });
         let dialog = self.0.dialog.clone();
         scripts.connect_selected(move |opt_file| {
-            if let Some(path) = opt_file.and_then(|f| f.path.clone() ) {
+            if let Some(path) = opt_file.as_ref().and_then(|f| f.path.clone() ) {
                 let _ = dialog.set_file(&gio::File::for_path(&path));
+            } else {
+                if let Some(name) = opt_file.as_ref().map(|f| f.name.clone() ) {
+                    dialog.set_current_name(&name);
+                } else {
+                    dialog.set_current_name("");
+                }
             }
         });
     }
