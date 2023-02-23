@@ -22,6 +22,8 @@ use crate::client::SharedUserState;
 
 pub mod plots;
 
+pub use plots::*;
+
 pub use overview::*;
 
 mod title;
@@ -67,6 +69,10 @@ pub use settings::*;
 mod form;
 
 pub use form::*;
+
+mod builder;
+
+pub use builder::*;
 
 pub type SharedSignal = Rc<RefCell<Option<glib::SignalHandlerId>>>;
 
@@ -377,6 +383,7 @@ pub struct QueriesWindow {
     pub sidebar : QueriesSidebar,
     pub content : QueriesContent,
     pub graph_win : plots::GraphWindow,
+    pub builder_win : QueryBuilderWindow,
     pub settings : QueriesSettings,
     pub find_dialog : FindDialog
 }
@@ -426,6 +433,7 @@ impl QueriesWindow {
         window.add_action(&titlebar.main_menu.action_find_replace);
         window.add_action(&titlebar.main_menu.action_save_as);
         window.add_action(&titlebar.main_menu.action_graph);
+        window.add_action(&titlebar.main_menu.action_builder);
         window.add_action(&titlebar.main_menu.action_export);
         window.add_action(&titlebar.main_menu.action_settings);
         window.add_action(&titlebar.main_menu.action_about);
@@ -490,7 +498,10 @@ impl QueriesWindow {
         let graph_win = plots::GraphWindow::build();
         graph_win.react(&titlebar.main_menu);
 
-        Self { paned, sidebar, titlebar, content, window, settings, find_dialog, graph_win }
+        let builder_win = QueryBuilderWindow::build();
+        builder_win.react(&titlebar.main_menu);
+
+        Self { paned, sidebar, titlebar, content, window, settings, find_dialog, graph_win, builder_win }
     }
 
 }

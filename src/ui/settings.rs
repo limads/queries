@@ -578,7 +578,10 @@ impl SecurityBox {
         }
         let mut n_added = 0;
         for conn in conns.iter().sorted_by(|a, b| a.host.cmp(&b.host) ).unique_by(|c| &c.host[..] ) {
-            if !conn.host.is_empty() && &conn.host[..] != "Host" && !conn.is_file() {
+            let must_add = !conn.host.is_empty() &&
+                &conn.host[..] != crate::client::DEFAULT_HOST
+                && !conn.is_file();
+            if must_add {
                 let sec_row = SecurityRow::new(conn.clone(), &self.update_action);
                 self.list.append(&sec_row.exp_row);
                 n_added += 1;

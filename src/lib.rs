@@ -41,6 +41,8 @@ fn hook_signals(
     client.active_conn.react(&queries_win.content.results.overview.conn_bx);
     client.active_conn.react(&queries_win.titlebar.exec_btn);
     client.active_conn.react(&queries_win.sidebar.schema_tree);
+    client.active_conn.react(&queries_win.graph_win);
+    client.active_conn.react(&queries_win.builder_win);
 
     client.env.react(&client.active_conn);
     client.env.react(&queries_win.content.results.workspace);
@@ -88,6 +90,8 @@ fn hook_signals(
     queries_win.content.editor.react(&queries_win.settings);
 
     queries_win.graph_win.react(&client.active_conn);
+    queries_win.builder_win.react(&client.active_conn);
+
     user_state.react(&client.scripts);
 }
 

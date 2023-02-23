@@ -20,7 +20,8 @@ pub struct MainMenu {
     pub action_settings : gio::SimpleAction,
     pub action_find_replace : gio::SimpleAction,
     pub action_about : gio::SimpleAction,
-    pub action_graph : gio::SimpleAction
+    pub action_graph : gio::SimpleAction,
+    pub action_builder : gio::SimpleAction
 }
 
 impl MainMenu {
@@ -32,6 +33,7 @@ impl MainMenu {
         menu.append(Some("Save"), Some("win.save_file"));
         menu.append(Some("Save as"), Some("win.save_as_file"));
         menu.append(Some("Find and replace"), Some("win.find_replace"));
+        menu.append(Some("Query builder"), Some("win.builder"));
         menu.append(Some("Graph editor"), Some("win.graph"));
         menu.append(Some("Export"), Some("win.export"));
         menu.append(Some("Settings"), Some("win.settings"));
@@ -43,6 +45,7 @@ impl MainMenu {
         let action_save = gio::SimpleAction::new("save_file", None);
         let action_save_as = gio::SimpleAction::new("save_as_file", None);
         let action_graph = gio::SimpleAction::new("graph", None);
+        let action_builder = gio::SimpleAction::new("builder", None);
         let action_export = gio::SimpleAction::new("export", None);
         let action_settings = gio::SimpleAction::new("settings", None);
         let action_find_replace = gio::SimpleAction::new("find_replace", None);
@@ -53,7 +56,7 @@ impl MainMenu {
         action_find_replace.set_enabled(false);
 
         Self { popover, action_new, action_open, action_save, action_save_as, action_export,
-        action_settings, action_find_replace, action_about, action_graph
+        action_settings, action_find_replace, action_about, action_graph, action_builder
         }
     }
 

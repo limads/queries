@@ -459,7 +459,7 @@ impl FindDialog {
 
     pub fn build() -> Self {
         let dialog = Dialog::new();
-        dialog.set_title(Some("Find/replace"));
+        dialog.set_title(Some("Find and replace"));
         let find_bx = Box::new(Orientation::Horizontal, 0);
         find_bx.style_context().add_class("linked");
         let find_entry = Entry::builder().primary_icon_name("edit-find-symbolic").build();
@@ -497,16 +497,26 @@ impl FindDialog {
         btn_bx.set_hexpand(false);
         btn_bx.set_margin_bottom(12);
 
-        let matches_lbl = Label::new(Some("Matches : 0"));
+        let matches_lbl = Label::new(None);
+        matches_lbl.set_use_markup(true);
+        matches_lbl.set_markup(NO_MATCHES);
+
         super::set_margins(&matches_lbl, 6, 12);
         
         matches_lbl.set_halign(Align::Center);
         matches_lbl.set_hexpand(false);
         let bx = Box::new(Orientation::Vertical, 0);
-        bx.append(&find_bx);
-        bx.append(&replace_bx);
+
+        let upper_bx = Box::new(Orientation::Vertical, 0);
+        upper_bx.style_context().add_class("linked");
+        upper_bx.append(&find_bx);
+        upper_bx.append(&replace_bx);
+
+        bx.append(&upper_bx);
         bx.append(&matches_lbl);
         bx.append(&btn_bx);
+
+        super::set_margins(&bx, 18, 18);
         dialog.set_child(Some(&bx));
         super::configure_dialog(&dialog);
         dialog.set_modal(false);
@@ -620,7 +630,7 @@ impl React<QueriesEditor> for FindDialog {
                     }
 
                     if txt.is_empty() {
-                        matches_lbl.set_text(NO_MATCHES);
+                        matches_lbl.set_markup(NO_MATCHES);
                         replace_btn.set_sensitive(false);
                         replace_all_btn.set_sensitive(false);
                     } else {
@@ -654,7 +664,7 @@ impl React<QueriesEditor> for FindDialog {
                     }
                 }
                 *ctx = None;
-                matches_lbl.set_text(NO_MATCHES);
+                matches_lbl.set_markup(NO_MATCHES);
             });
         }
 
@@ -767,7 +777,7 @@ impl React<OpenedScripts> for FindDialog {
 
 }
 
-const NO_MATCHES : &str = "Matches : 0";
+const NO_MATCHES : &str = "<b>Matches : 0</b>";
 
 fn clear_search(view : &View) -> Option<SearchContext> {
     let buffer = view.buffer();
@@ -823,7 +833,7 @@ fn move_match(
                 view.scroll_mark_onscreen(&mark);
                 let pos = ctx.occurrence_position(&t1, &t2);
                 let count = ctx.occurrences_count();
-                matches_label.set_text(&format!("Match : {}/{}", pos, count));
+                matches_label.set_markup(&format!("<b>Match : {}/{}</b>", pos, count));
                 *start = Some(t1);
                 *end = Some(t2);
                 if count >= 0 {

@@ -8,6 +8,8 @@ use gtk4::prelude::*;
 use stateful::{React, Callbacks};
 use crate::ui::ConnectionList;
 use crate::ui::ConnectionBox;
+use crate::ui::QueryBuilderWindow;
+use crate::ui::GraphWindow;
 use std::boxed;
 use glib::MainContext;
 use std::collections::HashMap;
@@ -30,7 +32,7 @@ use crate::client::SharedUserState;
 use super::listener::ExecMode;
 use crate::tables::table::Table;
 use std::str::FromStr;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use crate::client::UserState;
 use url::Url;
 use std::fmt;
@@ -156,7 +158,26 @@ impl fmt::Display for ConnectionInfo {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostKind {
+    Uri,
+    Ipv4,
+    Ipv6
+}
+
 impl ConnectionInfo {
+
+    pub fn kind(&self) -> Option<HostKind> {
+        if Ipv4Addr::from_str(&self.host[..]).is_ok() {
+            Some(HostKind::Ipv4)
+        } else if Ipv6Addr::from_str(&self.host[..]).is_ok() {
+            Some(HostKind::Ipv6)
+        } else if Url::parse(&self.host[..]).is_ok() {
+            Some(HostKind::Uri)
+        } else {
+            None
+        }
+    }
 
     // Check if state matches with the default start of
     // ConnectionInfo::Default. This means the form should
@@ -172,8 +193,8 @@ impl ConnectionInfo {
     pub fn is_like(&self, other : &Self) -> bool {
         &self.host[..] == &other.host[..] &&
             &self.port[..] == &other.port[..] &&
-            &self.user[..] == &other.user[..]
-            && &self.database[..] == &other.database[..]
+            &self.user[..] == &other.user[..] &&
+            &self.database[..] == &other.database[..]
     }
 
     pub fn is_certificate_valid(&self) -> bool {
@@ -185,9 +206,9 @@ impl ConnectionInfo {
         }
     }
 
-    /* The connection info description that is shown at the security settings GUI */
+    /* The connection info description that is shown at the security settings UI */
     pub fn description(&self) -> String {
-        let mut s = String::from(self.kind());
+        let mut s = String::from(self.host_description());
         s += "\t\t";
         if self.is_encrypted() {
             s += "✓ Encrypted";
@@ -209,15 +230,17 @@ impl ConnectionInfo {
         s
     }
 
-    pub fn kind(&self) -> &'static str {
-        if self.is_localhost() {
+    pub fn host_description(&self) -> &'static str {
+        if self.is_localhost() || self.is_loopback() {
             "Local"
+        } else if self.is_private_network() {
+            "Private network"
+        } else if self.is_file() {
+            "File"
+        } else if self.kind().is_some() {
+            "Remote"
         } else {
-            if self.is_private_network() {
-                "Private network"
-            } else {
-                "Remote"
-            }
+            "Unknown"
         }
     }
 
@@ -230,34 +253,59 @@ impl ConnectionInfo {
     }
 
     pub fn is_file(&self) -> bool {
-        self.host.starts_with("file://")
+        self.kind() == Some(HostKind::Uri) && self.host.starts_with("file://")
+    }
+
+    pub fn is_loopback(&self) -> bool {
+        if let Ok(ip) = Ipv4Addr::from_str(&self.host[..]) {
+            ip.is_loopback()
+        } else if let Ok(ip) = Ipv6Addr::from_str(&self.host[..]) {
+            ip.is_loopback()
+        } else {
+            false
+        }
     }
 
     pub fn is_localhost(&self) -> bool {
-        /* Quoting from the stdlib docs:
-        "An IPv4 address with the address pointing to localhost: 127.0.0.1" */
         if let Ok(ip) = Ipv4Addr::from_str(&self.host[..]) {
+
+            /* Quoting from the stdlib docs:
+            "An IPv4 address with the address pointing to localhost: 127.0.0.1" */
             ip == Ipv4Addr::LOCALHOST
+        } else if let Ok(ip) = Ipv6Addr::from_str(&self.host[..]) {
+
+            /* From the stdlib docs: "An IPv6 address representing localhost: ::1." */
+            ip == Ipv6Addr::LOCALHOST
+
         } else {
             &self.host[..] == "localhost"
         }
     }
 
     pub fn is_private_network(&self) -> bool {
-        /* Defines if an IP is private. Quoting from the stdlib docs:
-        "The private address ranges are defined in IETF RFC 1918 and include:
-        10.0.0.0/8
-        172.16.0.0/12
-        192.168.0.0/16" "*/
         if let Ok(ip) = Ipv4Addr::from_str(&self.host[..]) {
+
+            /* Defines if an IP is private. Quoting from the stdlib docs:
+            "The private address ranges are defined in IETF RFC 1918 and include:
+            10.0.0.0/8
+            172.16.0.0/12
+            192.168.0.0/16" "*/
             ip.is_private()
         } else {
             false
         }
     }
 
+    /* Defines if an user can disble TLS altogether for this connection. This
+    is done by selecting TLS version 'None' at the TLS version combo. While the
+    user can configure anything here, the application will refuse to proceed with
+    the connection unless the connection is to a file, private, localhost or loopback. */
     pub fn requires_tls(&self) -> bool {
-        !(self.is_private_network() || self.is_localhost())
+        let accept_insecure = self.is_file() ||
+            self.is_private_network() ||
+            self.is_localhost() ||
+            self.is_loopback();
+        !accept_insecure
     }
 
 }
@@ -1515,6 +1563,34 @@ impl React<ExecButton> for ActiveConnection {
              }
         });
 
+    }
+
+}
+
+impl React<GraphWindow> for ActiveConnection {
+
+    fn react(&self, win : &GraphWindow) {
+        let send = self.send.clone();
+        let win_c = win.clone();
+        win.btn_plot.connect_clicked(move |_| {
+            let sql = win_c.plot_sql();
+
+            println!("{}", sql);
+            // send.send(ActiveConnectionAction::ExecutionRequest(sql));
+        });
+    }
+
+}
+
+impl React<QueryBuilderWindow> for ActiveConnection {
+
+    fn react(&self, win : &QueryBuilderWindow) {
+        let send = self.send.clone();
+        let win_c = win.clone();
+        win.btn_run.connect_clicked(move |_| {
+            let sql = win_c.current_sql();
+            send.send(ActiveConnectionAction::ExecutionRequest(sql));
+        });
     }
 
 }
