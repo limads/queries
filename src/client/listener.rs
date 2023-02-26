@@ -18,7 +18,7 @@ use crate::tables::table::*;
 #[derive(Debug, Clone)]
 pub struct ExecutionRequest {
     sql : String,
-    subs : HashMap<String, String>,
+    // subs : HashMap<String, String>,
     safety : SafetyLock,
     is_schedule : bool,
     mode : ExecMode
@@ -126,7 +126,7 @@ impl SqlListener {
     }
 
     pub fn send_single_command(&self, sql : String, safety : SafetyLock) -> Result<(), String> {
-        match self.cmd_sender.send(ExecutionRequest { sql : sql.clone(), subs : HashMap::new(), safety, is_schedule : false, mode : ExecMode::Single }) {
+        match self.cmd_sender.send(ExecutionRequest { sql : sql.clone(), /*subs : HashMap::new()*/ safety, is_schedule : false, mode : ExecMode::Single }) {
             Ok(_) => {
 
             },
@@ -142,7 +142,7 @@ impl SqlListener {
     /// are correctly parsed, send the SQL to the server. If sequence is not
     /// correctly parsed, do not send anything to the server, and return the
     /// error to the user.
-    pub fn send_commands(&self, sql : String, subs : HashMap<String, String>, safety : SafetyLock, is_schedule : bool) -> Result<(), String> {
+    pub fn send_commands(&self, sql : String, /*subs : HashMap<String, String>,*/ safety : SafetyLock, is_schedule : bool) -> Result<(), String> {
 
         // Before sending a command, it might be interesting to check if self.handle.is_running()
         // when this stabilizes at the stdlib. If it is not running (i.e. there is a panic at the
@@ -156,7 +156,7 @@ impl SqlListener {
 
         let request = ExecutionRequest { 
             sql : sql.clone(), 
-            subs, 
+            // subs,
             safety, 
             is_schedule,
             mode : ExecMode::Multiple 
@@ -305,14 +305,14 @@ where
         loop {
             match cmd_rx.recv() {
             
-                Ok(ExecutionRequest { sql, subs, safety, is_schedule, mode }) => {
+                Ok(ExecutionRequest { sql, /*subs,*/ safety, is_schedule, mode }) => {
                 
                     let result;
                     
                     match engine.lock() {
                         Ok(mut opt_eng) => match &mut *opt_eng {
                             Some(ref mut eng) => {
-                                result = match eng.try_run(sql, &subs, safety, is_schedule) {
+                                result = match eng.try_run(sql, /*&subs,*/ safety, is_schedule) {
                                     Ok(stmt_results) => {
                                         stmt_results
                                     },
@@ -367,7 +367,8 @@ fn copy_table_from_csv(
                 Ok(mut tbl) => {
                     conn.import(
                         &mut tbl,
-                        &action.table[..]
+                        &action.table[..],
+                        &[]
                     )
                 },
                 Err(e) => {

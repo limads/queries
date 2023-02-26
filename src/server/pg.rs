@@ -350,7 +350,7 @@ impl Connection for PostgresConnection {
 
     }
 
-    fn query(&mut self, query : &str, _subs : &HashMap<String, String>) -> StatementOutput {
+    fn query(&mut self, query : &str) -> StatementOutput {
         self.rt.as_ref().unwrap().block_on(async {
             match self.client.query(&query[..], &[]).await {
                 Ok(rows) => {
@@ -397,7 +397,7 @@ impl Connection for PostgresConnection {
         }
     }
     
-    fn exec(&mut self, stmt : &AnyStatement, _subs : &HashMap<String, String>) -> StatementOutput {
+    fn exec(&mut self, stmt : &AnyStatement) -> StatementOutput {
         self.rt.as_ref().unwrap().block_on(async {
             match &stmt {
                 AnyStatement::Parsed(_, s) => {
@@ -544,6 +544,7 @@ impl Connection for PostgresConnection {
         &mut self,
         tbl : &mut Table,
         dst : &str,
+        _cols : &[String]
     ) -> Result<usize, String> {
     
         let cols = tbl.names();
@@ -555,7 +556,7 @@ impl Connection for PostgresConnection {
 
         crate::sql::require_insert_n(&stmt, tbl.ncols(), tbl.nrows())?;
         
-        let out = self.exec(&stmt, &HashMap::new());
+        let out = self.exec(&stmt, /*&HashMap::new()*/ );
         match out {
             StatementOutput::Statement(_) => {
                 Ok(tbl.nrows())

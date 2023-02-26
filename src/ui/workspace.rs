@@ -84,7 +84,7 @@ pub fn populate_with_tables(
         let tbl_wid = TableWidget::new_from_table(&tbl, state.execution.row_limit as usize, COLUMN_LIMIT);
         let tab_page = tab_view.append(&tbl_wid.bx);
         new_pages.push(tab_page.clone());
-        configure_table_page(&tab_page, &tbl);
+        configure_table_page(&tab_page, &tbl, state.execution.row_limit as usize);
     }
     new_pages
 }
@@ -114,7 +114,7 @@ fn configure_plot_page(tab_page : &libadwaita::TabPage, _panel : &Panel) {
     tab_page.set_title("Plot");
 }
 
-fn configure_table_page(tab_page : &libadwaita::TabPage, table : &Table) {
+fn configure_table_page(tab_page : &libadwaita::TabPage, table : &Table, row_limit : usize) {
     let source = table.source();
     let (icon, mut title) = match (source.name, source.relation) {
         (Some(name), Some(rel)) => (format!("{}", rel), name.to_string()),
@@ -122,7 +122,11 @@ fn configure_table_page(tab_page : &libadwaita::TabPage, table : &Table) {
         _ => (format!("table-symbolic"), format!("Unknown"))
     };
     let (nrows, ncols) = table.shape();
-    title += &format!(" ({} x {})", nrows, ncols);
+    if nrows <= row_limit {
+        title += &format!(" ({} x {})", nrows, ncols);
+    } else {
+        title += &format!(" ({}/{} x {})", row_limit, nrows, ncols);
+    }
     tab_page.set_title(&title);
     tab_page.set_icon(Some(&gio::ThemedIcon::new(&icon)));
 }

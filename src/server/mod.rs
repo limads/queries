@@ -47,7 +47,9 @@ mod pg;
 
 pub use pg::*;
 
-// mod sqlite;
+mod sqlite;
+
+pub use sqlite::*;
 
 // pub use sqlite::*;
 
@@ -62,9 +64,9 @@ where
 
     fn configure(&mut self, cfg : ConnConfig);
 
-    fn query(&mut self, q : &str, subs : &HashMap<String, String>) -> StatementOutput;
+    fn query(&mut self, q : &str) -> StatementOutput;
 
-    fn exec(&mut self, stmt : &AnyStatement, subs : &HashMap<String, String>) -> StatementOutput;
+    fn exec(&mut self, stmt : &AnyStatement) -> StatementOutput;
     
     fn query_async(&mut self, stmts : &[AnyStatement]) -> Vec<StatementOutput>;
     
@@ -79,7 +81,8 @@ where
     fn import(
         &mut self,
         tbl : &mut Table,
-        dst : &str
+        dst : &str,
+        cols : &[String],
     ) -> Result<usize, String>;
 
     /// It is important that every time this method is called,
@@ -88,7 +91,7 @@ where
     fn try_run(
         &mut self,
         query_seq : String,
-        subs : &HashMap<String, String>,
+        // subs : &HashMap<String, String>,
         lock : SafetyLock,
         is_schedule : bool
     ) -> Result<Vec<StatementOutput>, String> {
@@ -99,14 +102,14 @@ where
                 if stmts.len() == 0 {
                     return Err(String::from("Empty statement sequence"));
                 }
-                
+
                 let all_queries = stmts.iter().all(|stmt| {
-                    match stmt { 
+                    match stmt {
                         AnyStatement::Parsed(stmt, _) => crate::sql::is_like_query(&stmt),
-                        _ => false 
+                        _ => false
                     }
                 } );
-                
+
                 if !all_queries && is_schedule {
                     return Err(String::from("Execution of non-query statements in \nschedule mode is not supported"));
                 }
@@ -123,11 +126,11 @@ where
                     match any_stmt {
                         AnyStatement::Parsed(stmt, s) => match stmt {
                             Statement::Query(_q) => {
-                                results.push(self.query(&s, &subs));
+                                results.push(self.query(&s, /*&subs*/));
                             },
                             stmt => {
                                 lock.accepts(&stmt)?;
-                                results.push(self.exec(&AnyStatement::Parsed(stmt.clone(), format!("{}", s)), &subs));
+                                results.push(self.exec(&AnyStatement::Parsed(stmt.clone(), format!("{}", s)), /*&subs*/));
                             }
                         },
                         AnyStatement::ParsedTransaction { begin, middle, end, raw } => {
@@ -147,9 +150,9 @@ where
                         },
                         AnyStatement::Raw(stmt_tokens, stmt_string, is_select) => {
                             if is_select {
-                                results.push(self.query(&format!("{}", stmt_string), &subs));
+                                results.push(self.query(&format!("{}", stmt_string), /*&subs*/));
                             } else {
-                                results.push(self.exec(&AnyStatement::Raw(stmt_tokens, format!("{}", stmt_string), is_select), &subs));
+                                results.push(self.exec(&AnyStatement::Raw(stmt_tokens, format!("{}", stmt_string), is_select), /*&subs*/));
                             }
                         }
                     }
@@ -239,5 +242,6 @@ where
 
 
 }
+
 
 

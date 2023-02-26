@@ -9,10 +9,13 @@ sourceview5 = { version = "0.5.0" }
 libadwaita = { version = "0.2.0", features = ["v1_2"] }
 postgres-native-tls = "0.5.0"
 tokio = { version = "1.21.1", features=["rt", "rt-multi-thread"] }
-tokio-postgres = { version = "0.7.7", features = ["with-chrono-0_4", "with-serde_json-1"] }
+tokio-postgres = { version = "0.7.7", features = ["with-chrono-0_4", "with-serde_json-1", "with-uuid-0_8", "with-geo-types-0_7"] }
+uuid = "0.8"
+geo-types = { version = "0.7", features=["serde"] }
 futures = "0.3.24"
 native-tls = "0.2.11"
 sqlparser = "0.26.0"
+rusqlite= { version = "0.28.0", features = ["bundled", "column_decltype"] }
 regex = { version = "1.6.0" }
 rust_decimal = { version = "1.26.1", features = ["db-postgres"] }
 serde = { version="1.0", features=["derive"] }

@@ -51,7 +51,7 @@ impl Form {
         super::set_margins(&btn_bx, 64,  16);
         super::set_margins(&bx, 32,  32);
         let dialog = Dialog::new();
-        super::configure_dialog(&dialog);
+        super::configure_dialog(&dialog, true);
         dialog.set_child(Some(&bx));
         
         dialog.connect_close({

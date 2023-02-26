@@ -61,7 +61,7 @@ impl QueriesTitlebar {
             .support_url("https://github.com/limads/queries/wiki")
             .title("About")
             .build();
-        super::configure_dialog(&about);
+        super::configure_dialog(&about, true);
         main_menu.action_about.connect_activate({
             let about = about.clone();
             move |_, _| {

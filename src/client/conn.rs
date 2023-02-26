@@ -12,7 +12,7 @@ use crate::ui::QueryBuilderWindow;
 use crate::ui::GraphWindow;
 use std::boxed;
 use glib::MainContext;
-use std::collections::HashMap;
+// use std::collections::HashMap;
 use super::listener::SqlListener;
 use crate::server::*;
 use std::thread;
@@ -434,9 +434,7 @@ impl ConnectionSet {
                                 .find(|c| &c.host[..] == &updated_host[..] )
                                 .cloned();
                             let mut this_conn = &mut us.conns[ix as usize];
-
                             if this_conn.host != updated_host {
-
                                 // If this is a totally new host, it should have its security
                                 // settings re-set to a default value.
                                 this_conn.host = updated_host;
@@ -447,12 +445,20 @@ impl ConnectionSet {
                                 if let Some(matching) = matching_conn {
                                     this_conn.security = matching.security;
                                 } else {
-                                    if this_conn.is_localhost() || this_conn.is_file() {
+                                    if this_conn.is_localhost() || this_conn.is_file() || this_conn.is_loopback() {
                                         this_conn.security = Security::new_insecure();
                                     } else {
                                         this_conn.security = Security::new_secure();
                                     }
                                 }
+
+                                // Update engine if required
+                                if this_conn.is_file() {
+                                    this_conn.engine = Engine::SQLite;
+                                } else {
+                                    this_conn.engine = Engine::Postgres;
+                                }
+
                                 updated.call((ix as i32, this_conn.clone()));
                             }
                         }
@@ -659,19 +665,23 @@ impl ConnURI {
             },
             _ => { }
         }
-        if self.uri.host_str() != Some(&self.info.host[..]) {
-            return Err("Mismatch between connection host and URI domain".into());
-        }
-        if self.uri.username() != &self.info.user[..] {
-            return Err("Mismatch between connection username and URI username".into());
-        }
-        if let Ok(port) = u16::from_str(&self.info.port[..]) {
-            if self.uri.port() != Some(port) {
-                return Err("Mismatch between connection port and URI port".into());
+
+        if !self.is_file() {
+            if self.uri.host_str() != Some(&self.info.host[..]) {
+                return Err("Mismatch between connection host and URI domain".into());
             }
-        } else {
-            return Err("Invalid port value".into());
+            if self.uri.username() != &self.info.user[..] {
+                return Err("Mismatch between connection username and URI username".into());
+            }
+            if let Ok(port) = u16::from_str(&self.info.port[..]) {
+                if self.uri.port() != Some(port) {
+                    return Err("Mismatch between connection port and URI port".into());
+                }
+            } else {
+                return Err("Invalid port value".into());
+            }
         }
+
         Ok(())
     }
 
@@ -683,34 +693,44 @@ impl ConnURI {
         info : ConnectionInfo,
         password : &str
     ) -> Result<ConnURI, String> {
-        
-        if info.user.chars().any(|c| c == ':' ) {
-            return Err(String::from("User field cannot contain ':' character"));
-        }
-        
-        let mut uri = "postgresql://".to_owned();
-        uri += &info.user;
-        uri += ":";
+        if info.is_file() {
+            match Url::parse(&info.host) {
+                Ok(uri) => {
+                    Ok(ConnURI { info, uri })
+                },
+                Err(e) => {
+                    Err(format!("{}",e))
+                }
+            }
+        } else {
+            if info.user.chars().any(|c| c == ':' ) {
+                return Err(String::from("User field cannot contain ':' character"));
+            }
 
-        if password.is_empty() {
-            return Err(format!("Missing password"));
-        }
-        uri += password;
+            let mut uri = "postgresql://".to_owned();
+            uri += &info.user;
+            uri += ":";
 
-        uri += "@";
-        
-        uri += &info.host;
-        uri += ":";        
-        uri += &info.port;
-        uri += "/";
-        uri += &info.database;
-        
-        match Url::parse(&uri) {
-            Ok(uri) => {
-                Ok(ConnURI { info, uri })
-            },
-            Err(e) => {
-                Err(format!("{}",e))
+            if password.is_empty() {
+                return Err(format!("Missing password"));
+            }
+            uri += password;
+
+            uri += "@";
+
+            uri += &info.host;
+            uri += ":";
+            uri += &info.port;
+            uri += "/";
+            uri += &info.database;
+
+            match Url::parse(&uri) {
+                Ok(uri) => {
+                    Ok(ConnURI { info, uri })
+                },
+                Err(e) => {
+                    Err(format!("{}",e))
+                }
             }
         }
     }
@@ -730,22 +750,37 @@ fn extract_conn_info(
         return Err(format!("Missing host"));
     }
     let port_s = port_entry.text().as_str().to_owned();
-    if port_s.is_empty() {
+    let is_file = host_s.starts_with("file://");
+    if port_s.is_empty() && !is_file {
         return Err(format!("Missing port"));
     }
     let db_s = db_entry.text().as_str().to_owned();
-    if db_s.is_empty() {
+    if db_s.is_empty() && !is_file {
         return Err(format!("Missing database"));
     }
     let user_s = user_entry.text().as_str().to_owned();
-    if user_s.is_empty() {
+    if user_s.is_empty() && !is_file {
         return Err(format!("Missing user"));
     }
     let mut info : ConnectionInfo = Default::default();
     info.host = host_s.to_string();
-    info.port = port_s.to_string();
-    info.database = db_s.to_string();
-    info.user = user_s.to_string();
+    if is_file {
+        if !port_s.is_empty() {
+            Err("Unexpected 'Port'' argument for file database".to_string())?;
+        }
+        if !user_s.is_empty() {
+            Err("Unexpected 'User' argument for file database".to_string())?;
+        }
+        if !db_s.is_empty() {
+            Err("Unexpected 'Database' argument for file database".to_string())?;
+        }
+        info.engine = Engine::SQLite;
+    } else {
+        info.port = port_s.to_string();
+        info.database = db_s.to_string();
+        info.user = user_s.to_string();
+        info.engine = Engine::Postgres;
+    }
     Ok(info)
 }
 
@@ -942,7 +977,10 @@ impl ActiveConnection {
                             move || {
                                 match uri.info.engine {
                                     Engine::Postgres => {
-                                        connect_to_postgres(uri.clone(), send.clone(), &us);
+                                        connect(PostgresConnection::try_new, uri.clone(), send.clone(), &us);
+                                    },
+                                    Engine::SQLite => {
+                                        connect(SqliteConnection::try_new, uri.clone(), send.clone(), &us);
                                     },
                                     other_engine => {
                                         send.send(ActiveConnectionAction::ConnectFailure(
@@ -1000,7 +1038,7 @@ impl ActiveConnection {
                         }
 
                         let us = user_state.borrow();
-                        match listener.send_commands(stmts, HashMap::new(), us.safety(), false) {
+                        match listener.send_commands(stmts, /*HashMap::new(),*/ us.safety(), false) {
                             Ok(_) => { },
                             Err(e) => {
                                 on_error.call(e.clone());
@@ -1074,7 +1112,7 @@ impl ActiveConnection {
                                 }
                                 let send_ans = listener.send_commands(
                                     stmts.clone(),
-                                    HashMap::new(),
+                                    //HashMap::new(),
                                     us.safety(),
                                     true
                                 );
@@ -1351,13 +1389,28 @@ fn augment_uri_with_params(
     Ok(())
 }
 
-pub fn connect_to_postgres(
+/*pub fn connect_to_sqlite(
     uri : ConnURI,
     send : glib::Sender<ActiveConnectionAction>,
     us : &UserState
 ) {
+    match SqliteConnection::try_new(uri) {
+
+    }
+}*/
+
+pub fn connect<F, C>(
+    f : F,
+    uri : ConnURI,
+    send : glib::Sender<ActiveConnectionAction>,
+    us : &UserState
+)
+where
+    F : Fn(ConnURI)->Result<C, String>,
+    C : Connection + 'static
+{
     let timeout_secs = us.execution.statement_timeout;
-    match PostgresConnection::try_new(uri.clone()) {
+    match f(uri.clone()) {
         Ok(mut conn) => {
 
             let db_info = match conn.db_info() {
@@ -1378,7 +1431,6 @@ pub fn connect_to_postgres(
             send.send(ActiveConnectionAction::ConnectAccepted(boxed::Box::new(conn), db_info)).unwrap();
         },
         Err(e) => {
-
             send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(), e)).unwrap();
         }
     }
@@ -1429,7 +1481,7 @@ impl React<ConnectionBox> for ActiveConnection {
                     &password_entry
                 );
                 match res_form_uri {
-                    Ok(mut uri) => {
+                    Ok(uri) => {
                     
                         // Retrieve most recent security settings from host, for the formed URI.
                         // If this host hasn't been configured yet, create a new secure default for
@@ -1438,72 +1490,19 @@ impl React<ConnectionBox> for ActiveConnection {
                         // a new security state.
                         // All hosts with the same name will have the same security settings, so
                         // take the first one.
-                        let us = user_state.borrow();
-                        crate::client::assert_user_state_integrity(&us);
-                        let security = if let Some(c) = us.conns
-                            .iter()
-                            .find(|c| &c.host[..] == &uri.info.host[..] )
-                        {
-                            c.security.clone()
+
+                        let req_sent = if uri.is_file() {
+                            send_sqlite_conn_request(uri.clone(), &send)
+                        } else if uri.is_postgres() {
+                            send_postgres_conn_request(uri, &user_state, &send)
                         } else {
-                            send.send(ActiveConnectionAction::ConnectFailure(
-                                uri.info.clone(),
-                                format!("Security not configured for this host"))
-                            ).unwrap();
-                            return Inhibit(false);
+                            let info = extract_conn_info(&host_entry, &port_entry, &db_entry, &user_entry).unwrap_or_default();
+                            send.send(ActiveConnectionAction::ConnectFailure(info, "Unrecognized engine".into())).unwrap();
+                            false
                         };
 
-                        // Now link the security information to the established connection.
-                        uri.info.security = security;
-
-                        match get_user_state_conn_params(&us, &uri.info.security) {
-                            Ok(params) => {
-                                let mut uri_str = uri.uri.as_str().to_string();
-                                match augment_uri_with_params(&mut uri_str, &params[..]) {
-                                    Ok(_) => { },
-                                    Err(e) => {
-                                        send.send(ActiveConnectionAction::ConnectFailure(
-                                            uri.info.clone(),
-                                            format!("{}", e)
-                                        )).unwrap();
-                                    }
-                                }
-
-                                // Guarantee the URI is valid after being augmented with the
-                                // user state parameters.
-                                match Url::parse(&uri_str) {
-                                    Ok(new_uri) => {
-
-                                        // Effectively update the URI with user state parameters.
-                                        uri.uri = new_uri;
-
-                                        // Checks if the URI fields matches with what is at the
-                                        // info field.
-                                        match uri.verify_integrity() {
-                                            Ok(_) => {
-                                                send.send(ActiveConnectionAction::ConnectRequest(uri)).unwrap();
-                                                switch.set_sensitive(false);
-                                            },
-                                            Err(e) => {
-                                                send.send(ActiveConnectionAction::ConnectFailure(
-                                                    uri.info.clone(),
-                                                    format!("{}", e)
-                                                )).unwrap();
-                                            }
-                                        }
-                                    },
-                                    Err(e) => {
-                                        send.send(ActiveConnectionAction::ConnectFailure(
-                                            uri.info.clone(),
-                                            format!("Connection string URL parsing error\n{}", e))
-                                        ).unwrap();
-                                    }
-                                }
-                            },
-                            Err(e) => {
-                                send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(), e)).unwrap();
-                                return Inhibit(false);
-                            }
+                        if req_sent {
+                            switch.set_sensitive(false);
                         }
                     },
                     Err(e) => {
@@ -1516,6 +1515,91 @@ impl React<ConnectionBox> for ActiveConnection {
             }
             Inhibit(false)
         });
+    }
+}
+
+fn send_sqlite_conn_request(
+    uri : ConnURI,
+    send : &glib::Sender<ActiveConnectionAction>
+) -> bool {
+    send.send(ActiveConnectionAction::ConnectRequest(uri)).unwrap();
+    true
+}
+
+fn send_postgres_conn_request(
+    mut uri : ConnURI,
+    user_state : &SharedUserState,
+    send : &glib::Sender<ActiveConnectionAction>
+) -> bool {
+    let us = user_state.borrow();
+    crate::client::assert_user_state_integrity(&us);
+    let security = if let Some(c) = us.conns
+        .iter()
+        .find(|c| &c.host[..] == &uri.info.host[..] )
+    {
+        c.security.clone()
+    } else {
+        send.send(ActiveConnectionAction::ConnectFailure(
+            uri.info.clone(),
+            format!("Security not configured for this host"))
+        ).unwrap();
+        return false;
+    };
+
+    // Now link the security information to the established connection.
+    uri.info.security = security;
+
+    match get_user_state_conn_params(&us, &uri.info.security) {
+        Ok(params) => {
+            let mut uri_str = uri.uri.as_str().to_string();
+            match augment_uri_with_params(&mut uri_str, &params[..]) {
+                Ok(_) => { },
+                Err(e) => {
+                    send.send(ActiveConnectionAction::ConnectFailure(
+                        uri.info.clone(),
+                        format!("{}", e)
+                    )).unwrap();
+                    return false;
+                }
+            }
+
+            // Guarantee the URI is valid after being augmented with the
+            // user state parameters.
+            match Url::parse(&uri_str) {
+                Ok(new_uri) => {
+
+                    // Effectively update the URI with user state parameters.
+                    uri.uri = new_uri;
+
+                    // Checks if the URI fields matches with what is at the
+                    // info field.
+                    match uri.verify_integrity() {
+                        Ok(_) => {
+                            send.send(ActiveConnectionAction::ConnectRequest(uri)).unwrap();
+                            true
+                        },
+                        Err(e) => {
+                            send.send(ActiveConnectionAction::ConnectFailure(
+                                uri.info.clone(),
+                                format!("{}", e)
+                            )).unwrap();
+                            false
+                        }
+                    }
+                },
+                Err(e) => {
+                    send.send(ActiveConnectionAction::ConnectFailure(
+                        uri.info.clone(),
+                        format!("Connection string URL parsing error\n{}", e))
+                    ).unwrap();
+                    false
+                }
+            }
+        },
+        Err(e) => {
+            send.send(ActiveConnectionAction::ConnectFailure(uri.info.clone(), e)).unwrap();
+            false
+        }
     }
 }
 
@@ -1574,9 +1658,7 @@ impl React<GraphWindow> for ActiveConnection {
         let win_c = win.clone();
         win.btn_plot.connect_clicked(move |_| {
             let sql = win_c.plot_sql();
-
-            println!("{}", sql);
-            // send.send(ActiveConnectionAction::ExecutionRequest(sql));
+            send.send(ActiveConnectionAction::ExecutionRequest(sql));
         });
     }
 

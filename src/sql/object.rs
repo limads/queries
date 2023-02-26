@@ -52,10 +52,17 @@ impl FromStr for DBType {
         if s.starts_with('_') || s.ends_with("[]") {
             return Ok(Self::Array)
         }
+
+        // The uppercase versions are usually returned by sqlite's pragma.
         match s {
             "boolean" | "bool" | "BOOL" => Ok(Self::Bool),
             "bigint" | "bigserial" | "int8" => Ok(Self::I64),
-            "bit" | "bit varying" | "character" | "character varying" | "text" | "name" | "char" | "cstring" => Ok(Self::Text),
+            "bit" | "bit varying" | "character" | "character varying" | "text" | "name" | "char" | "cstring" |
+                "CHAR" | "CHARACTER" | "TEXT" =>
+            {
+                Ok(Self::Text)
+            },
+
             "date" | "DATE" => Ok(Self::Date),
             "json" | "jsonb" | "record" => Ok(Self::Json),
             "numeric" => Ok(Self::Numeric),
@@ -63,7 +70,7 @@ impl FromStr for DBType {
             "smallint" | "smallserial" | "int2" => Ok(Self::I16),
             "real" | "REAL" | "float4" => Ok(Self::F32),
             "dp" | "double precision" | "float8" => Ok(Self::F64),
-            "blob" | "BLOB" | "bytea" => Ok(Self::Bytes),
+            "blob" | "BLOB" | "bytea" | "BYTEA" => Ok(Self::Bytes),
             "time" | "time with time zone" | "time without time zone" |
             "timestamp with time zone" | "timestamp without time zone" => Ok(Self::Time),
             "xml" => Ok(Self::Xml),

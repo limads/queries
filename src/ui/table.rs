@@ -276,7 +276,6 @@ impl TableWidget {
         let action = TableAction::new(nrows, max_nrows);
         bx.append(&action.action);
 
-        // popover.popover.set_parent(&scroll_window);
         TableWidget {
             grid,
             bx,
@@ -325,28 +324,6 @@ impl TableWidget {
                 if !was_selected {
                     let _lbl_alloc = label.allocation();
 
-                    /*// Although the bottom position can be frustrating because it
-                    // hides content, this protects against a GTK bug that tries to
-                    // allocate a widget with negative size if the popover has position
-                    // left or right and the column header happens to be close to the windows limits:
-                    // (queries:354661): Gtk-WARNING **: 10:17:57.669: gtk_widget_size_allocate(): attempt to
-                    // allocate GtkBox box 0x5561986911d0 with width -18 and height -18
-                    // *** BUG *** In pixman_region32_init_rect: Invalid rectangle passed
-                    if ncols == 1 {
-                        popover.popover.set_position(PositionType::Bottom);
-                    } else {
-                        // With at least two columns, it is safe to show popover
-                        // to the left or right. Show to left by default, unless
-                        // this is the first column.
-                        if col == 0 {
-                            popover.popover.set_position(PositionType::Right)
-                        } else {
-                            popover.popover.set_position(PositionType::Left)
-                        }
-                    }
-
-                    popover.popover.set_pointing_to(Some(&lbl_alloc));*/
-                    // popover.popover.popup();
                     action.action.set_revealed(true);
 
                     if action.btn_ascending.is_active() {
@@ -371,33 +348,15 @@ impl TableWidget {
                     }
                 } else {
                     set_table_selection_style(&grid, col, ncols, was_selected);
-                    // popover.popover.hide();
                     action.action.set_revealed(false);
                 }
             }
         });
 
-        /*self.popover.popover.connect_closed({
-            let label = label.clone();
-            let grid = self.grid.clone();
-            move |_| {
-                let ctx = label.style_context();
-                let is_selected = ctx.has_class("selected");
-                if is_selected {
-                    set_selected_style(grid.clone(), col, false);
-                }
-            }
-        });*/
-
         label
     }
 
     pub fn add_action_signals(&self, displayed_tbl : &Rc<RefCell<Option<DisplayedTable>>>) {
-        // let eff_rows = self.tbl.nrows().min(self.max_nrows) as f64;
-        // let fst_adj = Adjustment::builder().value(1.).lower(1.).upper(eff_rows).build();
-        // let num_adj = Adjustment::builder().value(eff_rows).lower(1.).upper(eff_rows).build();
-        // self.action.fst_scale.set_adjustment(&fst_adj);
-        // self.action.num_scale.set_adjustment(&num_adj);
         self.action.btn_ascending.connect_toggled({
             let displayed_tbl = displayed_tbl.clone();
             let action = self.action.clone();

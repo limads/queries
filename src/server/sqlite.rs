@@ -7,70 +7,82 @@ use rusqlite;
 use std::path::PathBuf;
 use super::*;
 use crate::tables::column::*;
-use crate::tables::nullable_column::*;
+use crate::tables::nullable::*;
 use crate::tables::table::*;
-use rusqlite::types::FromSql;
 use rusqlite::Row;
 use std::fmt::{self, Display};
 use crate::sql::{*, object::*, parsing::*};
-use crate::sql::copy::*;
 use rusqlite::types::Value;
 use itertools::Itertools;
-use std::convert::{TryFrom, TryInto};
+use std::convert::{TryInto};
 use crate::client::ConnectionInfo;
 use crate::client::ConnConfig;
-use crate::sql::SafetyLock;
 use std::error::Error;
+use crate::client::ConnURI;
 
 pub struct SqliteConnection {
 
     path : Option<PathBuf>,
 
-    conn : rusqlite::Connection
+    conn : rusqlite::Connection,
+
+    info : ConnectionInfo
 
 }
 
+const EXTENSION_ERR : &'static str = "Invalid extension for SQLite database\n(expected 'db' or 'sqlite')";
+
 impl SqliteConnection {
 
-    pub fn try_new(path : Option<PathBuf>, /*loader : &Arc<Mutex<FunctionLoader>>*/ ) -> Result<Self, String> {
-        let res_conn = match &path {
-            Some(ref path) => rusqlite::Connection::open(path),
-            None => {
-                let conn = rusqlite::Connection::open_in_memory()
-                    .and_then(|conn| {
-                        rusqlite::vtab::csvtab::load_module(&conn)?;
-                        // if let Ok(loader) = loader.lock() {
-                        //    Self::bind_sqlite3_udfs(&conn, &*loader);
-                        // } else {
-                        //    println!("Unable to acquire lock over function loader");
-                        // }
-                        Ok(conn)
-                    });
-                conn
+    pub fn try_new(uri : ConnURI) -> Result<Self, String> {
+        if !uri.uri.as_ref().starts_with("file://") {
+            return Err(format!("Invalid database path URI"));
+        }
+        let path = PathBuf::from(uri.uri.as_ref().trim_start_matches("file://").to_string());
+        if let Some(ext) = path.extension() {
+            if let Some(ext) = ext.to_str() {
+                if !(["sqlite", "sqlite3", "db", "db3"].iter().any(|e| &e[..] == &ext[..] )) {
+                    Err(EXTENSION_ERR)?;
+                }
+            } else {
+                Err(EXTENSION_ERR)?;
             }
+        } else {
+            Err(EXTENSION_ERR)?;
         };
+
+        if path.exists() && path.is_dir() {
+            return Err("Path is directory".to_string());
+        }
+        if let Some(parent) = path.parent() {
+            if !parent.exists() {
+                return Err("Parent directory does not exist".to_string());
+            }
+            if !parent.is_dir() {
+                return Err("Parent path should be a directory".to_string());
+            }
+        }
+        let res_conn = rusqlite::Connection::open(&path);
         match res_conn {
             Ok(conn) => {
-                // Self::attach_functions(&conn);
-                // let lib = libloading::Library::new("/home/diego/Software/mvlearn-sqlite/target/debug/libmvlearn.so").expect("Library not found");
-                // unsafe {
-                //    let func: libloading::Symbol<unsafe extern fn(rusqlite::Row)->rusqlite::Row> = lib.get(b"process_row").expect("Function not found");
-                // func();
-                //}
-                Ok(Self{path, conn})
+                Ok(Self{
+                    path : Some(path),
+                    conn,
+                    info : uri.info.clone()
+                })
             },
             Err(e) => Err(format!("{}", e))
         }
     }
 
-    pub fn try_new_local(_content : String) -> Result<Self, String> {
+    /*pub fn try_new_local(_content : String) -> Result<Self, String> {
         let conn = rusqlite::Connection::open_in_memory()
             .map_err(|e| format!("{}", e))?;
         // let guard = rusqlite::LoadExtensionGuard::new(&conn)
         //    .map_err(|e| format!("{}", e))?;
         // conn.load_extension(Path::new("csv"), None);
         Ok(Self { conn, path : None })
-    }
+    }*/
 
 }
 
@@ -89,10 +101,10 @@ impl Connection for SqliteConnection {
         tbl : &mut Table,
         dst : &str,
         cols : &[String],
-        // schema : &[DBObject]
     ) -> Result<usize, String> {
-        // TODO filter cols
         let client = &mut self.conn;
+
+        // Auto table creation
         /*if !crate::sql::object::schema_has_table(dst, schema) {
             let create = tbl.sql_table_creation(dst, cols).unwrap();
             println!("{}", create);
@@ -100,19 +112,32 @@ impl Connection for SqliteConnection {
             create_stmt.execute(rusqlite::NO_PARAMS).map_err(|e| format!("{}", e) )?;
         }*/
 
-        let insert = tbl.sql_table_insertion(dst, cols);
+        let insert = tbl.sql_table_insertion(dst, cols).map_err(|e| format!("Invalid SQL: {}",e) )?;
         let mut insert_stmt = client.prepare(&insert).map_err(|e| format!("{}", e) )?;
-        insert_stmt.execute(rusqlite::NO_PARAMS).map_err(|e| format!("{}", e) )?;
+        insert_stmt.execute([]).map_err(|e| format!("{}", e) )?;
         Ok(tbl.shape().0)
     }
 
-    fn query(&mut self, query : &str, subs : &HashMap<String, String>) -> StatementOutput {
+    fn query(&mut self, query : &str) -> StatementOutput {
         // let query = substitute_if_required(q, subs);
+
         match self.conn.prepare(&query[..]) {
             Ok(mut prep_stmt) => {
-                match prep_stmt.query(rusqlite::NO_PARAMS) {
+                let col_names : Vec<String> = prep_stmt.column_names().iter().map(|cn| cn.to_string() ).collect();
+                let mut col_tys = Vec::new();
+                for col in prep_stmt.columns() {
+                    if let Some(ty) = col.decl_type() {
+                        col_tys.push(ty.to_string());
+                    } else {
+                        col_tys.push("unknown".to_string());
+                    }
+                }
+                if col_names.len() != col_tys.len() {
+                    return StatementOutput::Invalid("Invalid column set".to_string(), false);
+                }
+                match prep_stmt.query([]) {
                     Ok(rows) => {
-                        match build_table_from_sqlite(rows) {
+                        match Table::from_sqlite_rows(col_names, &col_tys, rows) {
                             Ok(mut tbl) => {
                                 if let Some((name, relation)) = crate::sql::table_name_from_sql(query) {
                                     tbl.set_name(Some(name));
@@ -142,21 +167,20 @@ impl Connection for SqliteConnection {
         }
     }
 
-    fn exec_transaction(&mut self, stmt : &AnyStatement) -> StatementOutput {
-        unimplemented!()
+    fn exec_transaction(&mut self, _stmt : &AnyStatement) -> StatementOutput {
+        StatementOutput::Invalid("Transactions are unsupported in the SQLite backend".to_string(), false)
     }
     
-    fn query_async(&mut self, stmts : &[AnyStatement]) -> Vec<StatementOutput> {
-        unimplemented!()
+    fn query_async(&mut self, _stmts : &[AnyStatement]) -> Vec<StatementOutput> {
+        vec![StatementOutput::Invalid("Asynchronous queries are unsupported in the SQLite backend".to_string(), false)]
     }
     
-    fn exec(&mut self, stmt : &AnyStatement, subs : &HashMap<String, String>) -> StatementOutput {
+    fn exec(&mut self, stmt : &AnyStatement, /*subs : &HashMap<String, String>*/) -> StatementOutput {
         let ans = match stmt {
-            AnyStatement::Parsed(_, s) | AnyStatement::ParsedTransaction(_, s) => {
-                // let s = format!("{}", stmt);
-                self.conn.execute(&s, rusqlite::NO_PARAMS)
+            AnyStatement::Parsed(_, raw) | AnyStatement::ParsedTransaction{ raw, .. } => {
+                self.conn.execute(&raw, [])
             },
-            AnyStatement::Raw(_, s, _) => self.conn.execute(&s, rusqlite::NO_PARAMS),
+            AnyStatement::Raw(_, s, _) => self.conn.execute(&s, []),
             AnyStatement::Local(_) => panic!("Tried to execute local statement remotely")
         };
         match ans {
@@ -166,25 +190,41 @@ impl Connection for SqliteConnection {
     }
 
     fn conn_info(&self) -> ConnectionInfo {
-        unimplemented!()
+        self.info.clone()
     }
 
     fn db_info(&mut self) -> Result<DBInfo, Box<dyn Error>> {
         let mut top_objs = Vec::new();
-        if let Some(names) = get_sqlite_tbl_names(self) {
-            for name in names {
-                if let Some(obj) = get_sqlite_columns(self, &name) {
-                    top_objs.push(obj);
-                } else {
-                    println!("Failed to retrieve columns for table {}", name);
-                    panic!()
-                }
+        let names = get_sqlite_tbl_names(self)?;
+        for name in names {
+            if let Some(obj) = get_sqlite_columns(self, &name) {
+                top_objs.push(obj);
+            } else {
+                Err("Failed to retrieve columns for table {}")?;
+            }
+        }
+
+        use std::os::unix::fs::MetadataExt;
+        let size = if let Ok(sz) = std::fs::metadata(&self.path.as_ref().unwrap()).map(|meta| meta.size() ) {
+            if sz < 1_000 {
+                format!("{} bytes", sz)
+            } else if sz >= 1_000 && sz < 1_000_000 {
+                format!("{:.2} kb", sz as f32 / 1.0e3)
+            } else if sz >= 1_000_000 && sz < 1_000_000_000 {
+                format!("{:.2} mb", sz as f32 / 1.0e6)
+            } else {
+                format!("{:.2} gb", sz as f32 / 1.0e9)
             }
         } else {
-            println!("Could not get SQLite table names");
-            panic!()
-        }
-        Ok(DBInfo { schema : top_objs, ..Default::default() })
+            "Unknown".to_string()
+        };
+        let details = DBDetails {
+            uptime : "Unknown".to_string(),
+            server : "SQLite 3".to_string(),
+            size,
+            locale : "Unknown".to_string()
+        };
+        Ok(DBInfo { schema : top_objs, details : Some(details) })
     }
 
 }
@@ -443,43 +483,37 @@ impl Connection for SqliteConnection {
 /// Get all SQLite table names.
 /// TODO This will break if there is a table under the temp schema with the same name
 /// as a table under the global schema.
-fn get_sqlite_tbl_names(conn : &mut SqliteConnection) -> Option<Vec<String>> {
-    let tbl_query = String::from("select name from sqlite_master where type = 'table' union \
-        select name from temp.sqlite_master where type = 'table';");
-    // select * from temp.sqlite_master;
-    let ans = conn.try_run(tbl_query, &HashMap::new(), SafetyLock::default())
-        .map_err(|e| println!("{}", e) ).ok()?;
-    if let Some(q_res) = ans.get(0) {
-        match q_res {
-            StatementOutput::Valid(_, names) => {
-                names.get_column(0).and_then(|c| {
-                    let s : Option<Vec<String>> = c.clone().try_into().ok();
-                    s
-                })
-            },
-            StatementOutput::Invalid(msg, _) => { println!("{}", msg); None },
-            _ => None
-        }
-    } else {
-        println!("Query for DB info did not yield any results");
-        None
+fn get_sqlite_tbl_names(conn : &mut SqliteConnection) -> Result<Vec<String>, String> {
+    let tbl_query = String::from("SELECT name from sqlite_master WHERE type = 'table' UNION \
+        SELECT name from temp.sqlite_master WHERE type = 'table';");
+    let ans = conn.query(&tbl_query);
+    match ans {
+        StatementOutput::Valid(_, names) => {
+            let col = names.get_column(0).and_then(|c| {
+                let s : Option<Vec<String>> = c.clone().try_into().ok();
+                s
+            });
+            match col {
+                Some(s) => Ok(s),
+                None => Err("Missing name column".to_string())
+            }
+        },
+        StatementOutput::Invalid(msg, _) => { Err(format!("{}", msg)) },
+        _ => Err("Invalid statement output".to_string())
     }
 }
 
 fn get_sqlite_columns(conn : &mut SqliteConnection, tbl_name : &str) -> Option<DBObject> {
-    let col_query = format!("pragma table_info({});", tbl_name);
-    let ans = conn.try_run(col_query, &HashMap::new(), SafetyLock::default())
-        .map_err(|e| println!("{}", e) ).ok()?;
-    let q_res = ans.get(0)?;
-    match q_res {
+    let col_query = format!("PRAGMA table_info({});", tbl_name);
+    let ans = conn.query(&col_query);
+    match ans {
         StatementOutput::Valid(_, col_info) => {
             let names = col_info.get_column(1)
                 .and_then(|c| { let s : Option<Vec<String>> = c.clone().try_into().ok(); s })?;
-            // println!("{:?}", col_info.get_column(2));
             let col_types = col_info.get_column(2)
                 .and_then(|c| match c {
                     Column::Nullable(n) => {
-                        let opt_v : Option<Vec<Option<String>>> = n.as_ref().clone().try_into().ok();
+                        let opt_v : Option<Vec<Option<String>>> = n.clone().try_into().ok();
                         match opt_v {
                             Some(v) => {
                                 let v_flat = v.iter()
@@ -499,10 +533,14 @@ fn get_sqlite_columns(conn : &mut SqliteConnection, tbl_name : &str) -> Option<D
             let cols = pack_column_types(names, col_types, pks).ok()?;  
 
             // TODO pass empty schema. Treat empty schema as non-namespace qualified at query/insert/fncall commands.
-            let obj = DBObject::Table{ schema : format!("public"), name : tbl_name.to_string(), cols, rels : Vec::new() };
+            let obj = DBObject::Table{
+                schema : format!("public"),
+                name : tbl_name.to_string(),
+                cols, rels : Vec::new()
+            };
             Some(obj)
         },
-        StatementOutput::Invalid(msg, _) => { println!("{}", msg); None },
+        StatementOutput::Invalid(_msg, _) => { None },
         _ => None
     }
 }
@@ -530,18 +568,22 @@ impl Display for SqliteColumn {
 
 impl SqliteColumn {
 
-    fn new(decl_type : &str) -> Result<Self, &'static str> {
-        println!("Declared type: {}", decl_type);
+    pub fn new(decl_type : &str) -> Result<Self, &'static str> {
         match decl_type {
             "integer" | "int" | "INTEGER" | "INT" => Ok(SqliteColumn::I64(Vec::new())),
             "real" | "REAL" => Ok(SqliteColumn::F64(Vec::new())),
             "text" | "TEXT" => Ok(SqliteColumn::Str(Vec::new())),
             "blob" | "BLOB" => Ok(SqliteColumn::Bytes(Vec::new())),
-            _ => { println!(" Informed type: {} ", decl_type); Err("Invalid column type") }
+
+            // Used by the Queries application itself, when column.decl_type()
+            // does not have a declared type.
+            "unknown" | "Unknown" => Ok(SqliteColumn::Bytes(Vec::new())),
+
+            _ => { Err("Invalid column type") }
         }
     }
 
-    fn new_from_first_value(row : &Row, ix : usize) -> Result<Self, &'static str> {
+    pub fn new_from_first_value(row : &Row, ix : usize) -> Result<Self, &'static str> {
         if let Ok(opt_value) = row.get::<usize, Option<i64>>(ix) {
             return Ok(SqliteColumn::I64(vec![opt_value]));
         } else {
@@ -561,7 +603,7 @@ impl SqliteColumn {
         }
     }
 
-    fn append_from_row(&mut self, row : &Row, ix : usize) -> Result<(), &'static str> {
+    pub fn append_from_row(&mut self, row : &Row, ix : usize) -> Result<(), &'static str> {
         if let Ok(opt_value) = row.get::<usize, Option<i64>>(ix) {
             if let SqliteColumn::I64(ref mut v) = self {
                 v.push(opt_value);
@@ -599,8 +641,6 @@ impl SqliteColumn {
                     Value::Integer(i) => v.push(Some(i)),
                     Value::Null => v.push(None),
                     _ => {
-                        println!("Column type: {:?}", self);
-                        println!("Error parsing to: {}", value.data_type());
                         return Err("Invalid type");
                     }
                 }
@@ -610,8 +650,6 @@ impl SqliteColumn {
                     Value::Real(r) => v.push(Some(r)),
                     Value::Null => v.push(None),
                     _ => {
-                        println!("Column type: {:?}", self);
-                        println!("Error parsing to: {}", value.data_type());
                         return Err("Invalid type");
                     }
                 }
@@ -621,8 +659,6 @@ impl SqliteColumn {
                     Value::Text(t) => v.push(Some(t)),
                     Value::Null => v.push(None),
                     _ => {
-                        println!("Column type: {:?}", self);
-                        println!("Error parsing to: {}", value.data_type());
                         return Err("Invalid type");
                     }
                 }
@@ -632,8 +668,6 @@ impl SqliteColumn {
                     Value::Blob(b) => v.push(Some(b)),
                     Value::Null => v.push(None),
                     _ => {
-                        println!("Column type: {:?}", self);
-                        println!("Error parsing to: {}", value.data_type());
                         return Err("Invalid type");
                     }
                 }
@@ -661,62 +695,6 @@ impl From<SqliteColumn> for NullableColumn
     }
 }
 
-pub fn build_table_from_sqlite(mut rows : rusqlite::Rows) -> Result<Table, &'static str>
-    where
-        NullableColumn : From<Vec<Option<i64>>>,
-        NullableColumn : From<Vec<Option<f64>>>,
-        NullableColumn : From<Vec<Option<String>>>,
-        NullableColumn : From<Vec<Option<Vec<u8>>>>,
-{
-    let cols = rows.columns().ok_or("No columns available")?;
-    let col_names = rows.column_names().ok_or("No columns available")?;
-    let empty_cols : Vec<Column> = cols.iter().map(|c| {
-        let sq_c = SqliteColumn::new(c.decl_type().unwrap_or("blob")).unwrap();
-        let nc : NullableColumn = sq_c.into();
-        nc.to_column()
-    }).collect();
-    let names : Vec<_> = col_names.iter().map(|c| c.to_string()).collect();
-    if names.len() == 0 {
-        return Err("No columns available");
-    }
-    let mut sqlite_cols : Vec<SqliteColumn> = Vec::new();
-    let mut curr_row = 0;
-    while let Ok(row) = rows.next() {
-        match row {
-            Some(r) => {
-                if curr_row == 0 {
-                    for c_ix in 0..names.len() {
-                        sqlite_cols.push(SqliteColumn::new_from_first_value(&r, c_ix)?);
-                    }
-                } else {
-                    for (i, col) in sqlite_cols.iter_mut().enumerate() {
-                        // let value = r.get::<usize, rusqlite::types::Value>(i)
-                        //    .unwrap_or(rusqlite::types::Value::Null);
-                        // TODO panicking here when using a sqlite subtraction.
-                        // sqlite_cols[i].try_append(value)?;
-                        col.append_from_row(r, i);
-                    }
-                }
-                curr_row += 1;
-            },
-            None => { break; }
-        }
-    }
-    if curr_row == 0 {
-        Ok(Table::new(None, names, empty_cols)?)
-    } else {
-        let mut null_cols : Vec<NullableColumn> = sqlite_cols
-            .drain(0..sqlite_cols.len())
-            .map(|c| c.into() ).collect();
-        if null_cols.len() == 0 {
-            return Err("Too few columns");
-        }
-        let cols : Vec<Column> = null_cols.drain(0..null_cols.len())
-            .map(|nc| nc.to_column()).collect();
-        Ok(Table::new(None, names, cols)?)
-    }
-}
-
 pub fn copy_table_to_sqlite(
     client : &mut rusqlite::Connection,
     tbl : &mut Table,
@@ -728,20 +706,18 @@ pub fn copy_table_to_sqlite(
     // TODO filter cols
 
     if !crate::sql::object::schema_has_table(dst, schema) {
-        let create = tbl.sql_table_creation(dst, cols).unwrap();
-        println!("{}", create);
+        let create = tbl.sql_table_creation(dst, cols).ok_or(String::from("Invalid SQL"))?;
         let mut create_stmt = client.prepare(&create).map_err(|e| format!("{}", e) )?;
-        create_stmt.execute(rusqlite::NO_PARAMS).map_err(|e| format!("{}", e) )?;
+        create_stmt.execute([]).map_err(|e| format!("{}", e) )?;
     }
 
-    let insert = tbl.sql_table_insertion(dst, cols);
-    println!("{}", insert);
+    let insert = tbl.sql_table_insertion(dst, cols)?;
     let mut insert_stmt = client.prepare(&insert).map_err(|e| format!("{}", e) )?;
-    insert_stmt.execute(rusqlite::NO_PARAMS).map_err(|e| format!("{}", e) )?;
+    insert_stmt.execute([]).map_err(|e| format!("{}", e) )?;
     Ok(())
 }
 
-mod functions {
+/*mod functions {
 
     use rusqlite::{self, ToSql};
     use rusqlite::functions::{Aggregate, Context};
@@ -782,13 +758,13 @@ mod functions {
 
     }
 
-}
+}*/
 
-pub fn backup_if_sqlite(conn : &mut SqliteConnection, path : PathBuf) {
+/*pub fn backup_if_sqlite(conn : &mut SqliteConnection, path : PathBuf) {
     if let Err(e) = conn.conn.backup(rusqlite::DatabaseName::Main, path, None) {
         println!("{}", e);
     }
-}
+}*/
 
 /*
 pub fn remove_udfs(&self, lib_name : &str) {

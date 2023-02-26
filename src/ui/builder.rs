@@ -21,7 +21,7 @@ use crate::ui::PackedImageLabel;
 use crate::ui::settings::NamedBox;
 use std::collections::BTreeMap;
 use std::cmp::{Ord, Ordering, PartialEq};
-use stateful_local::Singleton;
+use stateful_local::{Singleton, Shared, Reactive, Exclusive /*Owned*/};
 use tuples::TupleCloned;
 use either::Either;
 
@@ -46,7 +46,9 @@ pub struct QueryBuilderWindow {
     filter_combo : ComboBoxText,
     add_btn : Button,
     delete_btn : Button,
-    middle_bx : Box
+    middle_bx : Box,
+    combo_group : ComboBoxText,
+    combo_sort : ComboBoxText
 }
 
 pub struct JoinBox {
@@ -208,6 +210,19 @@ pub enum GroupOp {
 
 impl GroupOp {
 
+    pub fn combo_str(&self) -> &str {
+        match self {
+             GroupOp::GroupBy => "Group by",
+             GroupOp::Count => "Count",
+             GroupOp::Sum => "Sum",
+             GroupOp::Avg => "Average",
+             GroupOp::Min => "Minimum",
+             GroupOp::Max => "Maximum",
+             GroupOp::Every => "Every",
+             GroupOp::Any => "Any",
+        }
+    }
+
     pub fn from_str(s : &str) -> Option<Self> {
         match s {
             "Group by" => Some(GroupOp::GroupBy),
@@ -232,6 +247,13 @@ pub enum SortOp {
 
 impl SortOp {
 
+    pub fn combo_str(&self) -> &str {
+        match self {
+            SortOp::Ascending => "Ascending",
+            SortOp::Descending => "Descending"
+        }
+    }
+
     pub fn from_str(s : &str) -> Option<Self> {
         match s {
             "Ascending" => Some(SortOp::Ascending),
@@ -241,6 +263,14 @@ impl SortOp {
     }
 
 }
+
+const HELP : &'static str = r#"
+• Adding any column automatically adds the first table;
+
+• Arguments to the join clause add their respective table;
+
+• Aggregates (if any) must be applied to all columns.
+"#;
 
 /* TODO if the filter field is set and the
 variable is set as a grouping variable, use
@@ -255,13 +285,18 @@ impl QueryBuilderWindow {
 
     pub fn build() -> Self {
         let win = Window::new();
-        super::configure_dialog(&win);
+        super::configure_dialog(&win, false);
         win.set_title(Some("Query builder"));
         win.set_width_request(800);
         win.set_height_request(600);
         let bx = Box::new(Orientation::Vertical, 6);
         bx.set_margin_start(64);
         bx.set_margin_end(64);
+
+        let entry_col = Entry::new();
+
+        let toggles = Rc::new(RefCell::new(BTreeMap::new()));
+        let boxes = Rc::new(RefCell::new(Vec::new()));
 
         let middle_bx = Box::new(Orientation::Horizontal, 0);
         middle_bx.set_valign(Align::Center);
@@ -273,6 +308,55 @@ impl QueryBuilderWindow {
         bottom_bx.set_halign(Align::Center);
         let btn_clear = Button::builder().label("Clear").build();
         let btn_sql = Button::builder().label("Copy SQL").build();
+
+        // let (query_tx, query_rx) = glib::MainContext::channel::<QueryMsg>(glib::PRIORITY_DEFAULT);
+        // let query_rx = Rc::new(RefCell::new(Some(query_rx)));
+
+        let middle_stack = Stack::new();
+
+        let help_bx = Box::new(Orientation::Horizontal, 0);
+        set_css(&help_bx);
+        let help_lbl = Label::new(None);
+        help_lbl.set_use_markup(true);
+        help_lbl.set_text(HELP);
+        help_bx.append(&help_lbl);
+        help_bx.set_vexpand(false);
+        help_bx.set_valign(Align::Center);
+
+        middle_stack.add_named(&middle_bx, Some("tables"));
+        middle_stack.add_named(&help_bx, Some("help"));
+        middle_stack.set_visible_child_name("help");
+
+        let query = Shared::new(Query::default());
+        query.on_changed({
+            let (middle_bx, toggles, boxes, entry_col, middle_stack) = (&middle_bx, &toggles, &boxes, &entry_col, &middle_stack).cloned();
+            move |query| {
+                update_ui_with_query(&middle_bx, &toggles, &boxes, query, &entry_col);
+                if let Some(_) = query.0.get(0) {
+                    middle_stack.set_visible_child_name("tables");
+                } else {
+                    middle_stack.set_visible_child_name("help");
+                }
+            }
+        });
+        btn_clear.connect_clicked({
+            let query = query.share();
+            move|_| {
+                query.update(QueryMsg::Clear);
+            }
+        });
+        btn_sql.connect_clicked({
+            let query = query.share();
+            move|_| {
+                if let Some(displ) = gdk::Display::default() {
+                    if let Some(sql) = query.view().sql() {
+                        displ.clipboard().set_text(&sql);
+                    }
+                } else {
+                    eprintln!("No default display to use");
+                }
+            }
+        });
         let btn_run = Button::builder().label("Run").build();
         for btn in [&btn_clear, &btn_sql, &btn_run] {
             bottom_bx.append(btn);
@@ -306,6 +390,7 @@ impl QueryBuilderWindow {
         for it in SORT_OPS {
             combo_sort.append(Some(it), it);
         }
+        combo_sort.set_active_id(Some("Unsorted"));
         sort_bx.append(&combo_sort);
 
         let group_bx = Box::new(Orientation::Horizontal, 0);
@@ -319,12 +404,13 @@ impl QueryBuilderWindow {
         for it in GROUP_OPS {
             combo_group.append(Some(it), it);
         }
+        combo_group.set_active_id(Some("No aggregate"));
 
         top_bx.append(&top_bx_upper);
         top_bx.append(&top_bx_lower);
 
         bx.append(&top_bx);
-        bx.append(&middle_bx);
+        bx.append(&middle_stack);
         bx.append(&bottom_bx);
 
         bottom_bx.set_margin_top(18);
@@ -334,7 +420,6 @@ impl QueryBuilderWindow {
         scroll.set_child(Some(&bx));
         win.set_child(Some(&scroll));
 
-        let entry_col = Entry::new();
         entry_col.set_hexpand(true);
         let add_btn = Button::from_icon_name("list-add-symbolic");
         let delete_btn = Button::from_icon_name("user-trash-symbolic");
@@ -350,12 +435,12 @@ impl QueryBuilderWindow {
         top_bx_upper.append(&tbl_img);
         top_bx_upper.append(&entry_col);
 
-
         let entry_filter = Entry::new();
         let filter_combo = ComboBoxText::new();
         for op in FILTER_OPS.iter() {
             filter_combo.append(Some(op), op);
         }
+        filter_combo.set_active_id(Some("All rows"));
         let entry_filter_c = entry_filter.clone();
         filter_combo.connect_changed(move|combo| {
             if combo.active_id() == Some(glib::GString::from("All rows")) {
@@ -380,6 +465,7 @@ impl QueryBuilderWindow {
         for op in JOIN_OPS.iter() {
             join_combo.append(Some(op), op);
         }
+        join_combo.set_active_id(Some("No joins"));
 
         let join_bx = Box::new(Orientation::Horizontal, 0);
         join_bx.set_hexpand(true);
@@ -410,9 +496,6 @@ impl QueryBuilderWindow {
         // let join_bx = JoinBox::new("Column1 : Column 2", tbl_bx.clone(), tbl_bx2.clone());
         // middle_bx.append(&join_bx.outer);
 
-        let toggles = Rc::new(RefCell::new(BTreeMap::new()));
-        let boxes = Rc::new(RefCell::new(Vec::new()));
-
         // add_toggle(&toggles, "Column1", &tbl_bx);
         // add_toggle(&toggles, "Column2", &tbl_bx);
         // add_toggle(&toggles, "Column3", &tbl_bx2);
@@ -433,59 +516,66 @@ impl QueryBuilderWindow {
             filter_combo,
             add_btn,
             delete_btn,
-            middle_bx
+            middle_bx,
+            combo_group,
+            combo_sort
         };
 
-        let (entry_col, entry_filter, entry_join, join_combo, filter_combo, middle_bx) = (
-            &qw.entry_col,
-            &qw.entry_filter,
-            &qw.entry_join,
-            &qw.join_combo,
-            &qw.filter_combo,
-            &qw.middle_bx
-        ).cloned();
-        let (toggles, boxes) = (&qw.toggles, &qw.boxes).cloned();
-        qw.add_btn.connect_clicked(move|_| {
-            let Some((tbl, colname)) = split_tbl_col(entry_col.text().as_ref()) else { return };
-            let filter_arg = entry_filter.text().to_string();
-            let join_arg = entry_join.text().to_string();
-            let join = join_combo.active_text()
-                .and_then(|txt| JoinOp::from_str(txt.as_ref()) )
-                .and_then(|op| split_tbl_col(join_arg.as_ref())
-                    .map(|arg| Join {
-                        op,
-                        src_table : tbl.clone(),
-                        dst_table : arg.0,
-                        src_col : colname.to_string(),
-                        dst_col : arg.1
-                    })
-                );
-            let filter = filter_combo.active_text()
-                .and_then(|txt| FilterOp::from_str(txt.as_ref()) )
-                .and_then(|op| if filter_arg.is_empty() { None } else { Some(Filter { op, arg : filter_arg }) } );
-            let group = combo_group.active_text()
-                .and_then(|txt| GroupOp::from_str(txt.as_ref()) );
-            let sort = combo_sort.active_text()
-                .and_then(|txt| SortOp::from_str(txt.as_ref()) );
+        qw.add_btn.connect_clicked({
+            let (entry_col, entry_filter, entry_join, join_combo, filter_combo, middle_bx, combo_group, combo_sort) = (
+                &qw.entry_col,
+                &qw.entry_filter,
+                &qw.entry_join,
+                &qw.join_combo,
+                &qw.filter_combo,
+                &qw.middle_bx,
+                &qw.combo_group,
+                &qw.combo_sort
+            ).cloned();
+            // let (toggles, boxes) = (&qw.toggles, &qw.boxes).cloned();
+            let query = query.share();
+            // let query_tx = query_tx.clone();
+            move|_| {
+                let Some((tbl, colname)) = split_tbl_col(entry_col.text().as_ref()) else { return };
+                let filter_arg = entry_filter.text().to_string();
+                let join_arg = entry_join.text().to_string();
+                let join = join_combo.active_text()
+                    .and_then(|txt| JoinOp::from_str(txt.as_ref()) )
+                    .and_then(|op| split_tbl_col(join_arg.as_ref())
+                        .map(|arg| Join {
+                            op,
+                            src_table : tbl.clone(),
+                            dst_table : arg.0,
+                            src_col : colname.to_string(),
+                            dst_col : arg.1
+                        })
+                    );
+                let filter = filter_combo.active_text()
+                    .and_then(|txt| FilterOp::from_str(txt.as_ref()) )
+                    .and_then(|op| if filter_arg.is_empty() { None } else { Some(Filter { op, arg : filter_arg }) } );
+                let group = combo_group.active_text()
+                    .and_then(|txt| GroupOp::from_str(txt.as_ref()) );
+                let sort = combo_sort.active_text()
+                    .and_then(|txt| SortOp::from_str(txt.as_ref()) );
+                // query_tx.send(QueryMsg::Add(tbl.clone(), Column { name : colname, join, filter, group, sort }));
+                // let tbl = tbl.to_string();
 
-            // It is important the query guard dies before the widget states are cleared below.
-            {
-                let mut query = Query::take();
-                query.add(&tbl, Column { name : colname, join, filter, group, sort });
-                update_state(&middle_bx,&toggles, &boxes, &query, &entry_col);
+                // let mut query = query.try_borrow_mut().unwrap();
+                // query.add(&tbl, Column { name : colname, join, filter, group, sort });
+                // update_ui_with_query(&middle_bx, &toggles, &boxes, &query, &entry_col);
+                query.update(QueryMsg::Add(tbl.to_string(), Column { name : colname, join, filter, group, sort }));
+
+                clear_fields(&entry_col, &entry_join, &entry_filter, &join_combo, &filter_combo, &combo_group, &combo_sort);
             }
-
-            // Query guard must be dropped by now.
-            clear_fields(&entry_col, &entry_join, &entry_filter, &join_combo, &filter_combo);
         });
 
         qw.join_combo.connect_changed({
             let entry_col = qw.entry_col.clone();
             let entry_join = qw.entry_join.clone();
             let add_btn = qw.add_btn.clone();
+            let query = query.share();
             move |join_combo| {
-                let query = Query::cloned();
-                let can_add = verify_can_add(&query, &entry_col, &entry_join, &join_combo);
+                let can_add = verify_can_add(&query.view(), &entry_col, &entry_join, &join_combo);
                 add_btn.set_sensitive(can_add);
             }
         });
@@ -493,96 +583,115 @@ impl QueryBuilderWindow {
             let entry_col = qw.entry_col.clone();
             let add_btn = qw.add_btn.clone();
             let join_combo = qw.join_combo.clone();
+            let query = query.share();
             move |entry_join| {
-                let query = Query::cloned();
-                let can_add = verify_can_add(&query, &entry_col, &entry_join, &join_combo);
+                let can_add = verify_can_add(&query.view(), &entry_col, &entry_join, &join_combo);
                 add_btn.set_sensitive(can_add);
             }
         });
-        let (add_btn, delete_btn, toggles, entry_filter, entry_join, filter_combo, join_combo) = (
-            &qw.add_btn,
-            &qw.delete_btn,
-            &qw.toggles,
-            &qw.entry_filter,
-            &qw.entry_join,
-            &qw.filter_combo,
-            &qw.join_combo
-        ).cloned();
-        qw.entry_col.connect_changed(move|entry_col| {
-            let txt = entry_col.text().to_string();
-            let query = Query::cloned();
-            if let Some((tblname, colname)) = split_tbl_col(&txt) {
-                let opt_col = query.column(&tblname, &colname);
-                if let Some(col) = &opt_col {
-                    if let Some(filt) = &col.filter {
-                        entry_filter.set_text(&filt.arg);
-                        filter_combo.set_active_id(Some(filt.op.combo_str()));
+
+        qw.entry_col.connect_changed({
+            let (add_btn, delete_btn, toggles, entry_filter, entry_join, filter_combo, join_combo, combo_group, combo_sort) = (
+                &qw.add_btn,
+                &qw.delete_btn,
+                &qw.toggles,
+                &qw.entry_filter,
+                &qw.entry_join,
+                &qw.filter_combo,
+                &qw.join_combo,
+                &qw.combo_group,
+                &qw.combo_sort
+            ).cloned();
+            let query = query.share();
+            move |entry_col| {
+                let query = query.view();
+                let txt = entry_col.text().to_string();
+                if let Some((tblname, colname)) = split_tbl_col(&txt) {
+                    let opt_col = query.column(&tblname, &colname);
+                    if let Some(col) = &opt_col {
+                        if let Some(filt) = &col.filter {
+                            entry_filter.set_text(&filt.arg);
+                            filter_combo.set_active_id(Some(filt.op.combo_str()));
+                        } else {
+                            entry_filter.set_text("");
+                            filter_combo.set_active_id(Some("All rows"));
+                        }
+
+                        if let Some(group) = &col.group {
+                            combo_group.set_active_id(Some(group.combo_str()));
+                        } else {
+                            combo_group.set_active_id(Some("No aggregate"));
+                        }
+
+                        if let Some(sort) = &col.sort {
+                            combo_sort.set_active_id(Some(sort.combo_str()));
+                        } else {
+                            combo_sort.set_active_id(Some("Unsorted"));
+                        }
+
+                        entry_filter.set_sensitive(false);
+                        filter_combo.set_sensitive(false);
+                        combo_group.set_sensitive(false);
+                        combo_sort.set_sensitive(false);
+                        if let Some(join) = &col.join {
+                            entry_join.set_text(&format!("{}.{}", join.dst_table, join.dst_col));
+                            join_combo.set_active_id(Some(join.op.combo_str()));
+                        } else {
+                            entry_join.set_text("");
+                            join_combo.set_active_id(Some("No joins"));
+                        }
+                        entry_join.set_sensitive(false);
+                        join_combo.set_sensitive(false);
                     } else {
-                        entry_filter.set_text("");
-                        filter_combo.set_active_id(Some("All rows"));
+                        entry_filter.set_sensitive(true);
+                        filter_combo.set_sensitive(true);
+                        entry_join.set_sensitive(true);
+                        join_combo.set_sensitive(true);
+                        combo_group.set_sensitive(true);
+                        combo_sort.set_sensitive(true);
                     }
-                    entry_filter.set_sensitive(false);
-                    filter_combo.set_sensitive(false);
-                    if let Some(join) = &col.join {
-                        entry_join.set_text(&format!("{}.{}", join.dst_table, join.dst_col));
-                        join_combo.set_active_id(Some(join.op.combo_str()));
-                    } else {
-                        entry_join.set_text("");
-                        join_combo.set_active_id(Some("No joins"));
-                    }
-                    entry_join.set_sensitive(false);
-                    join_combo.set_sensitive(false);
+
+                    let can_add = verify_can_add(&query, &entry_col, &entry_join, &join_combo);
+
+                    // Can only add column when
+                    // (1) There aren't any columns (inaugurating first table)
+                    // (2) The column belongs to an already-existing last table (this prevents
+                    // adding tables that aren't part of a join). To add new tables, the user
+                    // must always use them as argument to a join clause with the previous table.
+
+                    // let joins_last = query.last().map(|last| &last.name == &tblname ).unwrap_or(false);
+                    add_btn.set_sensitive(can_add);
+                    delete_btn.set_sensitive(opt_col.is_some());
+
                 } else {
-                    entry_filter.set_sensitive(true);
-                    filter_combo.set_sensitive(true);
-                    entry_join.set_sensitive(true);
-                    join_combo.set_sensitive(true);
+                    add_btn.set_sensitive(false);
+                    delete_btn.set_sensitive(false);
                 }
 
-                let can_add = verify_can_add(&query, &entry_col, &entry_join, &join_combo);
-
-                // Can only add column when
-                // (1) There aren't any columns (inaugurating first table)
-                // (2) The column belongs to an already-existing last table (this prevents
-                // adding tables that aren't part of a join). To add new tables, the user
-                // must always use them as argument to a join clause with the previous table.
-
-                // let joins_last = query.last().map(|last| &last.name == &tblname ).unwrap_or(false);
-                add_btn.set_sensitive(can_add);
-                delete_btn.set_sensitive(opt_col.is_some());
-
-            } else {
-                add_btn.set_sensitive(false);
-                delete_btn.set_sensitive(false);
+                let toggles = toggles.borrow();
+                if let Some(toggle) = toggles.get(&txt) {
+                    toggle.set_active(true);
+                } else {
+                    toggles.values().for_each(|t| t.set_active(false) );
+                }
             }
-
-            let toggles = toggles.borrow();
-            if let Some(toggle) = toggles.get(&txt) {
-                toggle.set_active(true);
-            } else {
-                toggles.values().for_each(|t| t.set_active(false) );
-            }
-
         });
 
         qw.delete_btn.connect_clicked({
-            let toggles = qw.toggles.clone();
-            let boxes = qw.boxes.clone();
-            let middle_bx = qw.middle_bx.clone();
+            // let toggles = qw.toggles.clone();
+            // let boxes = qw.boxes.clone();
+            // let middle_bx = qw.middle_bx.clone();
             let entry_col = qw.entry_col.clone();
             let entry_join = qw.entry_join.clone();
             let entry_filter = qw.entry_filter.clone();
             let join_combo = qw.join_combo.clone();
             let filter_combo = qw.filter_combo.clone();
-            move |btn| {
-                {
-                    let mut query = Query::take();
-                    if query.delete(entry_col.text().as_ref()) {
-                        update_state(&middle_bx, &toggles, &boxes, &query, &entry_col);
-                    }
-                }
-                // Query guard must be dropped by now.
-                clear_fields(&entry_col, &entry_join, &entry_filter, &join_combo, &filter_combo);
+            let combo_group = qw.combo_group.clone();
+            let combo_sort = qw.combo_sort.clone();
+            move |_| {
+                let col_txt = entry_col.text().to_string();
+                query.update(QueryMsg::Delete(col_txt.to_string()));
+                clear_fields(&entry_col, &entry_join, &entry_filter, &join_combo, &filter_combo, &combo_group, &combo_sort);
             }
         });
         qw
@@ -590,12 +699,22 @@ impl QueryBuilderWindow {
 
 }
 
-fn clear_fields(entry_col : &Entry, entry_join : &Entry, entry_filter : &Entry, join_combo : &ComboBoxText, filter_combo : &ComboBoxText) {
+fn clear_fields(
+    entry_col : &Entry,
+    entry_join : &Entry,
+    entry_filter : &Entry,
+    join_combo : &ComboBoxText,
+    filter_combo : &ComboBoxText,
+    group_combo : &ComboBoxText,
+    sort_combo : &ComboBoxText
+) {
     entry_col.set_text("");
     entry_join.set_text("");
     entry_filter.set_text("");
     join_combo.set_active_id(Some("No joins"));
     filter_combo.set_active_id(Some("All rows"));
+    group_combo.set_active_id(Some("No aggregates"));
+    sort_combo.set_active_id(Some("Unsorted"));
 }
 
 /*pub enum AddError {
@@ -642,7 +761,7 @@ fn clear(bx : &Box, toggles : &Rc<RefCell<BTreeMap<String, ToggleButton>>>, boxe
     boxes.clear();
 }
 
-fn update_state(
+fn update_ui_with_query(
     bx : &Box,
     toggles : &Rc<RefCell<BTreeMap<String, ToggleButton>>>,
     boxes : &Rc<RefCell<Vec<Box>>>,
@@ -723,6 +842,15 @@ fn split_tbl_col(s : &str) -> Option<(String, String)> {
 #[derive(stateful_derive::Singleton, Clone, Default)]
 pub struct Query(Vec<Table>);
 
+impl Exclusive for QueryMsg { }
+
+#[derive(Clone)]
+pub enum QueryMsg {
+    Add(String, Column),
+    Delete(String),
+    Clear
+}
+
 fn column_recursive(tbl : &Table, tblname : &str, colname : &str) -> Option<Column> {
     if tbl.name == tblname {
         if let Some(col) = tbl.cols.iter().find_map(|c| if &c.name == colname { Some(c.clone()) } else { None } ) {
@@ -788,7 +916,27 @@ fn clear_no_cols_recursive(tbl : &mut Table) {
     }
 }
 
+impl Reactive for Query {
+
+    type Message = QueryMsg;
+
+    fn react(&mut self, msg : QueryMsg) {
+        match msg {
+            QueryMsg::Add(tblname, col) => self.add(&tblname, col),
+            QueryMsg::Delete(colname) => { self.delete(&colname); },
+            QueryMsg::Clear => {
+                self.0.clear();
+            }
+        }
+    }
+
+}
+
 impl Query {
+
+    pub fn sql(&self) -> Option<String> {
+        Some(self.0.get(0)?.sql())
+    }
 
     pub fn table_mut(&mut self, tblname : &str) -> Option<&mut Table> {
         self.0.iter_mut().find_map(|tbl| table_recursive_mut(tbl, tblname) )
@@ -931,13 +1079,16 @@ impl React<ActiveConnection> for QueryBuilderWindow {
             let objs = self.objs.clone();
             let cols_model = self.cols_model.clone();
             let entry_col = self.entry_col.clone();
+            let entry_join = self.entry_join.clone();
             move |(_, info)| {
                 if let Some(info) = info {
                     super::update_completion_with_schema(objs.clone(), cols_model.clone(), Some(info.schema));
                     if let Some(model) = &*cols_model.borrow() {
                         super::add_completion(&entry_col, model);
+                        super::add_completion(&entry_join, model);
                     } else {
                         entry_col.set_completion(None);
+                        entry_join.set_completion(None);
                     }
                 }
             }
@@ -946,12 +1097,15 @@ impl React<ActiveConnection> for QueryBuilderWindow {
             let objs = self.objs.clone();
             let cols_model = self.cols_model.clone();
             let entry_col = self.entry_col.clone();
+            let entry_join = self.entry_join.clone();
             move |schema| {
                 super::update_completion_with_schema(objs.clone(), cols_model.clone(), schema);
                 if let Some(model) = &*cols_model.borrow() {
                     super::add_completion(&entry_col, model);
+                    super::add_completion(&entry_join, model);
                 } else {
                     entry_col.set_completion(None);
+                    entry_join.set_completion(None);
                 }
             }
         });
@@ -1115,7 +1269,7 @@ pub struct Table {
 fn filter_clause_recursive(s : &mut Vec<String>, tbl : &Table) {
     for c in &tbl.cols {
         if let Some(filt) = &c.filter {
-            s.push(filt.sql());
+            s.push(format!("{} {}", c.name, filt.sql()));
         }
     }
     if let Some(rhs_tbl) = &tbl.join_rhs {
@@ -1153,7 +1307,7 @@ fn group_clause_recursive(s : &mut Vec<String>, tbl : &Table) {
 
 fn from_clause_recursive(s : &mut Vec<String>, tbl : &Table) {
     if let (Some(rhs_tbl), Some(join)) = (&tbl.join_rhs, tbl.join()) {
-        s.push(format!("{} {} ON {} = {} ", join.op.sql_keyword(), rhs_tbl.name, join.src_col, join.dst_col));
+        s.push(format!(" {} {} ON {} = {} ", join.op.sql_keyword(), rhs_tbl.name, join.src_col, join.dst_col));
     }
 }
 
@@ -1169,23 +1323,29 @@ fn columns_recursive(s : &mut Vec<String>, tbl : &Table) {
 impl Table {
 
     pub fn sql(&self) -> String {
-        let mut s = format!("SELECT {} {}", self.body(), self.from_clause());
+        let mut s = format!("SELECT {}{}", self.body(), self.from_clause());
         if let Some(filter) = self.filter_clause() {
+            s += "\n";
             s += &filter;
         }
         if let Some(group) = self.group_clause() {
+            s += "\n";
             s += &group;
         }
         if let Some(sort) = self.sort_clause() {
+            s += "\n";
             s += &sort;
         }
+        s += ";";
         s
     }
 
     pub fn body(&self) -> String {
         let mut cols = Vec::new();
         columns_recursive(&mut cols, self);
-        cols.join(",\n")
+        let mut s : String = cols.join(",\n    ");
+        s += "\n";
+        s
     }
 
     pub fn filter_clause(&self) -> Option<String> {
@@ -1200,7 +1360,7 @@ impl Table {
 
     pub fn group_clause(&self) -> Option<String> {
         let mut group = Vec::new();
-        filter_clause_recursive(&mut group, self);
+        group_clause_recursive(&mut group, self);
         if group.is_empty() {
             None
         } else {
@@ -1221,7 +1381,11 @@ impl Table {
     pub fn from_clause(&self) -> String {
         let mut s = Vec::new();;
         from_clause_recursive(&mut s, self);
-        format!("FROM {} {}", self.name, s.join("\n"))
+        if s.len() >= 1 {
+            format!("FROM {} {}", self.name, s.join("\n"))
+        } else {
+            format!("FROM {}", self.name)
+        }
     }
 
     // TODO return multiple joins.

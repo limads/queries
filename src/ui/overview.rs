@@ -3,6 +3,8 @@
 This work is licensed under the terms of the GPL v3.0 License.  
 For a copy, see http://www.gnu.org/licenses.*/
 
+use tuples::TupleCloned;
+use tuples::TupleIter;
 use gtk4::prelude::*;
 use gtk4::*;
 use stateful::React;
@@ -535,7 +537,7 @@ impl ConnectionBox {
 
     pub fn build() -> Self {
         let host_bx = Box::new(Orientation::Horizontal, 0);
-        let host = PackedImageEntry::build("preferences-system-network-proxy-symbolic", "Host");
+        let host = PackedImageEntry::build("preferences-system-network-proxy-symbolic", "Location");
         let port = PackedImageEntry::build("arrow-into-box-symbolic", "Port");
         port.entry.set_max_width_chars(8);
         port.entry.set_input_purpose(InputPurpose::Digits);
@@ -563,6 +565,26 @@ impl ConnectionBox {
         db.entry.set_hexpand(true);
         user.entry.set_hexpand(true);
         password.entry.set_hexpand(true);
+
+        host.entry.connect_changed({
+            let port_entry = port.entry.clone();
+            let user_entry = user.entry.clone();
+            let pwd_entry = password.entry.clone();
+            let db_entry = db.entry.clone();
+            move |host_entry| {
+                if host_entry.text().starts_with("file://") {
+                    user_entry.set_sensitive(false);
+                    pwd_entry.set_sensitive(false);
+                    port_entry.set_sensitive(false);
+                    db_entry.set_sensitive(false);
+                } else {
+                    user_entry.set_sensitive(true);
+                    pwd_entry.set_sensitive(true);
+                    port_entry.set_sensitive(true);
+                    db_entry.set_sensitive(true);
+                }
+            }
+        });
 
         let conn_bx = ConnectionBox {
             host,
@@ -696,8 +718,20 @@ impl React<ActiveConnection> for ConnectionBox {
         });
         conn.connect_db_connected({
             let switch = self.switch.clone();
+            let entries = (&self.host.entry, &self.port.entry, &self.user.entry, &self.db.entry).cloned();
+            let pwd = self.password.entry.clone();
             move |_| {
                 switch.set_sensitive(true);
+                entries.iter().for_each(|e| e.set_sensitive(false) );
+                pwd.set_sensitive(false);
+            }
+        });
+        conn.connect_db_disconnected({
+            let entries = (&self.host.entry, &self.port.entry, &self.user.entry, &self.db.entry).cloned();
+            let pwd = self.password.entry.clone();
+            move|_| {
+                entries.iter().for_each(|e| e.set_sensitive(true) );
+                pwd.set_sensitive(true);
             }
         });
     }

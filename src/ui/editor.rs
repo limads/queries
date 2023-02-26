@@ -422,7 +422,7 @@ impl ExportDialog {
                 _ => { }
             }
         });
-        super::configure_dialog(&dialog);
+        super::configure_dialog(&dialog, true);
         Self { dialog }
     }
 
@@ -518,7 +518,7 @@ impl FindDialog {
 
         super::set_margins(&bx, 18, 18);
         dialog.set_child(Some(&bx));
-        super::configure_dialog(&dialog);
+        super::configure_dialog(&dialog, true);
         dialog.set_modal(false);
 
         let find_action = gio::SimpleAction::new_stateful("find", None, &(-1i32).to_variant());

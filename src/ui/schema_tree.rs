@@ -551,7 +551,7 @@ impl ImportDialog {
                 _ => { }
             }
         });
-        super::configure_dialog(&dialog);
+        super::configure_dialog(&dialog, true);
         let filter = FileFilter::new();
         filter.add_pattern("*.csv");
         dialog.set_filter(&filter);
@@ -578,7 +578,7 @@ impl ReportDialog {
     pub fn build() -> Self {
         let dialog = Dialog::new();
         dialog.set_title(Some("Report generation"));
-        crate::ui::configure_dialog(&dialog);
+        crate::ui::configure_dialog(&dialog, true);
         let template_combo = ComboBoxText::new();
         template_combo.set_margin_start(12);
         let list = ListBox::new();

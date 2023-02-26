@@ -421,30 +421,6 @@ impl ScaleBox {
 
 }
 
-/*
-mapping-area-symbolic
-mapping-scatter-symbolic
-mapping-bar-symbolic
-mapping-line-symbolic
-mapping-interval-symbolic
-
-layout-four-symbolic
-layout-horiz-symbolic
-layout-vert-symbolic
-layout-three-top-symbolic
-layout-three-bottom-symbolic
-layout-three-right-symbolic
-layout-three-left-symbolic
-layout-unique-symbolic
-
-scale-height-symbolic
-scale-width-symbolic
-scale-horizontal-symbolic
-scale-vertical-symbolic
-scale-inferior-symbolic
-scale-superior-symbolic
-*/
-
 fn icon_for_mapping(ty : MappingType) -> &'static str {
     match ty {
         MappingType::Line => "mapping-line-symbolic",
@@ -475,12 +451,14 @@ impl PlotRow {
         let vscale = self.vscale.sql();
         let mappings = self.mappings.borrow();
         let mut mappings_str = String::new();
-        for m in mappings.iter().take(mappings.len()-1) {
-            mappings_str += &m.sql();
-            mappings_str += ", ";
-        }
-        if let Some(lst) = mappings.last() {
-            mappings_str += &lst.sql();
+        if mappings.len() >= 1 {
+            for m in mappings.iter().take(mappings.len()-1) {
+                mappings_str += &m.sql();
+                mappings_str += ", ";
+            }
+            if let Some(lst) = mappings.last() {
+                mappings_str += &lst.sql();
+            }
         }
         format!(r#"
             json_build_object(
@@ -499,8 +477,8 @@ impl PlotRow {
         }
     }
 
-    pub fn build(cols_model : &Rc<RefCell<Option<ListStore>>>) -> Self {
-        let im = super::PackedImageLabel::build("roll-symbolic", "Plot");
+    pub fn build(title : &str, cols_model : &Rc<RefCell<Option<ListStore>>>) -> Self {
+        let im = super::PackedImageLabel::build("roll-symbolic", title);
         // im.bx.set_halign(Align::Start);
         // im.bx.set_hexpand(true);
 
@@ -1054,8 +1032,9 @@ impl LayoutBox {
             if ix >= 1 {
                 btn.set_group(Some(toggles[0]));
                 // btn.style_context().add_class("linked");
-                btn.style_context().add_class("flat");
+
             }
+            btn.style_context().add_class("flat");
         }
         toggle_unique.set_active(true);
 
@@ -1158,12 +1137,16 @@ impl GraphWindow {
             design_expr,
             layout_expr
         );
-        format!("WITH {}\nSELECT {}\nFROM {};", cte_arg, panel_expr, src_expr)
+        if cte_arg.is_empty() {
+            format!("SELECT {};", panel_expr)
+        } else {
+            format!("WITH {}\nSELECT {}\nFROM {};", cte_arg, panel_expr, src_expr)
+        }
     }
 
     pub fn build() -> Self {
         let win = Window::new();
-        super::configure_dialog(&win);
+        super::configure_dialog(&win, false);
         win.set_title(Some("Graph editor"));
         win.set_width_request(800);
         win.set_height_request(600);
@@ -1193,13 +1176,49 @@ impl GraphWindow {
         btn_plot.style_context().add_class("suggested-action");
 
         let cols_model = Rc::new(RefCell::new(None));
-        let pr = PlotRow::build(&cols_model);
+        let pr = PlotRow::build("Plot", &cols_model);
 
         let middle_bx = Box::new(Orientation::Vertical, 18);
         middle_bx.append(&pr.bx);
 
         let plot_rows = Rc::new(RefCell::new(Vec::new()));
         plot_rows.borrow_mut().push(pr.clone());
+
+        let toggles = [
+            (&["Plot"][..], &layout.toggle_unique),
+            (&["Top plot", "Bottom plot"][..], &layout.toggle_vertical),
+            (&["Left plot", "Right plot"][..], &layout.toggle_horizontal),
+            (&["Top plot", "Bottom left plot", "Bottom right plot"][..], &layout.toggle_three_top),
+            (&["Left plot", "Top right plot", "Bottom right plot"][..], &layout.toggle_three_left),
+            (&["Top left plot", "Bottom left plot", "Right plot"][..], &layout.toggle_three_right),
+            (&["Top left plot", "Top right plot", "Bottom plot"][..], &layout.toggle_three_bottom),
+            (&["Top left plot", "Top right plot", "Bottom left plot", "Bottom right plot"][..], &layout.toggle_four)
+        ];
+
+        for (plots, tgl) in toggles {
+            let plot_rows = plot_rows.clone();
+            let middle_bx = middle_bx.clone();
+            let cols_model = cols_model.clone();
+            tgl.connect_toggled(move|btn| {
+                if btn.is_active() {
+                    let mut plot_rows = plot_rows.borrow_mut();
+
+                    // Clear
+                    for pl in &*plot_rows {
+                        middle_bx.remove(&pl.bx);
+                    }
+                    plot_rows.clear();
+
+                    // Append new
+                    for pl in plots {
+                        let pr = PlotRow::build(pl, &cols_model);
+                        middle_bx.append(&pr.bx);
+                        plot_rows.push(pr);
+                    }
+                }
+            });
+        }
+        layout.toggle_unique.set_active(true);
 
         // list.append(&pr.exp);
         // crate::ui::configure_list(&list);
@@ -1515,7 +1534,6 @@ impl BarBox {
     }
 
 }
-
 
 
 

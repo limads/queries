@@ -727,8 +727,9 @@ impl ButtonPairBox {
 
 }
 
-pub fn configure_dialog(dialog : &impl GtkWindowExt) {
-    dialog.set_modal(true);
+pub fn configure_dialog(dialog : &impl GtkWindowExt, modal : bool) {
+    // dialog.set_modal(true);
+    dialog.set_modal(modal);
     dialog.set_deletable(true);
     dialog.set_destroy_with_parent(true);
     dialog.set_hide_on_close(true);

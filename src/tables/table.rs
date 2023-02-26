@@ -24,6 +24,7 @@ use quick_xml::Reader;
 use quick_xml::events::{Event };
 use crate::tables::nullable::NullableColumn;
 use std::ops::Index;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct TableSource {
@@ -210,6 +211,67 @@ impl Table {
         }
     }
     
+    pub fn from_sqlite_rows(
+        names : Vec<String>,
+        col_tys : &[String],
+        mut rows : rusqlite::Rows
+    ) -> Result<Table, &'static str>
+    where
+        NullableColumn : From<Vec<Option<i64>>>,
+        NullableColumn : From<Vec<Option<f64>>>,
+        NullableColumn : From<Vec<Option<String>>>,
+        NullableColumn : From<Vec<Option<Vec<u8>>>>
+    {
+
+        use crate::server::SqliteColumn;
+        let empty_cols : Result<Vec<Column>, &'static str> = col_tys.iter().map(|c| {
+            let sq_c = SqliteColumn::new(c).map_err(|_| "Unknown column type" )?;
+            let nc : NullableColumn = sq_c.into();
+            Ok(Column::from(nc))
+        }).collect();
+        let empty_cols : Vec<_> = empty_cols?;
+        if names.len() == 0 {
+            return Err("No columns available");
+        }
+        let mut sqlite_cols : Vec<SqliteColumn> = Vec::new();
+        let mut curr_row = 0;
+        while let Ok(row) = rows.next() {
+            match row {
+                Some(r) => {
+                    if curr_row == 0 {
+                        for c_ix in 0..names.len() {
+                            sqlite_cols.push(SqliteColumn::new_from_first_value(&r, c_ix)?);
+                        }
+                    } else {
+                        for (i, col) in sqlite_cols.iter_mut().enumerate() {
+                            // let value = r.get::<usize, rusqlite::types::Value>(i)
+                            //    .unwrap_or(rusqlite::types::Value::Null);
+                            // TODO panicking here when using a sqlite subtraction.
+                            // sqlite_cols[i].try_append(value)?;
+                            col.append_from_row(r, i);
+                        }
+                    }
+                    curr_row += 1;
+                },
+                None => { break; }
+            }
+        }
+        if curr_row == 0 {
+            Ok(Table::new(None, names, empty_cols)?)
+        } else {
+            let mut null_cols : Vec<NullableColumn> = sqlite_cols
+                .drain(0..sqlite_cols.len())
+                .map(|c| c.into() ).collect();
+            if null_cols.len() == 0 {
+                return Err("Too few columns");
+            }
+            let cols : Vec<Column> = null_cols.drain(0..null_cols.len())
+                .map(|nc| Column::from(nc) )
+                .collect();
+            Ok(Table::new(None, names, cols)?)
+        }
+    }
+
     pub fn from_rows(rows : &[row::Row]) -> Result<Table, &'static str> {
         let mut names : Vec<String> = rows.get(0)
             .map(|r| r.columns().iter().map(|c| c.name().to_string()).collect() )
@@ -244,10 +306,16 @@ impl Table {
             let is_oid = col_types[i] == &Type::OID;
             let is_smallint = col_types[i] == &Type::INT2;
             let is_timestamp = col_types[i] == &Type::TIMESTAMP;
+            let is_timestamp_tz = col_types[i] == &Type::TIMESTAMPTZ;
             let is_date = col_types[i] == &Type::DATE;
             let is_time = col_types[i] == &Type::TIME;
             let is_numeric = col_types[i] == &Type::NUMERIC;
+            let is_money = col_types[i] == &Type::MONEY;
+            let is_uuid = col_types[i] == &Type::UUID;
             let is_json = col_types[i] == &Type::JSON || col_types[i] == &Type::JSONB;
+            let is_point = col_types[i] == &Type::POINT;
+            let is_box = col_types[i] == &Type::BOX;
+            let is_path = col_types[i] == &Type::PATH;
             let is_text_arr = col_types[i] == &Type::TEXT_ARRAY;
             let is_real_arr = col_types[i] == &Type::FLOAT4_ARRAY;
             let is_dp_arr = col_types[i] == &Type::FLOAT8_ARRAY;
@@ -257,18 +325,25 @@ impl Table {
             let is_bigint_arr = col_types[i] == &Type::INT8_ARRAY;
             let _is_xml = col_types[i] == &Type::XML;
             let is_json_arr = col_types[i] == &Type::JSON_ARRAY;
-            let array_ty = match (is_text_arr, is_real_arr, is_dp_arr, is_smallint_arr, is_int_arr, is_bigint_arr, is_json_arr, is_decimal_arr) {
-                (true, _, _, _, _, _, _, _) => Some(ArrayType::Text),
-                (_, true, _, _, _, _, _, _) => Some(ArrayType::Float4),
-                (_, _, true, _, _, _, _, _) => Some(ArrayType::Float8),
-                (_, _, _, true, _, _, _, _) => Some(ArrayType::Int2),
-                (_, _, _, _, true, _, _, _) => Some(ArrayType::Int4),
-                (_, _, _, _, _, true, _, _) => Some(ArrayType::Int8),
-                (_, _, _, _, _, _, true, _) => Some(ArrayType::Json),
-                (_, _, _, _, _, _, _, true) => Some(ArrayType::Decimal),
-                _ => None
+            let array_ty = if is_text_arr {
+                Some(ArrayType::Text)
+            } else if is_real_arr {
+                Some(ArrayType::Float4)
+            } else if is_dp_arr {
+                Some(ArrayType::Float8)
+            } else if is_smallint_arr {
+                Some(ArrayType::Int2)
+            } else if is_int_arr {
+                Some(ArrayType::Int4)
+            } else if is_bigint_arr {
+                Some(ArrayType::Int8)
+            } else if is_json_arr {
+                Some(ArrayType::Json)
+            } else if is_decimal_arr {
+                Some(ArrayType::Decimal)
+            } else {
+                None
             };
-
             if is_bool {
                 null_cols.push(nullable_from_rows::<bool>(rows, i)?);
             } else if is_bytea {
@@ -291,11 +366,21 @@ impl Table {
                 null_cols.push(nullable_from_rows::<u32>(rows, i)?);
             } else if is_timestamp {
                 null_cols.push(as_nullable_text::<chrono::NaiveDateTime>(rows, i)?);
+            } else if is_timestamp_tz {
+                null_cols.push(as_nullable_text::<chrono::DateTime<chrono::Utc>>(rows, i)?);
             } else if is_date {
                 null_cols.push(as_nullable_text::<chrono::NaiveDate>(rows, i)?);
             } else if is_time {
                 null_cols.push(as_nullable_text::<chrono::NaiveTime>(rows, i)?);
-            } else if is_numeric {
+            } else if is_uuid {
+                null_cols.push(as_nullable_text::<uuid::Uuid>(rows, i)?);
+            } else if is_point {
+                null_cols.push(as_nullable_json_value::<geo_types::Point<f64>>(rows, i)?);
+            } else if is_path {
+               null_cols.push(as_nullable_json_value::<geo_types::LineString<f64>>(rows, i)?);
+            } else if is_box {
+                null_cols.push(as_nullable_json_value::<geo_types::Rect<f64>>(rows, i)?);
+            } else if is_numeric || is_money {
                 null_cols.push(nullable_from_rows::<Decimal>(rows, i)?);
             } else if is_json {
                 null_cols.push(nullable_from_rows::<Value>(rows, i)?);
@@ -305,6 +390,12 @@ impl Table {
                 null_cols.push(nullable_unable_to_parse(rows, col_types[i]));
             }
         }
+
+        // TODO missing hstore identifier
+        // let is_hstore = col_types[i] == &Type::HSTORE;
+        // if is_hstore {
+        //    null_cols.push(hstore_to_value(rows, i)?);
+
         let cols : Vec<Column> = null_cols.drain(0..names.len())
             .map(|nc| Column::from(nc) ).collect();
         Ok(Table::new(None, names, cols)?)
@@ -1374,6 +1465,17 @@ pub fn col_as_opt_vec<'a, T>(
     Ok(opt_data)
 }
 
+pub fn hstore_to_value(
+    rows : &[row::Row],
+    ix : usize
+) -> Result<NullableColumn, &'static str> {
+    let mut opt_data = col_as_opt_vec::<HashMap<String, Option<String>>>(rows, ix)?;
+    let vals : Vec<Option<Value>> = opt_data.drain(..)
+        .map(|opt_hash| opt_hash.and_then(|hash| serde_json::to_value(hash).ok() ))
+        .collect();
+    Ok(NullableColumn::from(vals))
+}
+
 pub fn nullable_from_rows<'a, T>(
     rows : &'a [row::Row],
     ix : usize
@@ -1398,6 +1500,29 @@ pub fn as_nullable_text<'a, T>(
     let str_data : Vec<Option<String>> = opt_data.iter()
         .map(|opt| opt.as_ref().map(|o| o.to_string()) ).collect();
     Ok(NullableColumn::from(str_data))
+}
+
+pub fn as_nullable_json_value<'a, T>(
+    rows : &'a [row::Row],
+    ix : usize
+) -> Result<NullableColumn, &'static str>
+    where
+        T : FromSql<'a> + ToSql + Sync + serde::Serialize,
+        NullableColumn : From<Vec<Option<String>>>
+{
+    let mut opt_data = col_as_opt_vec::<T>(rows, ix)?;
+    let val_data : Result<Vec<Option<Value>>, &'static str> = opt_data.drain(..)
+        .map(|opt| match opt {
+            Some(t) => {
+                if let Ok(val) = serde_json::to_value(t) {
+                    Ok(Some(val))
+                } else {
+                    Err("Unable to serialize")
+                }
+            },
+            None => Ok(None)
+        }).collect();
+    Ok(NullableColumn::from(val_data?))
 }
 
 pub enum ArrayType {

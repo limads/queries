@@ -91,6 +91,28 @@ pub fn display_binary(s : &[u8]) -> String {
 
 impl<'a> Column {
 
+    pub fn try_complete_from_nullable(null_col : NullableColumn) -> Result<Self, ()> {
+        let n = null_col.len();
+        let col : Column = match null_col {
+            NullableColumn::Bool(mut s) => Column::from(s.drain(..).filter_map(|s| s ).collect::<Vec<_>>()),
+            NullableColumn::I8(mut s) => Column::from(s.drain(..).filter_map(|s| s ).collect::<Vec<_>>()),
+            NullableColumn::I16(mut s) => Column::from(s.drain(..).filter_map(|s| s ).collect::<Vec<_>>()),
+            NullableColumn::I32(mut s) => Column::from(s.drain(..).filter_map(|s| s ).collect::<Vec<_>>()),
+            NullableColumn::U32(mut s) => Column::from(s.drain(..).filter_map(|s| s ).collect::<Vec<_>>()),
+            NullableColumn::I64(mut s) => Column::from(s.drain(..).filter_map(|s| s ).collect::<Vec<_>>()),
+            NullableColumn::F32(mut s) => Column::from(s.drain(..).filter_map(|s| s ).collect::<Vec<_>>()),
+            NullableColumn::F64(mut s) => Column::from(s.drain(..).filter_map(|s| s ).collect::<Vec<_>>()),
+            NullableColumn::Numeric(mut s) => Column::from(s.drain(..).filter_map(|s| s ).collect::<Vec<_>>()),
+            NullableColumn::Str(mut s) => Column::from(s.drain(..).filter_map(|s| s ).collect::<Vec<_>>()),
+            NullableColumn::Bytes(mut s) => Column::from(s.drain(..).filter_map(|s| s ).collect::<Vec<_>>()),
+            NullableColumn::Json(mut s) => Column::from(s.drain(..).filter_map(|s| s ).collect::<Vec<_>>())
+        };
+        if col.len() == n {
+            Ok(col)
+        } else {
+            Err(())
+        }
+    }
     pub fn filtered(&self, val : &str) -> Option<(Vec<usize>, Column)> {
         match self {
             Column::Bool(vs) => {
