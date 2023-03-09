@@ -13,7 +13,7 @@ pub fn remote_connection() {
         let ssl_query = "select pg_stat_ssl.pid, application_name, ssl, version
         from pg_stat_ssl inner join pg_stat_activity on pg_stat_ssl.pid = pg_stat_activity.pid
         where application_name='Queries';";
-        let ans = edb.conn.query(ssl_query, &HashMap::new());
+        let ans = edb.conn.query(ssl_query);
         let tbl = ans.table().unwrap();
         println!("{}", tbl);
         let ssl : Vec<bool> = tbl["ssl"].clone().try_into().unwrap();

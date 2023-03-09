@@ -5,8 +5,12 @@ use std::env;
 use queries::server::*;
 use std::error::Error;
 use url::Url;
+use gtk4::glib;
+use queries::sql::StatementOutput;
+use std::rc::Rc;
+use std::cell::RefCell;
 
-#![allow(warnings)]
+// #![allow(warnings)]
 
 /*// Launch a test run of Queries. This differs from a regular launch
 // in that no user state is read/written into disk. Takes a closure F
@@ -125,7 +129,9 @@ impl TempDB {
         let mut info = ConnectionInfo::default();
         info.user = user.to_string();
         info.database = db.to_string();
-        info.host = "localhost:5432".to_string();
+        info.host = "localhost".to_string();
+        info.port = String::from("5432");
+        info.security = Security::new_insecure();
         let pwd = info.user.to_string();
         let uri = ConnURI::new(info.clone(), &pwd).unwrap();
         let conn = PostgresConnection::try_new(uri.clone())?;
@@ -212,6 +218,31 @@ pub fn run_with_temp_db(f : impl FnOnce(TempDB) + std::panic::UnwindSafe) {
     //    std::panic::resume_unwind(e);
     // }
     
+}
+
+pub fn exec_next_statement(stmt_ix : &Rc<RefCell<usize>>, all_stmts : &[String], sender : &glib::Sender<ActiveConnectionAction>) {
+    let mut stmt_ix = stmt_ix.borrow_mut();
+    *stmt_ix += 1;
+    if *stmt_ix < all_stmts.len() {
+        sender.send(ActiveConnectionAction::ExecutionRequest(all_stmts[*stmt_ix].to_string())).unwrap();
+    } else {
+        println!("All statements executed");
+    }
+}
+
+pub fn print_output(r : &StatementOutput) {
+    match r {
+        StatementOutput::Invalid(msg, by_engine) => {
+            if *by_engine {
+                println!("Statement rejected by server: {}", msg);
+            } else {
+                println!("Statement rejected by client: {}", msg);
+            }
+        },
+        out => {
+            println!("Statement executed: {:?}", out);
+        }
+    }
 }
 
 

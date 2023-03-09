@@ -8,6 +8,8 @@ use std::cell::RefCell;
 
 // Double dolar sign string literals are unsupported syntax (they get mixed with SQL placeholders).
 
+// TODO sqlparser does not accept constants such as CURRENT_DATE as insert argument; function calls are ok.
+
 mod unsupported {
 
     const CREATE_TABLE : &'static str = r#"
@@ -382,16 +384,6 @@ const SCHEMA_DROP : &'static str = r#"
 DROP SCHEMA myschema;
 "#;
 
-fn exec_next_statement(stmt_ix : &Rc<RefCell<usize>>, all_stmts : &[String], sender : &glib::Sender<ActiveConnectionAction>) {
-    let mut stmt_ix = stmt_ix.borrow_mut();
-    *stmt_ix += 1; 
-    if *stmt_ix < all_stmts.len() {
-        sender.send(ActiveConnectionAction::ExecutionRequest(all_stmts[*stmt_ix].to_string())).unwrap();
-    } else {
-        println!("All statements executed");
-    }
-}
-
 // cargo test -- execution --nocapture
 #[test]
 pub fn execution() {
@@ -455,7 +447,7 @@ pub fn execution() {
             let all_stmts = all_stmts.clone();
             move |_update| {
                 // Called after create table/create view statements
-                exec_next_statement(&stmt_ix, &all_stmts[..], &sender);
+                common::exec_next_statement(&stmt_ix, &all_stmts[..], &sender);
             }
         });
         conn.connect_exec_result({
@@ -463,18 +455,7 @@ pub fn execution() {
             let stmt_ix = stmt_ix.clone();
             move |res| {
                 for r in &res {
-                    match r {
-                        StatementOutput::Invalid(msg, by_engine) => {
-                            if *by_engine {
-                                println!("Statement rejected by server: {}", msg);
-                            } else {
-                                println!("Statement rejected by client: {}", msg);
-                            }                            
-                        },
-                        out => { 
-                            println!("Statement executed: {:?}", out);
-                        }
-                    }
+                    common::print_output(&r);
                 }
                 
                 // If there is at least one create/alter, that means the next call will happen at the schema update callback.
@@ -489,7 +470,7 @@ pub fn execution() {
                     }
                 });
                 if !changed_schema {
-                    exec_next_statement(&stmt_ix, &all_stmts[..], &sender);
+                    common::exec_next_statement(&stmt_ix, &all_stmts[..], &sender);
                 }
             }
         });

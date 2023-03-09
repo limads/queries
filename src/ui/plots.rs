@@ -51,14 +51,7 @@ impl DesignBox {
         let fgcolor = color_literal(&self.grid_color_btn);
         let width = self.grid_thickness_scale.value();
         let font = font_literal(&self.font_btn);
-        format!(r#"
-            json_build_object(
-                'bgcolor', {},
-                'fgcolor', {},
-                'width', {},
-                'font', '{}'
-            )"#, bgcolor, fgcolor, width, font
-        )
+        format!("json_build_object('bgcolor', {}, 'fgcolor', {}, 'width', {}, 'font', '{}')", bgcolor, fgcolor, width, font)
     }
 
     pub fn build() -> DesignBox {
@@ -76,7 +69,7 @@ impl DesignBox {
         bx.append(&design_list);
 
         let bg_color_row = ListBoxRow::new();
-        let bg_color_btn : ColorButton = ColorButton::new();
+        let bg_color_btn = ColorButton::with_rgba(&RGBA::WHITE);
         bg_color_row.set_selectable(false);
         bg_color_row.set_activatable(false);
         let bg_color_bx = NamedBox::new("Background", Some("Plot area background color"), bg_color_btn);
@@ -84,7 +77,7 @@ impl DesignBox {
         design_list.append(&bg_color_row);
 
         let grid_color_row = ListBoxRow::new();
-        let grid_color_btn : ColorButton = ColorButton::new();
+        let grid_color_btn = ColorButton::with_rgba(&RGBA::parse("#D3D7CF").unwrap());
         grid_color_row.set_selectable(false);
         grid_color_row.set_activatable(false);
         let grid_color_bx = NamedBox::new("Grid", Some("Plot grid color"), grid_color_btn);
@@ -94,6 +87,8 @@ impl DesignBox {
         let adj = Adjustment::builder().lower(0.0).upper(10.0).step_increment(0.1).build();
         let grid_thickness_scale : Scale = Scale::new(Orientation::Horizontal, Some(&adj));
         grid_thickness_scale.set_hexpand(true);
+        grid_thickness_scale.set_value(1.0);
+
         let grid_thickness_row = ListBoxRow::new();
         grid_thickness_row.set_selectable(false);
         grid_thickness_row.set_activatable(false);
@@ -103,6 +98,7 @@ impl DesignBox {
 
         let font_row = ListBoxRow::new();
         let font_btn = FontButton::new();
+        font_btn.set_font("Monospace Regular 22");
         font_row.set_selectable(false);
         font_row.set_activatable(false);
         let font_bx = NamedBox::new("Font", Some("Plot font for labels and scale values"), font_btn);
@@ -129,9 +125,13 @@ pub struct LabeledScale {
 impl LabeledScale {
 
     pub fn build(name : &str, min : f64, max : f64, step : f64) -> Self {
-        let adj = Adjustment::builder().lower(min).upper(max).step_increment(step).build();
+        // let adj = Adjustment::builder().lower(min).upper(max).step_increment(step).page_increment(step).page_size(step).build();
+        // adj.set_step_increment(step);
         let lbl = Label::new(Some(name));
-        let scale = Scale::new(Orientation::Horizontal, Some(&adj));
+        // let scale = Scale::new(Orientation::Horizontal, Some(&adj));
+        let scale = Scale::with_range(Orientation::Horizontal, min, max, step);
+        scale.set_draw_value(true);
+        scale.set_value_pos(PositionType::Right);
         let bx = Box::new(Orientation::Horizontal, 0);
         bx.append(&lbl);
         bx.append(&scale);
@@ -150,9 +150,9 @@ pub struct LabeledColorBtn {
 
 impl LabeledColorBtn {
 
-    pub fn build(name : &str) -> Self {
+    pub fn build(name : &str, color : &gdk::RGBA) -> Self {
         let lbl = Label::new(Some(name));
-        let btn = ColorButton::with_rgba(&RGBA::BLACK);
+        let btn = ColorButton::with_rgba(color);
         let bx = Box::new(Orientation::Horizontal, 0);
         bx.append(&lbl);
         bx.append(&btn);
@@ -345,9 +345,13 @@ impl ScaleBox {
             max = String::from("1.0");
         }
         let adjust = "'off'";
+
+        // TODO require min < max
+        // TODO require text parsing.
+
         let log = bool_literal(&self.log_switch);
         let invert = bool_literal(&self.invert_switch);
-        let offset = self.offset_scale.value();
+        let offset = self.offset_scale.value() as i32;
         let density = self.density_scale.value();
         let precision = 2;
         format!(r#"json_build_object(
@@ -407,6 +411,10 @@ impl ScaleBox {
         let bx = Box::new(Orientation::Vertical, 6);
         bx.append(&bx_top);
         bx.append(&bx_bottom);
+
+        density_bx.scale.set_value(5.0);
+        offset_bx.scale.set_value(0.0);
+
         ScaleBox {
             bx,
             label_entry,
@@ -434,14 +442,12 @@ fn icon_for_mapping(ty : MappingType) -> &'static str {
 
 #[derive(Debug, Clone)]
 pub struct PlotRow {
-    // exp : ExpanderRow,
     list : ListBox,
     bx : Box,
     add_btn : Button,
     hscale : ScaleBox,
     vscale : ScaleBox,
     mappings : Rc<RefCell<Vec<MappingRow>>>,
-    //completions : Rc<RefCell<Vec<EntryCompletion>>>
 }
 
 impl PlotRow {
@@ -451,7 +457,7 @@ impl PlotRow {
         let vscale = self.vscale.sql();
         let mappings = self.mappings.borrow();
         let mut mappings_str = String::new();
-        if mappings.len() >= 1 {
+        let arr_expr = if mappings.len() >= 1 {
             for m in mappings.iter().take(mappings.len()-1) {
                 mappings_str += &m.sql();
                 mappings_str += ", ";
@@ -459,13 +465,16 @@ impl PlotRow {
             if let Some(lst) = mappings.last() {
                 mappings_str += &lst.sql();
             }
-        }
+            format!("array[{}]", mappings_str)
+        } else {
+            String::from("array[]::json[]")
+        };
         format!(r#"
             json_build_object(
-                'mappings' : array[{}],
-                'x' : {},
-                'y' : {}
-            )"#, mappings_str, hscale, vscale
+                'mappings', {},
+                'x', {},
+                'y', {}
+            )"#, arr_expr, hscale, vscale
         )
     }
 
@@ -479,9 +488,6 @@ impl PlotRow {
 
     pub fn build(title : &str, cols_model : &Rc<RefCell<Option<ListStore>>>) -> Self {
         let im = super::PackedImageLabel::build("roll-symbolic", title);
-        // im.bx.set_halign(Align::Start);
-        // im.bx.set_hexpand(true);
-
         let title_bx = Box::new(Orientation::Horizontal, 0);
         configure_title(&title_bx);
 
@@ -492,14 +498,6 @@ impl PlotRow {
         let list = ListBox::new();
         crate::ui::configure_list(&list);
         list.set_halign(Align::Center);
-        // let exp = ExpanderRow::new();
-
-        // exp.set_selectable(false);
-        // exp.set_activatable(false);
-
-        // exp.set_title("Center");
-        // exp.set_subtitle("No mappings");
-        // exp.set_icon_name(Some("roll-symbolic"));
 
         let add_btn = Button::builder().icon_name("list-add-symbolic").build();
         add_btn.style_context().add_class("flat");
@@ -522,15 +520,7 @@ impl PlotRow {
         mapping_bx.append(&interval_btn);
         mapping_bx.append(&area_btn);
 
-        // let action = ActionBar::new();
-        // action.set_center_widget(Some(&mapping_bx));
-        // action.set_revealed(false);
         mapping_bx.set_visible(false);
-
-        /*let provider = CssProvider::new();
-        provider.load_from_data(b"actionbar { background-color : #FFFFFF; }");
-        let ctx = action.style_context();
-        ctx.add_provider(&provider,800);*/
 
         let action_bx = Box::new(Orientation::Horizontal, 0);
         action_bx.set_halign(Align::End);
@@ -539,7 +529,6 @@ impl PlotRow {
         action_bx.append(&add_btn);
         title_bx.append(&action_bx);
 
-        // exp.add_action(&bx);
         add_btn.connect_clicked({
             let mapping_bx = mapping_bx.clone();
             move|_| {
@@ -549,8 +538,7 @@ impl PlotRow {
         for btn in [&line_btn, &scatter_btn, &text_btn, &area_btn, &bar_btn, &interval_btn] {
             let mapping_bx = mapping_bx.clone();
             btn.style_context().add_class("flat");
-            btn.connect_clicked(move|_|{
-                // action.set_revealed(false);
+            btn.connect_clicked(move|_| {
                 mapping_bx.set_visible(false);
             });
         }
@@ -603,29 +591,23 @@ impl PlotRow {
             (&interval_btn, MappingType::Interval)
         ];
 
-        //let completions = Rc::new(RefCell::new(Vec::new()));
         for (btn, ty) in btns {
             let mappings = mappings.clone();
             let list = list.clone();
             let cols_model = cols_model.clone();
-            //let completions = completions.clone();
             btn.clone().connect_clicked(move |_| {
                 let row = MappingRow::build(ty);
                 match &row.props {
                     MappingBox::Bar(bar_bx) => {
                         row.data.bx.append(&bar_bx.origin_entry);
-                        // row.data.bx.append(&bar_bx.origin_y_entry);
                         row.data.bx.append(&bar_bx.spacing_entry);
                     },
                     _ => { }
                 }
                 if let Some(model) = &*cols_model.borrow() {
-                    // println!("Added model");
                     for e in &row.data.entries {
-                        /*completions.borrow_mut().push(*/ add_completion(&e, &model);
+                        add_completion(&e, &model);
                     }
-                } else {
-                    // println!("No model to be added");
                 }
                 list.append(&row.row);
                 row.exclude_btn.connect_clicked({
@@ -646,7 +628,6 @@ impl PlotRow {
             });
         }
 
-        // exp.set_expanded(true);
         let bx = Box::new(Orientation::Vertical, 0);
         bx.set_halign(Align::Center);
         bx.set_hexpand(false);
@@ -655,7 +636,7 @@ impl PlotRow {
         bx.append(&title_bx);
         bx.append(&list);
 
-        Self { add_btn, hscale, vscale, mappings, list, bx /*completions*/ }
+        Self { add_btn, hscale, vscale, mappings, list, bx }
     }
 
 }
@@ -716,7 +697,7 @@ impl MappingRow {
 	            json_build_object(
 	                'kind', 'line',
 	                'map', json_build_object('x', {}, 'y', {}),
-	                'color', '{}',
+	                'color', {},
 	                'width', {},
 	                'spacing', {}
 	            )", x, y, color, width, dash)
@@ -920,14 +901,19 @@ fn font_literal(font_btn : &FontButton) -> String {
 
 fn bool_literal(switch : &Switch) -> &'static str {
     if switch.is_active() {
-        "'t'"
+        "true"
     } else {
-        "'f'"
+        "false"
     }
 }
 
 fn color_literal(color_btn : &ColorButton) -> String {
-    format!("'{}'", color_btn.rgba())
+    let rgba = color_btn.rgba();
+    let red = (rgba.red() * 255.0) as u8;
+    let green = (rgba.green() * 255.0) as u8;
+    let blue = (rgba.blue() * 255.0) as u8;
+    let alpha = (rgba.alpha() * 255.0) as u8;
+    format!("'#{:02X}{:02X}{:02X}{:02X}'", red, green, blue, alpha)
 }
 
 fn configure_title(bx : &gtk4::Box) {
@@ -958,8 +944,14 @@ pub struct LayoutBox {
 impl LayoutBox {
 
     pub fn sql(&self) -> String {
-        let width = self.width_entry.text();
-        let height = self.width_entry.text();
+        let mut width = self.width_entry.text().to_string();
+        let mut height = self.height_entry.text().to_string();
+        if width.is_empty() {
+            width = String::from("800");
+        }
+        if height.is_empty() {
+            height = String::from("600");
+        }
         let split = if self.toggle_unique.is_active() {
             "unique"
         } else if self.toggle_vertical.is_active() {
@@ -981,20 +973,34 @@ impl LayoutBox {
         };
         let hratio = self.hratio_scale.value();
         let vratio = self.vratio_scale.value();
-        format!(r#"
-            select json_build_object(
-                'width', {},
-                'height', {},
-                'hratio', {},
-                'vratio', {},
-                'split', '{}'
-            )"#, width, height, hratio, vratio, split
+        format!(
+            "json_build_object('width', {}, 'height', {}, 'hratio', {:.2}, 'vratio', {:.2}, 'split', '{}')",
+            width,
+            height,
+            hratio,
+            vratio,
+            split
         )
     }
 
     pub fn build() -> Self {
         let layout_title_bx = PackedImageLabel::build("folder-templates-symbolic", "Layout");
         configure_title(&layout_title_bx.bx);
+
+        let split_bx_inner = Box::new(Orientation::Horizontal, 0);
+        split_bx_inner.style_context().add_class("linked");
+        let hratio_scale = Scale::new(Orientation::Horizontal, Some(&Adjustment::builder().lower(0.0).upper(1.0).step_increment(0.1).build()));
+        let vratio_scale = Scale::new(Orientation::Horizontal, Some(&Adjustment::builder().lower(0.0).upper(1.0).step_increment(0.1).build()));
+        hratio_scale.set_value(0.5);
+        vratio_scale.set_value(0.5);
+        for scale in [&hratio_scale, &vratio_scale] {
+            scale.set_hexpand(true);
+            scale.set_width_request(128);
+            scale.set_draw_value(true);
+            scale.set_value_pos(PositionType::Left);
+            split_bx_inner.append(scale);
+            scale.set_sensitive(false);
+        }
 
         let bx = Box::new(Orientation::Vertical, 0);
         bx.set_halign(Align::Center);
@@ -1006,7 +1012,7 @@ impl LayoutBox {
         crate::ui::configure_list(&layout_list);
         layout_list.set_halign(Align::Center);
         bx.append(&layout_list);
-        let dim_row = ListBoxRow::new();
+        // let dim_row = ListBoxRow::new();
         let layout_toggle_bx = Box::new(Orientation::Horizontal, 0);
         layout_toggle_bx.style_context().add_class("linked");
         let toggle_unique = ToggleButton::builder().icon_name("layout-unique-symbolic").build();
@@ -1027,13 +1033,31 @@ impl LayoutBox {
             &toggle_three_bottom,
             &toggle_four
         ];
+        let ratio_toggles = [
+            (false, false),
+            (false, true),
+            (true, false),
+            (true, true),
+            (true, true),
+            (true, true),
+            (true, true),
+            (true, true),
+        ];
         for (ix, btn) in toggles.iter().enumerate() {
+            let (hratio_scale, vratio_scale) = (hratio_scale.clone(), vratio_scale.clone());
             layout_toggle_bx.append(*btn);
             if ix >= 1 {
                 btn.set_group(Some(toggles[0]));
-                // btn.style_context().add_class("linked");
-
             }
+
+            let ratio_toggle = ratio_toggles[ix];
+            btn.connect_toggled(move |btn| {
+                if btn.is_active() {
+                    hratio_scale.set_sensitive(ratio_toggle.0);
+                    vratio_scale.set_sensitive(ratio_toggle.1);
+                }
+            });
+
             btn.style_context().add_class("flat");
         }
         toggle_unique.set_active(true);
@@ -1055,18 +1079,6 @@ impl LayoutBox {
         dim_bx_inner.append(&width_entry);
         dim_bx_inner.append(&height_entry);
 
-        let split_bx_inner = Box::new(Orientation::Horizontal, 0);
-        split_bx_inner.style_context().add_class("linked");
-        let hratio_scale = Scale::new(Orientation::Horizontal, Some(&Adjustment::builder().lower(0.0).upper(1.0).step_increment(0.1).build()));
-        let vratio_scale = Scale::new(Orientation::Horizontal, Some(&Adjustment::builder().lower(0.0).upper(1.0).step_increment(0.1).build()));
-        for scale in [&hratio_scale, &vratio_scale] {
-            scale.set_hexpand(true);
-            scale.set_width_request(128);
-            scale.set_draw_value(true);
-            scale.set_value_pos(PositionType::Left);
-            split_bx_inner.append(scale);
-        }
-
         let dim_row = ListBoxRow::new();
         dim_row.set_selectable(false);
         dim_row.set_activatable(false);
@@ -1077,7 +1089,7 @@ impl LayoutBox {
         let split_row = ListBoxRow::new();
         split_row.set_selectable(false);
         split_row.set_activatable(false);
-        let split_bx = NamedBox::new("Separation", Some("Distribution (in %) of vertical and horizontal areas"), split_bx_inner);
+        let split_bx = NamedBox::new("Distribution", Some("Relative distribution over horizontal and vertical areas"), split_bx_inner);
 
         split_row.set_child(Some(&split_bx.bx));
         layout_list.append(&split_row);
@@ -1132,7 +1144,11 @@ impl GraphWindow {
         let design_expr = self.design.sql();
         let plots_expr : String = rows.iter().cloned().map(|r| r.sql() ).collect::<Vec<_>>().join(",\n");
         let panel_expr = format!(
-            "json_build_object('plots', array[{}], 'design', {}, 'layout', {})",
+            "json_build_object(
+                'plots', array[{}],
+                'design', {},
+                'layout', {}
+            )",
             plots_expr,
             design_expr,
             layout_expr
@@ -1226,7 +1242,7 @@ impl GraphWindow {
         bx.append(&middle_bx);
         bx.append(&bottom_bx);
 
-        Self {
+        let gw = Self {
             win,
             btn_clear,
             btn_sql,
@@ -1236,7 +1252,22 @@ impl GraphWindow {
             plot_rows,
             objs : Default::default(),
             cols_model
-        }
+        };
+
+        gw.btn_sql.connect_clicked({
+            let gw = gw.clone();
+            move|_| {
+                if let Some(displ) = gdk::Display::default() {
+                    let sql = gw.plot_sql();
+                    displ.clipboard().set_text(&sql);
+                } else {
+                    eprintln!("No default display to use");
+                }
+            }
+        });
+
+        gw
+
     }
 
 }
@@ -1375,9 +1406,10 @@ pub struct ScatterBox {
 impl ScatterBox {
 
     pub fn build() -> Self {
-        let color_bx  = LabeledColorBtn::build("Color");
+        let color_bx  = LabeledColorBtn::build("Color", &RGBA::BLACK);
         let radius_bx = LabeledScale::build("Radius", 1.0, 20.0, 1.0);
         let bx = Box::new(Orientation::Horizontal, 6);
+        radius_bx.scale.set_value(10.0);
         bx.append(&color_bx.bx);
         bx.append(&radius_bx.bx);
         Self { color_btn : color_bx.btn, radius_scale : radius_bx.scale, bx }
@@ -1396,13 +1428,15 @@ pub struct LineBox {
 impl LineBox {
 
     pub fn build() -> Self {
-        let color_bx = LabeledColorBtn::build("Line color");
-        let width_bx = LabeledScale::build("Width", 0.0, 10.0, 1.0);
-        let dash_bx = LabeledScale::build("Dash", 0.0, 10.0, 1.0);
+        let color_bx = LabeledColorBtn::build("Line color", &RGBA::BLACK);
+        let width_bx = LabeledScale::build("Width", 1.0, 10.0, 1.0);
+        let dash_bx = LabeledScale::build("Dash", 1.0, 10.0, 1.0);
         let bx = Box::new(Orientation::Horizontal, 6);
         for b in [&color_bx.bx, &width_bx.bx, &dash_bx.bx] {
             bx.append(b);
         }
+        width_bx.scale.set_value(1.0);
+        dash_bx.scale.set_value(1.0);
         Self { color_btn : color_bx.btn, width_scale : width_bx.scale, dash_scale : dash_bx.scale, bx }
     }
 
@@ -1418,11 +1452,12 @@ pub struct TextBox {
 impl TextBox {
 
     pub fn build() -> Self {
-        let color_bx  = LabeledColorBtn::build("Color");
+        let color_bx  = LabeledColorBtn::build("Color", &RGBA::BLACK);
         let font_bx  = LabeledFontBtn::build("Font");
         let bx = Box::new(Orientation::Horizontal, 6);
         bx.append(&color_bx.bx);
         bx.append(&font_bx.bx);
+        font_bx.btn.set_font("Monospace Regular 22");
         Self { color_btn : color_bx.btn, font_btn : font_bx.btn, bx }
     }
 
@@ -1438,7 +1473,7 @@ pub struct AreaBox {
 impl AreaBox {
 
     pub fn build() -> Self {
-        let color_bx  = LabeledColorBtn::build("Color");
+        let color_bx  = LabeledColorBtn::build("Color", &RGBA::BLACK);
         let opacity_bx = LabeledScale::build("Opacity", 0.0, 100.0, 1.0);
         let bx = Box::new(Orientation::Horizontal, 6);
         bx.append(&color_bx.bx);
@@ -1462,16 +1497,20 @@ impl IntervalBox {
 
     pub fn build() -> Self {
         let bx = Box::new(Orientation::Horizontal, 6);
-        let color_bx = LabeledColorBtn::build("Line color");
-        let width_bx = LabeledScale::build("Width", 0.0, 10.0, 1.0);
+        let color_bx = LabeledColorBtn::build("Line color", &RGBA::BLACK);
+        let width_bx = LabeledScale::build("Width", 1.0, 10.0, 1.0);
         let vertical_bx = LabeledSwitch::build("Vertical");
-        let spacing_bx = LabeledScale::build("Spacing", 0.0, 100.0, 1.0);
+        let spacing_bx = LabeledScale::build("Spacing", 1.0, 100.0, 1.0);
         let limits_bx = LabeledScale::build("Limits", 0.0, 100.0, 1.0);
 	    bx.append(&color_bx.bx);
         bx.append(&width_bx.bx);
         bx.append(&vertical_bx.bx);
         bx.append(&spacing_bx.bx);
         bx.append(&limits_bx.bx);
+        width_bx.scale.set_value(1.0);
+        spacing_bx.scale.set_value(1.0);
+        limits_bx.scale.set_value(1.0);
+        vertical_bx.switch.set_active(true);
         Self {
             bx,
             color_btn : color_bx.btn,
@@ -1500,14 +1539,12 @@ pub struct BarBox {
 impl BarBox {
 
     pub fn build() -> Self {
-        let color_bx = LabeledColorBtn::build("Color");
+        let color_bx = LabeledColorBtn::build("Color", &RGBA::BLACK);
         let center_bx = LabeledSwitch::build("Centered");
         let vertical_bx = LabeledSwitch::build("Horizontal");
         let width_bx = LabeledScale::build("Bar width", 0.0, 1.0, 0.1);
         let origin_entry = Entry::builder().placeholder_text("Origin")
             .primary_icon_name("scale-left-symbolic").max_width_chars(8).hexpand(true).build();
-        //let origin_y_entry = Entry::builder().placeholder_text("Y origin")
-        //    .primary_icon_name("scale-inferior-symbolic").max_width_chars(8).hexpand(true).build();
         let spacing_entry = Entry::builder().placeholder_text("Spacing")
             .primary_icon_name("scale-horizontal-symbolic").max_width_chars(8).hexpand(true).build();
         let bx = Box::new(Orientation::Horizontal, 0);
@@ -1515,20 +1552,16 @@ impl BarBox {
         bx.append(&center_bx.bx);
         bx.append(&vertical_bx.bx);
         bx.append(&width_bx.bx);
-        //let bx_limits = Box::new(Orientation::Horizontal, 0);
-        //bx_limits.style_context().add_class("linked");
-        //bx_limits.append(&origin_x_entry);
-        //bx_limits.append(&origin_y_entry);
-        // bx_limits.append(&spacing_entry);
+        width_bx.scale.set_value(1.0);
+        center_bx.switch.set_active(false);
+        vertical_bx.switch.set_active(true);
         Self {
             bx,
-            //bx_limits,
             color_btn : color_bx.btn,
             center_switch : center_bx.switch,
             vertical_switch : vertical_bx.switch,
             width_scale : width_bx.scale,
             origin_entry,
-            // origin_y_entry,
             spacing_entry
         }
     }

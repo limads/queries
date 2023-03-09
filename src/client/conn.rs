@@ -167,6 +167,14 @@ pub enum HostKind {
 
 impl ConnectionInfo {
 
+    pub fn new_sqlite(path : &str) -> Self {
+        let mut info = ConnectionInfo::default();
+        info.host = path.to_string();
+        info.security = Security::new_insecure();
+        info.engine = Engine::SQLite;
+        info
+    }
+
     pub fn kind(&self) -> Option<HostKind> {
         if Ipv4Addr::from_str(&self.host[..]).is_ok() {
             Some(HostKind::Ipv4)
@@ -1671,6 +1679,7 @@ impl React<QueryBuilderWindow> for ActiveConnection {
         let win_c = win.clone();
         win.btn_run.connect_clicked(move |_| {
             let sql = win_c.current_sql();
+            println!("SQL = {}", sql);
             send.send(ActiveConnectionAction::ExecutionRequest(sql));
         });
     }

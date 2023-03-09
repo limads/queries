@@ -718,20 +718,27 @@ impl React<ActiveConnection> for ConnectionBox {
         });
         conn.connect_db_connected({
             let switch = self.switch.clone();
-            let entries = (&self.host.entry, &self.port.entry, &self.user.entry, &self.db.entry).cloned();
-            let pwd = self.password.entry.clone();
+            let host_entry = self.host.entry.clone();
+            let other_entries = (&self.port.entry, &self.user.entry, &self.db.entry).cloned();
+            let pwd_entry = self.password.entry.clone();
             move |_| {
                 switch.set_sensitive(true);
-                entries.iter().for_each(|e| e.set_sensitive(false) );
-                pwd.set_sensitive(false);
+                host_entry.set_sensitive(false);
+                other_entries.iter().for_each(|e| e.set_sensitive(false) );
+                pwd_entry.set_sensitive(false);
             }
         });
         conn.connect_db_disconnected({
-            let entries = (&self.host.entry, &self.port.entry, &self.user.entry, &self.db.entry).cloned();
-            let pwd = self.password.entry.clone();
+            let host_entry = self.host.entry.clone();
+            let other_entries = (&self.port.entry, &self.user.entry, &self.db.entry).cloned();
+            let pwd_entry = self.password.entry.clone();
             move|_| {
-                entries.iter().for_each(|e| e.set_sensitive(true) );
-                pwd.set_sensitive(true);
+                let is_file = host_entry.text().to_string().starts_with("file://");
+                host_entry.set_sensitive(true);
+                if !is_file {
+                    other_entries.iter().for_each(|e| e.set_sensitive(true) );
+                    pwd_entry.set_sensitive(true);
+                }
             }
         });
     }

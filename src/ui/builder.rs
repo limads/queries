@@ -48,7 +48,8 @@ pub struct QueryBuilderWindow {
     delete_btn : Button,
     middle_bx : Box,
     combo_group : ComboBoxText,
-    combo_sort : ComboBoxText
+    combo_sort : ComboBoxText,
+    query : Shared<Query>
 }
 
 pub struct JoinBox {
@@ -280,7 +281,7 @@ clause. */
 impl QueryBuilderWindow {
 
     pub fn current_sql(&self) -> String {
-        String::new()
+        self.query.view().sql().unwrap_or(String::new())
     }
 
     pub fn build() -> Self {
@@ -332,6 +333,7 @@ impl QueryBuilderWindow {
             let (middle_bx, toggles, boxes, entry_col, middle_stack) = (&middle_bx, &toggles, &boxes, &entry_col, &middle_stack).cloned();
             move |query| {
                 update_ui_with_query(&middle_bx, &toggles, &boxes, query, &entry_col);
+                println!("{:?}", query);
                 if let Some(_) = query.0.get(0) {
                     middle_stack.set_visible_child_name("tables");
                 } else {
@@ -518,7 +520,8 @@ impl QueryBuilderWindow {
             delete_btn,
             middle_bx,
             combo_group,
-            combo_sort
+            combo_sort,
+            query : query.share()
         };
 
         qw.add_btn.connect_clicked({
@@ -839,7 +842,7 @@ fn split_tbl_col(s : &str) -> Option<(String, String)> {
     Some((tbl, col))
 }
 
-#[derive(stateful_derive::Singleton, Clone, Default)]
+#[derive(stateful_derive::Singleton, Clone, Default, Debug)]
 pub struct Query(Vec<Table>);
 
 impl Exclusive for QueryMsg { }
@@ -1113,7 +1116,7 @@ impl React<ActiveConnection> for QueryBuilderWindow {
 
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum FilterOp {
     Eq,
     Greater,
@@ -1161,7 +1164,7 @@ impl FilterOp {
 
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Filter {
     op : FilterOp,
     arg : String
@@ -1175,7 +1178,7 @@ impl Filter {
 
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum JoinOp {
     Inner,
     LeftOuter,
@@ -1224,7 +1227,7 @@ impl JoinOp {
 
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Join {
     op : JoinOp,
     src_table : String,
@@ -1233,7 +1236,7 @@ pub struct Join {
     dst_table : String
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Column {
     name : String,
     join : Option<Join>,
@@ -1259,7 +1262,7 @@ impl Column {
 
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct Table {
     name : String,
     join_rhs : Option<std::boxed::Box<Table>>,

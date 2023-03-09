@@ -310,10 +310,11 @@ impl Table {
             let is_date = col_types[i] == &Type::DATE;
             let is_time = col_types[i] == &Type::TIME;
             let is_numeric = col_types[i] == &Type::NUMERIC;
-            let is_money = col_types[i] == &Type::MONEY;
+            // let is_money = col_types[i] == &Type::MONEY;
             let is_uuid = col_types[i] == &Type::UUID;
             let is_json = col_types[i] == &Type::JSON || col_types[i] == &Type::JSONB;
             let is_point = col_types[i] == &Type::POINT;
+            // let is_line = col_types[i] == &Type::LINE;
             let is_box = col_types[i] == &Type::BOX;
             let is_path = col_types[i] == &Type::PATH;
             let is_text_arr = col_types[i] == &Type::TEXT_ARRAY;
@@ -380,7 +381,7 @@ impl Table {
                null_cols.push(as_nullable_json_value::<geo_types::LineString<f64>>(rows, i)?);
             } else if is_box {
                 null_cols.push(as_nullable_json_value::<geo_types::Rect<f64>>(rows, i)?);
-            } else if is_numeric || is_money {
+            } else if is_numeric {
                 null_cols.push(nullable_from_rows::<Decimal>(rows, i)?);
             } else if is_json {
                 null_cols.push(nullable_from_rows::<Value>(rows, i)?);

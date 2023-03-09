@@ -4,7 +4,7 @@ use std::path::Path;
 
 mod common;
 
-// cargo test -- --nocapture
+// cargo test -- files --nocapture
 #[test]
 pub fn files() {
     gtk4::init().unwrap();
