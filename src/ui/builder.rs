@@ -21,7 +21,7 @@ use crate::ui::PackedImageLabel;
 use crate::ui::settings::NamedBox;
 use std::collections::BTreeMap;
 use std::cmp::{Ord, Ordering, PartialEq};
-use stateful_local::{Singleton, Shared, Reactive, Exclusive /*Owned*/};
+use stateful_local::{Singleton, Deferred, Reactive, Exclusive /*Owned*/};
 use tuples::TupleCloned;
 use either::Either;
 
@@ -49,7 +49,7 @@ pub struct QueryBuilderWindow {
     middle_bx : Box,
     combo_group : ComboBoxText,
     combo_sort : ComboBoxText,
-    query : Shared<Query>
+    query : Deferred<Query>
 }
 
 pub struct JoinBox {
@@ -328,7 +328,7 @@ impl QueryBuilderWindow {
         middle_stack.add_named(&help_bx, Some("help"));
         middle_stack.set_visible_child_name("help");
 
-        let query = Shared::new(Query::default());
+        let query = Deferred::new(Query::default());
         query.on_changed({
             let (middle_bx, toggles, boxes, entry_col, middle_stack) = (&middle_bx, &toggles, &boxes, &entry_col, &middle_stack).cloned();
             move |query| {

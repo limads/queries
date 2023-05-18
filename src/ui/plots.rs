@@ -402,8 +402,8 @@ impl ScaleBox {
         let bx_bottom = Box::new(Orientation::Horizontal, 6);
         let offset_bx = LabeledScale::build("Offset", 0.0, 1.0, 0.05);
         let density_bx = LabeledScale::build("Intervals", 1.0, 20.0, 1.0);
-        let log_bx = LabeledSwitch::build("Log scale");
-        let invert_bx = LabeledSwitch::build("Invert");
+        let log_bx = LabeledSwitch::build("Logarithm");
+        let invert_bx = LabeledSwitch::build("Inverted");
         bx_bottom.append(&log_bx.bx);
         bx_bottom.append(&invert_bx.bx);
         bx_bottom.append(&offset_bx.bx);
