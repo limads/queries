@@ -42,6 +42,7 @@ pub struct DesignBox {
     bg_color_btn : ColorButton,
     grid_color_btn : ColorButton,
     font_btn : FontButton,
+    design_list : ListBox
 }
 
 impl DesignBox {
@@ -86,6 +87,7 @@ impl DesignBox {
 
         let adj = Adjustment::builder().lower(0.0).upper(10.0).step_increment(0.1).build();
         let grid_thickness_scale : Scale = Scale::new(Orientation::Horizontal, Some(&adj));
+        grid_thickness_scale.set_width_request(128);
         grid_thickness_scale.set_hexpand(true);
         grid_thickness_scale.set_value(1.0);
 
@@ -107,6 +109,7 @@ impl DesignBox {
 
         DesignBox {
             bx,
+            design_list,
             grid_thickness_scale : grid_thickness_bx.w,
             bg_color_btn : bg_color_bx.w,
             grid_color_btn : grid_color_bx.w,
@@ -344,27 +347,26 @@ impl ScaleBox {
         if max.is_empty() {
             max = String::from("1.0");
         }
-        let adjust = "'off'";
-
-        // TODO require min < max
-        // TODO require text parsing.
-
-        let log = bool_literal(&self.log_switch);
-        let invert = bool_literal(&self.invert_switch);
+        let mut s = format!("json_build_object('label', '{label}', 'from', {min}, 'to', {max}");
+        if self.log_switch.is_active() {
+            let log = bool_literal(&self.log_switch);
+            s += &format!(", 'log' : {log}");
+        }
+        if self.invert_switch.is_active() {
+            let invert = bool_literal(&self.invert_switch);
+            s += &format!(", 'invert' : {invert}");
+        }
         let offset = self.offset_scale.value() as i32;
-        let density = self.density_scale.value();
-        let precision = 2;
-        format!(r#"json_build_object(
-            'label', '{}',
-            'from', {},
-            'to', {},
-            'adjust', {},
-            'log', {},
-            'invert', {},
-            'offset', {},
-            'intervals', {},
-            'precision', {}
-        )"#, label, min, max, adjust, log, invert, offset, density, precision)
+        if offset != papyri::model::DEFAULT_OFFSET {
+            s += &format!(", 'offset' : {offset}");
+        }
+        let density = self.density_scale.value() as i32;
+        if density != papyri::model::DEFAULT_INTERVALS {
+            s += &format!(", 'intervals' : {density}");
+        }
+        // TODO precision
+        s += ")";
+        s
     }
 
     pub fn build(horizontal : bool) -> ScaleBox {
@@ -378,7 +380,7 @@ impl ScaleBox {
         label_entry.set_hexpand(true);
         let limits_bx = Box::new(Orientation::Horizontal, 0);
         limits_bx.style_context().add_class("linked");
-        limits_bx.set_margin_end(6);
+        // limits_bx.set_margin_end(6);
 
         let icon_start = if horizontal {
             "scale-left-symbolic"
@@ -402,6 +404,8 @@ impl ScaleBox {
         let bx_bottom = Box::new(Orientation::Horizontal, 6);
         let offset_bx = LabeledScale::build("Offset", 0.0, 1.0, 0.05);
         let density_bx = LabeledScale::build("Intervals", 1.0, 20.0, 1.0);
+        offset_bx.scale.set_width_request(128);
+        density_bx.scale.set_width_request(128);
         let log_bx = LabeledSwitch::build("Logarithm");
         let invert_bx = LabeledSwitch::build("Inverted");
         bx_bottom.append(&log_bx.bx);
@@ -441,7 +445,7 @@ fn icon_for_mapping(ty : MappingType) -> &'static str {
 }
 
 #[derive(Debug, Clone)]
-pub struct PlotRow {
+pub struct PlotList {
     list : ListBox,
     bx : Box,
     add_btn : Button,
@@ -450,7 +454,7 @@ pub struct PlotRow {
     mappings : Rc<RefCell<Vec<MappingRow>>>,
 }
 
-impl PlotRow {
+impl PlotList {
 
     pub fn sql(&self) -> String {
         let hscale = self.hscale.sql();
@@ -459,23 +463,19 @@ impl PlotRow {
         let mut mappings_str = String::new();
         let arr_expr = if mappings.len() >= 1 {
             for m in mappings.iter().take(mappings.len()-1) {
+                mappings_str += "\t\t\t";
                 mappings_str += &m.sql();
-                mappings_str += ", ";
+                mappings_str += ",";
             }
             if let Some(lst) = mappings.last() {
+                mappings_str += "\t\t\t";
                 mappings_str += &lst.sql();
             }
-            format!("array[{}]", mappings_str)
+            format!("array[\n{}\n]", mappings_str)
         } else {
             String::from("array[]::json[]")
         };
-        format!(r#"
-            json_build_object(
-                'mappings', {},
-                'x', {},
-                'y', {}
-            )"#, arr_expr, hscale, vscale
-        )
+        format!("\tjson_build_object(\n\t\t'mappings', {},\n\t\t'x', {},\n\t\t'y', {}\n\t)", arr_expr, hscale, vscale)
     }
 
     pub fn visit_data_entries(&self, f : impl Fn(&Entry)) {
@@ -496,6 +496,8 @@ impl PlotRow {
         title_bx.append(&im.bx);
 
         let list = ListBox::new();
+        // list.set_width_request(800);
+
         crate::ui::configure_list(&list);
         list.set_halign(Align::Center);
 
@@ -629,6 +631,7 @@ impl PlotRow {
         }
 
         let bx = Box::new(Orientation::Vertical, 0);
+        list.set_width_request(800);
         bx.set_halign(Align::Center);
         bx.set_hexpand(false);
         bx.set_valign(Align::Center);
@@ -693,26 +696,16 @@ impl MappingRow {
                 let x = &data[0].col;
                 let y = &data[1].col;
                 let color = color_literal(&line_bx.color_btn);
-                format!("
-	            json_build_object(
-	                'kind', 'line',
-	                'map', json_build_object('x', {}, 'y', {}),
-	                'color', {},
-	                'width', {},
-	                'spacing', {}
-	            )", x, y, color, width, dash)
+                let map = format!("json_build_object('x', {x}, 'y', {y})");
+                format!("json_build_object('kind', 'line', 'map', {map}, 'color', {color}, 'width', {width}, 'spacing', {dash})")
 	        },
 	        MappingBox::Scatter(scatter_bx) => {
 	            let x = &data[0].col;
                 let y = &data[1].col;
                 let color = color_literal(&scatter_bx.color_btn);
                 let radius = scatter_bx.radius_scale.value();
-	            format!("json_build_object(
-	                'kind', 'scatter',
-	                'map', json_build_object('x', {}, 'y', {}),
-	                'color', {},
-	                'radius', {}
-                )", x, y, color, radius)
+                let map = format!("json_build_object('x', {x}, 'y', {y})");
+	            format!("json_build_object('kind', 'scatter', 'map', {map}, 'color', {color}, 'radius', {radius} )")
             },
             MappingBox::Bar(bar_bx) => {
                 let x = &data[0].col;
@@ -722,17 +715,8 @@ impl MappingRow {
                 let width = bar_bx.width_scale.value();
                 let center = bool_literal(&bar_bx.center_switch);
                 let vertical = bool_literal(&bar_bx.vertical_switch);
-	            format!("json_build_object(
-	                'kind', 'bar',
-	                'map', json_build_object('x', {}),
-	                'color', {},
-	                'origin', {},
-	                'spacing', {},
-	                'width', {},
-	                'center', {},
-	                'vertical', {}
-	                )", x, color, origin, spacing, width, center, vertical
-	            )
+                let map = format!("json_build_object('x', {x})");
+	            format!("json_build_object('kind', 'bar', 'map', {map},'color', {color},'origin', {origin},'spacing', {spacing},'width', {width},'center', {center},'vertical', {vertical})")
 	        },
 	        MappingBox::Interval(interval_bx) => {
 	            let (x, y, z) = (&data[0].col, &data[1].col, &data[2].col);
@@ -741,42 +725,22 @@ impl MappingRow {
                 let limits = interval_bx.limits_scale.value();
                 let width = interval_bx.width_scale.value();
                 let vertical = bool_literal(&interval_bx.vertical_switch);
-                format!(r#"
-		            json_build_object(
-		                'kind', 'interval',
-		                'map', json_build_object('x', {}, 'y', {}, 'z', {}),
-		                'color', {},
-		                'width', {},
-		                'limits', {},
-		                'vertical', {},
-		                'spacing', {}
-		            )"#, x, y, z, color, width, limits, vertical, spacing
-		        )
+                let map = format!("json_build_object('x', {x}, 'y', {y}, 'z', {z})");
+                format!("json_build_object('kind', 'interval', 'map', {map}, 'color', {color}, 'width', {width}, 'limits', {limits}, 'vertical', {vertical}, 'spacing', {spacing})")
 		    },
             MappingBox::Text(text_bx) => {
                 let (x, y, z) = (&data[0].col, &data[1].col, &data[2].col);
                 let color = color_literal(&text_bx.color_btn);
                 let font = font_literal(&text_bx.font_btn);
-                format!(r#"
-		        json_build_object(
-		            'kind', 'text',
-		            'map', json_build_object('x', {}, 'y', {}, 'text', {}),
-		            'color', {},
-		            'font', '{}'
-		        )"#, x, y, z, color, font)
+                let map = format!("json_build_object('x', {x}, 'y', {y}, 'text', {z})");
+                format!("json_build_object('kind', 'text', 'map', {map},'color', {color},'font', '{font}')")
 		    },
 		    MappingBox::Area(area_bx) => {
 		        let (x, y, z) = (&data[0].col, &data[1].col, &data[2].col);
 		        let color = color_literal(&area_bx.color_btn);
                 let opacity = area_bx.opacity_scale.value();
-                format!(r#"
-		            json_build_object(
-		                'kind', 'area',
-		                'map', json_build_object('x', {}, 'y', {}, 'z', {}),
-		                'color', {},
-		                'opacity', {}
-		            )"#, x, y, z, color, opacity
-		        )
+                let map = format!("json_build_object('x', {x}, 'y', {y}, 'z', {z})");
+                format!("json_build_object('kind', 'area','map', {map},'color', {color},'opacity', {opacity})")
 		    }
 		}
     }
@@ -927,6 +891,7 @@ fn configure_title(bx : &gtk4::Box) {
 #[derive(Debug, Clone)]
 pub struct LayoutBox {
     bx : Box,
+    layout_list : ListBox,
     width_entry : Entry,
     height_entry : Entry,
     toggle_unique : ToggleButton,
@@ -1095,6 +1060,7 @@ impl LayoutBox {
         layout_list.append(&split_row);
 
         Self {
+            layout_list,
             bx,
             width_entry,
             height_entry,
@@ -1121,7 +1087,7 @@ pub struct GraphWindow {
     btn_clear : Button,
     btn_sql : Button,
     pub btn_plot : Button,
-    plot_rows : Rc<RefCell<Vec<PlotRow>>>,
+    plot_rows : Rc<RefCell<Vec<PlotList>>>,
     objs : Rc<RefCell<Vec<DBObject>>>,
     cols_model : Rc<RefCell<Option<ListStore>>>
 }
@@ -1142,13 +1108,11 @@ impl GraphWindow {
         let src_expr : String = ns.keys().cloned().collect::<Vec<_>>().join("CROSS JOIN ");
         let layout_expr = self.layout.sql();
         let design_expr = self.design.sql();
-        let plots_expr : String = rows.iter().cloned().map(|r| r.sql() ).collect::<Vec<_>>().join(",\n");
+        let plots_expr : String = rows.iter().cloned().map(|r| r.sql() )
+            .collect::<Vec<_>>()
+            .join(",\n");
         let panel_expr = format!(
-            "json_build_object(
-                'plots', array[{}],
-                'design', {},
-                'layout', {}
-            )",
+            "\tjson_build_object(\n'plots', array[\n{}\n]\n,\n'design', {},\n'layout', {}\n)",
             plots_expr,
             design_expr,
             layout_expr
@@ -1164,18 +1128,21 @@ impl GraphWindow {
         let win = Window::new();
         super::configure_dialog(&win, false);
         win.set_title(Some("Graph editor"));
-        win.set_width_request(800);
-        win.set_height_request(600);
+        win.set_width_request(1200);
+        win.set_height_request(800);
 
         let scroll = ScrolledWindow::new();
         let bx = Box::new(Orientation::Vertical, 0);
+
         scroll.set_child(Some(&bx));
         win.set_child(Some(&scroll));
 
         let layout = LayoutBox::build();
+        layout.layout_list.set_width_request(800);
         bx.append(&layout.bx);
 
         let design = DesignBox::build();
+        design.design_list.set_width_request(800);
         bx.append(&design.bx);
 
         let bottom_bx = Box::new(Orientation::Horizontal, 16);
@@ -1184,7 +1151,7 @@ impl GraphWindow {
         bottom_bx.set_halign(Align::Center);
         let btn_clear = Button::builder().label("Clear").build();
         let btn_sql = Button::builder().label("Copy SQL").build();
-        let btn_plot = Button::builder().label("Plot").build();
+        let btn_plot = Button::builder().label("Run").build();
         for btn in [&btn_clear, &btn_sql, &btn_plot] {
             bottom_bx.append(btn);
             btn.style_context().add_class("pill");
@@ -1192,7 +1159,7 @@ impl GraphWindow {
         btn_plot.style_context().add_class("suggested-action");
 
         let cols_model = Rc::new(RefCell::new(None));
-        let pr = PlotRow::build("Plot", &cols_model);
+        let pr = PlotList::build("Plot", &cols_model);
 
         let middle_bx = Box::new(Orientation::Vertical, 18);
         middle_bx.append(&pr.bx);
@@ -1227,7 +1194,7 @@ impl GraphWindow {
 
                     // Append new
                     for pl in plots {
-                        let pr = PlotRow::build(pl, &cols_model);
+                        let pr = PlotList::build(pl, &cols_model);
                         middle_bx.append(&pr.bx);
                         plot_rows.push(pr);
                     }
@@ -1299,7 +1266,7 @@ impl React<ActiveConnection> for GraphWindow {
 
 }
 
-fn update_plot_rows_with_model(pl_rows : Rc<RefCell<Vec<PlotRow>>>, cols_model : Rc<RefCell<Option<ListStore>>>) {
+fn update_plot_rows_with_model(pl_rows : Rc<RefCell<Vec<PlotList>>>, cols_model : Rc<RefCell<Option<ListStore>>>) {
     if let Some(model) = &*cols_model.borrow() {
         for pl in pl_rows.borrow().iter() {
             pl.visit_data_entries(|e| {
@@ -1323,14 +1290,18 @@ pub fn update_completion_with_schema(
     let mut objs = objs.borrow_mut();
     let mut cols_model = cols_model.borrow_mut();
     objs.clear();
+
+    let is_dark = libadwaita::StyleManager::default().is_dark();
+    let type_icons = crate::ui::schema_tree::load_type_icons(is_dark);
+
     if let Some(schema) = schema {
         let col_types: [glib::Type; 2] = [Pixbuf::static_type(), glib::Type::STRING];
         let model = ListStore::new(&col_types);
         let mut data = Vec::new();
+        let mut icons = Vec::new();
         for new_obj in &schema {
             match &new_obj {
-                DBObject::Schema { name, children, .. } => {
-                    let schema_name = &name;
+                DBObject::Schema { name : schema_name, children, .. } => {
                     for child in children.iter() {
                         match child {
                             DBObject::Table { name, cols, .. } => {
@@ -1340,10 +1311,27 @@ pub fn update_completion_with_schema(
                                     } else {
                                         data.push(format!("{}.{}.{}", schema_name, name, col.name));
                                     }
+                                    icons.push(&type_icons[&col.ty]);
                                 }
                             },
-                            DBObject::View { name, .. } => {
-
+                            DBObject::Schema { name, children : inner_children, .. } => {
+                                if name.starts_with("Views (") && name.ends_with(")") {
+                                    for child in inner_children.iter() {
+                                        match child {
+                                            DBObject::View { name, cols, .. } => {
+                                                for col in cols.iter() {
+                                                    if &schema_name[..] == "public" {
+                                                        data.push(format!("{}.{}", name, col.name));
+                                                    } else {
+                                                        data.push(format!("{}.{}.{}", schema_name, name, col.name));
+                                                    }
+                                                    icons.push(&type_icons[&col.ty]);
+                                                }
+                                            },
+                                            _ => { }
+                                        }
+                                    }
+                                }
                             },
                             _ =>  { }
                         }
@@ -1353,9 +1341,9 @@ pub fn update_completion_with_schema(
             }
         }
 
-        for d in &data {
+        for (d, i) in data.iter().zip(icons.iter()) {
             model.set(&model.append(), &[
-                (0, &Pixbuf::from_resource("/io/github/limads/queries/icons/scalable/actions/table-symbolic.svg").unwrap()),
+                (0, i),
                 (1, d),
             ]);
         }
@@ -1410,6 +1398,7 @@ impl ScatterBox {
         let radius_bx = LabeledScale::build("Radius", 1.0, 20.0, 1.0);
         let bx = Box::new(Orientation::Horizontal, 6);
         radius_bx.scale.set_value(10.0);
+        radius_bx.scale.set_width_request(128);
         bx.append(&color_bx.bx);
         bx.append(&radius_bx.bx);
         Self { color_btn : color_bx.btn, radius_scale : radius_bx.scale, bx }
@@ -1437,6 +1426,8 @@ impl LineBox {
         }
         width_bx.scale.set_value(1.0);
         dash_bx.scale.set_value(1.0);
+        width_bx.scale.set_width_request(128);
+        dash_bx.scale.set_width_request(128);
         Self { color_btn : color_bx.btn, width_scale : width_bx.scale, dash_scale : dash_bx.scale, bx }
     }
 
@@ -1454,6 +1445,8 @@ impl TextBox {
     pub fn build() -> Self {
         let color_bx  = LabeledColorBtn::build("Color", &RGBA::BLACK);
         let font_bx  = LabeledFontBtn::build("Font");
+        color_bx.bx.set_hexpand(true);
+        font_bx.bx.set_hexpand(true);
         let bx = Box::new(Orientation::Horizontal, 6);
         bx.append(&color_bx.bx);
         bx.append(&font_bx.bx);
@@ -1476,6 +1469,8 @@ impl AreaBox {
         let color_bx  = LabeledColorBtn::build("Color", &RGBA::BLACK);
         let opacity_bx = LabeledScale::build("Opacity", 0.0, 100.0, 1.0);
         let bx = Box::new(Orientation::Horizontal, 6);
+        opacity_bx.scale.set_value(100.0);
+        opacity_bx.scale.set_width_request(128);
         bx.append(&color_bx.bx);
         bx.append(&opacity_bx.bx);
         Self { color_btn : color_bx.btn, opacity_scale : opacity_bx.scale, bx }
@@ -1502,11 +1497,24 @@ impl IntervalBox {
         let vertical_bx = LabeledSwitch::build("Vertical");
         let spacing_bx = LabeledScale::build("Spacing", 1.0, 100.0, 1.0);
         let limits_bx = LabeledScale::build("Limits", 0.0, 100.0, 1.0);
-	    bx.append(&color_bx.bx);
-        bx.append(&width_bx.bx);
-        bx.append(&vertical_bx.bx);
-        bx.append(&spacing_bx.bx);
-        bx.append(&limits_bx.bx);
+        spacing_bx.scale.set_width_request(128);
+        limits_bx.scale.set_width_request(128);
+        width_bx.scale.set_width_request(128);
+
+        let bx_left = Box::new(Orientation::Vertical, 0);
+        let bx_left_u = Box::new(Orientation::Horizontal, 0);
+
+	    bx_left_u.append(&color_bx.bx);
+	    bx_left_u.append(&vertical_bx.bx);
+        bx_left.append(&bx_left_u);
+        bx_left.append(&width_bx.bx);
+        bx.append(&bx_left);
+
+        let bx_right = Box::new(Orientation::Vertical, 0);
+        bx_right.append(&spacing_bx.bx);
+        bx_right.append(&limits_bx.bx);
+        bx.append(&bx_right);
+
         width_bx.scale.set_value(1.0);
         spacing_bx.scale.set_value(1.0);
         limits_bx.scale.set_value(1.0);
@@ -1553,6 +1561,7 @@ impl BarBox {
         bx.append(&vertical_bx.bx);
         bx.append(&width_bx.bx);
         width_bx.scale.set_value(1.0);
+        width_bx.scale.set_width_request(128);
         center_bx.switch.set_active(false);
         vertical_bx.switch.set_active(true);
         Self {

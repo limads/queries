@@ -72,6 +72,8 @@ fn hook_signals(
     queries_win.titlebar.exec_btn.react(&client.active_conn);
     queries_win.titlebar.exec_btn.react(&queries_win.content);
     queries_win.titlebar.main_menu.react(&client.scripts);
+    queries_win.titlebar.main_menu.react(&client.active_conn);
+
     queries_win.content.react(&client.env);
     queries_win.sidebar.file_list.react(&client.active_conn);
 

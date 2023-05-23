@@ -516,7 +516,10 @@ impl Connection for PostgresConnection {
 
             schema_ix += 1;
             tbl_objs.sort_by(|a, b| {
-                a.obj_name().chars().next().unwrap().cmp(&b.obj_name().chars().next().unwrap())
+                a.obj_name().cmp(&b.obj_name())
+            });
+            view_objs.sort_by(|a, b| {
+                a.obj_name().cmp(&b.obj_name())
             });
             if !view_objs.is_empty() {
                 tbl_objs.push(DBObject::Schema { name : format!("Views ({})", schema), children : view_objs } );
@@ -830,16 +833,18 @@ fn retrieve_schemata_with_tables_or_views(
     }
 
     for (i, tbl) in [tbl_table, view_table].iter().enumerate() {
-        let schemata = tbl_table.get_column(0).and_then(|c| {
+        let schemata = tbl.get_column(0).and_then(|c| {
             let s : Option<Vec<String>> = c.clone().try_into().ok();
             s
         });
-        let names = tbl_table.get_column(1).and_then(|c| {
+        let names = tbl.get_column(1).and_then(|c| {
             let s : Option<Vec<String>> = c.clone().try_into().ok();
             s
         });
+
         if let Some(schemata) = schemata {
             if let Some(names) = names {
+
                 for (schema, table) in schemata.iter().zip(names.iter()) {
                     let objs = schem_hash.entry(schema.clone()).or_insert(SchemaObjs::default());
                     if i == 0 {
@@ -876,6 +881,7 @@ fn get_postgres_schemata(conn : &mut PostgresConnection) -> Result<HashMap<Strin
         AnyStatement::from_sql(VIEW_QUERY2).unwrap()
     ]);
     if let Some(schem_out) = out.get(0) {
+
         match schem_out {
             StatementOutput::Valid(_, schem_tbl) => {
 
@@ -898,7 +904,7 @@ fn get_postgres_schemata(conn : &mut PostgresConnection) -> Result<HashMap<Strin
                 } else {
                     return Err(format!("Missing table or view output"));
                 }
-                
+
                 // Insert remaining schemata without tables or views.
                 for n in schem_names {
                     if n.starts_with("pg") || &n[..] == "information_schema" {
@@ -908,13 +914,14 @@ fn get_postgres_schemata(conn : &mut PostgresConnection) -> Result<HashMap<Strin
                         schemata.insert(n.to_string(), SchemaObjs::default());
                     }
                 }
+
                 Ok(schemata)
             },
             StatementOutput::Invalid(e, _) => {
                 Err(e.to_string())
             },
             _ => {
-                unimplemented!()
+                Err(String::from("Error getting database schemata"))
             }
         }
     } else {
@@ -1020,4 +1027,5 @@ fn break_string(content : &mut String, line_length : usize) {
     broken.extend(chars);
     *content = broken;
 }
+
 

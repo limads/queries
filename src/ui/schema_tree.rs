@@ -489,7 +489,7 @@ impl React<ActiveConnection> for SchemaTree {
 
 }
 
-fn load_type_icons(is_dark : bool) -> Rc<HashMap<DBType, Pixbuf>> {
+pub fn load_type_icons(is_dark : bool) -> Rc<HashMap<DBType, Pixbuf>> {
     let mut names = Vec::new();
     for ty in ALL_TYPES.iter() {
         names.push(super::get_type_icon_name(ty, is_dark));

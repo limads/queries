@@ -162,7 +162,7 @@ fn set_css(bx : &gtk4::Box) {
 }
 
 const FILTER_OPS : [&'static str; 7] = [
-    "All rows",
+    "No filter",
     "= (Equal)",
     "> (Greater)",
     "≥ (Greater/equal)",
@@ -266,9 +266,10 @@ impl SortOp {
 }
 
 const HELP : &'static str = r#"
-• Adding any column automatically adds the first table;
+• Add columns by specifying their table name as a prefix.
 
-• Arguments to the join clause add their respective table;
+• The second to last columns must belong to the same table as any previous
+column (or be the argument to a new join clause).
 
 • Aggregates (if any) must be applied to all columns.
 "#;
@@ -288,13 +289,14 @@ impl QueryBuilderWindow {
         let win = Window::new();
         super::configure_dialog(&win, false);
         win.set_title(Some("Query builder"));
-        win.set_width_request(800);
-        win.set_height_request(600);
+        win.set_width_request(1200);
+        win.set_height_request(800);
         let bx = Box::new(Orientation::Vertical, 6);
         bx.set_margin_start(64);
         bx.set_margin_end(64);
 
         let entry_col = Entry::new();
+        entry_col.set_placeholder_text(Some("Column"));
 
         let toggles = Rc::new(RefCell::new(BTreeMap::new()));
         let boxes = Rc::new(RefCell::new(Vec::new()));
@@ -309,9 +311,6 @@ impl QueryBuilderWindow {
         bottom_bx.set_halign(Align::Center);
         let btn_clear = Button::builder().label("Clear").build();
         let btn_sql = Button::builder().label("Copy SQL").build();
-
-        // let (query_tx, query_rx) = glib::MainContext::channel::<QueryMsg>(glib::PRIORITY_DEFAULT);
-        // let query_rx = Rc::new(RefCell::new(Some(query_rx)));
 
         let middle_stack = Stack::new();
 
@@ -333,7 +332,6 @@ impl QueryBuilderWindow {
             let (middle_bx, toggles, boxes, entry_col, middle_stack) = (&middle_bx, &toggles, &boxes, &entry_col, &middle_stack).cloned();
             move |query| {
                 update_ui_with_query(&middle_bx, &toggles, &boxes, query, &entry_col);
-                println!("{:?}", query);
                 if let Some(_) = query.0.get(0) {
                     middle_stack.set_visible_child_name("tables");
                 } else {
@@ -368,10 +366,9 @@ impl QueryBuilderWindow {
 
         let top_bx = Box::new(Orientation::Vertical, 6);
         let info_bar = InfoBar::new();
-        // top_bx.append(&info_bar);
         info_bar.set_revealed(false);
         let info_lbl = Label::new(None);
-        info_lbl.set_text("Table tbl must appear in a join clause before any of its columns are added");
+        info_lbl.set_text("Table must appear in a join clause before any of its columns are added");
         info_bar.set_show_close_button(true);
         info_bar.add_child(&info_lbl);
         info_bar.connect_response(move|info_bar, res| {
@@ -438,14 +435,16 @@ impl QueryBuilderWindow {
         top_bx_upper.append(&entry_col);
 
         let entry_filter = Entry::new();
+        entry_filter.set_placeholder_text(Some("Filter argument"));
+
         let filter_combo = ComboBoxText::new();
         for op in FILTER_OPS.iter() {
             filter_combo.append(Some(op), op);
         }
-        filter_combo.set_active_id(Some("All rows"));
+        filter_combo.set_active_id(Some("No filter"));
         let entry_filter_c = entry_filter.clone();
         filter_combo.connect_changed(move|combo| {
-            if combo.active_id() == Some(glib::GString::from("All rows")) {
+            if combo.active_id() == Some(glib::GString::from("No filter")) {
                 entry_filter_c.set_text("");
             }
         });
@@ -472,6 +471,7 @@ impl QueryBuilderWindow {
         let join_bx = Box::new(Orientation::Horizontal, 0);
         join_bx.set_hexpand(true);
         let entry_join = Entry::new();
+        entry_join.set_placeholder_text(Some("Join column"));
         let join_img = Image::from_icon_name("inner-symbolic");
         join_img.set_margin_start(18);
         join_img.set_margin_end(6);
@@ -617,7 +617,7 @@ impl QueryBuilderWindow {
                             filter_combo.set_active_id(Some(filt.op.combo_str()));
                         } else {
                             entry_filter.set_text("");
-                            filter_combo.set_active_id(Some("All rows"));
+                            filter_combo.set_active_id(Some("No filter"));
                         }
 
                         if let Some(group) = &col.group {
@@ -715,7 +715,7 @@ fn clear_fields(
     entry_join.set_text("");
     entry_filter.set_text("");
     join_combo.set_active_id(Some("No joins"));
-    filter_combo.set_active_id(Some("All rows"));
+    filter_combo.set_active_id(Some("No filter"));
     group_combo.set_active_id(Some("No aggregates"));
     sort_combo.set_active_id(Some("Unsorted"));
 }
@@ -1158,7 +1158,7 @@ impl FilterOp {
             "< (Less)" => Some(FilterOp::Less),
             "≤ (Less/equal)" => Some(FilterOp::LessEq),
             "like (Pattern match)" => Some(FilterOp::Like),
-            "All rows" | _ => None,
+            "No filter" | _ => None,
         }
     }
 

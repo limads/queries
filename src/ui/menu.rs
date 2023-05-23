@@ -52,6 +52,8 @@ impl MainMenu {
         let action_about = gio::SimpleAction::new("about", None);
         action_save.set_enabled(false);
         action_save_as.set_enabled(false);
+        action_graph.set_enabled(false);
+        action_builder.set_enabled(false);
         action_export.set_enabled(false);
         action_find_replace.set_enabled(false);
 
@@ -121,3 +123,25 @@ impl React<OpenedScripts> for MainMenu {
 
 }
 
+impl React<crate::client::ActiveConnection> for MainMenu {
+
+    fn react(&self, conn : &crate::client::ActiveConnection) {
+        conn.connect_db_connected({
+            let action_graph = self.action_graph.clone();
+            let action_builder = self.action_builder.clone();
+            move |_| {
+                action_graph.set_enabled(true);
+                action_builder.set_enabled(true);
+            }
+        });
+        conn.connect_db_disconnected({
+            let action_graph = self.action_graph.clone();
+            let action_builder = self.action_builder.clone();
+            move |_| {
+                action_graph.set_enabled(false);
+                action_builder.set_enabled(false);
+            }
+        });
+    }
+
+}
