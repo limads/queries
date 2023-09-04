@@ -296,7 +296,7 @@ pub struct SaveDialog(pub(crate) filecase::SaveDialog);
 impl SaveDialog {
 
     pub fn build() -> Self {
-        Self(filecase::SaveDialog::build("*.sql"))
+        Self(filecase::SaveDialog::build(&["*.sql"]))
     }
 
 }
@@ -342,7 +342,7 @@ pub struct OpenDialog(pub(crate) filecase::OpenDialog);
 impl OpenDialog {
 
     pub fn build() -> Self {
-        Self(filecase::OpenDialog::build("*.sql"))
+        Self(filecase::OpenDialog::build(&["*.sql"]))
     }
 
 }

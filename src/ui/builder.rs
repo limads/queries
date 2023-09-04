@@ -21,7 +21,7 @@ use crate::ui::PackedImageLabel;
 use crate::ui::settings::NamedBox;
 use std::collections::BTreeMap;
 use std::cmp::{Ord, Ordering, PartialEq};
-use stateful_local::{Singleton, Deferred, Reactive, Exclusive /*Owned*/};
+use stateful::{Deferred, Reactive, Exclusive /*Owned*/};
 use tuples::TupleCloned;
 use either::Either;
 
@@ -842,7 +842,7 @@ fn split_tbl_col(s : &str) -> Option<(String, String)> {
     Some((tbl, col))
 }
 
-#[derive(stateful_derive::Singleton, Clone, Default, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct Query(Vec<Table>);
 
 impl Exclusive for QueryMsg { }

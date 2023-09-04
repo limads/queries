@@ -441,6 +441,7 @@ fn icon_for_mapping(ty : MappingType) -> &'static str {
         MappingType::Area => "mapping-area-symbolic",
         MappingType::Text => "type-text-symbolic",
         MappingType::Interval => "mapping-interval-symbolic",
+        MappingType::Surface => "layout-unique-symbolic", // TODO create surface icon
     }
 }
 
@@ -813,6 +814,11 @@ impl MappingRow {
                 ]),
                 MappingBox::Bar(BarBox::build())
             ),
+
+            MappingType::Surface => {
+                unimplemented!()
+            }
+
         };
         mapping_bx.append(&data.bx);
         mapping_bx.append(props.parent_box());

@@ -216,7 +216,7 @@ impl SchemaTree {
                 report_dialog.dialog.show();
             }
         });
-        let report_export_dialog = filecase::SaveDialog::build("*.html");
+        let report_export_dialog = filecase::SaveDialog::build(&["*.html"]);
         report_export_dialog.dialog.connect_response({
             let rendered_content = report_dialog.rendered_content.clone();
             move |dialog, resp| {
