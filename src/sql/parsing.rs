@@ -142,7 +142,8 @@ pub fn parse_sql(sql : &str, _subs : &HashMap<String, String>) -> Result<Vec<Sta
         .map_err(|e| {
             match e {
                 ParserError::TokenizerError(s) => s,
-                ParserError::ParserError(s) => s
+                ParserError::ParserError(s) => s,
+                ParserError::RecursionLimitExceeded => String::from("Recursion limit exceeded")
             }
         })
 }
@@ -316,10 +317,10 @@ pub fn parse_query_cols(query : &str) -> Result<Vec<String>, String> {
                                 SelectItem::ExprWithAlias { alias,.. } => {
                                     items.push(format!("{}", alias));
                                 },
-                                SelectItem::QualifiedWildcard(obj) => {
+                                SelectItem::QualifiedWildcard(obj, _) => {
                                     items.push(format!("{}.* (empty)", obj));
                                 },
-                                SelectItem::Wildcard => {
+                                SelectItem::Wildcard(_) => {
                                     items.push(format!("* (empty)"));
                                 }
                             }
@@ -429,11 +430,11 @@ pub fn fully_parse_sql(
                     Statement::Savepoint { .. } => {
                         return Err(SQLError::Unsupported(format!("Unsupported feature (Transaction SAVEPOINT)")));
                     },
-                    Statement::StartTransaction { modes }  => {
+                    Statement::StartTransaction { modes, begin }  => {
                         if curr_transaction.is_some() {
                             return Err(SQLError::Unsupported(format!("Nested transactions are currently unsupported.")));
                         }
-                        curr_transaction = Some(vec![Statement::StartTransaction { modes }]);
+                        curr_transaction = Some(vec![Statement::StartTransaction { modes, begin }]);
                     },
                     Statement::Rollback { chain } => {
                         if let Some(mut ct) = curr_transaction.take() {
@@ -477,7 +478,7 @@ pub fn fully_parse_sql(
     Ok(any_stmts)
 }
 
-/* Parse SQL, and continue to execute even if some statements could not be parsed. */
+/*/* Parse SQL, and continue to execute even if some statements could not be parsed. */
 /// Parse this query sequence, first splitting the token vector
 /// at the semi-colons (delimiting statements) and then parsing
 /// each statement individually. On error, the un-parsed statement is returned.
@@ -550,7 +551,7 @@ pub fn partially_parse_sql(
         }
     }
     Ok(any_stmts)
-}
+}*/
 
 // Remove repeated statements if they are queries. Only the first repeated query
 // is executed. Repeated non-query statements are executed normally.

@@ -91,6 +91,24 @@ pub fn display_binary(s : &[u8]) -> String {
 
 impl<'a> Column {
 
+    pub fn as_json_values(&self) -> Option<Value> {
+        match self {
+            Column::Bool(v) => serde_json::to_value(v.clone()).ok(),
+            Column::I8(v) => serde_json::to_value(v.clone()).ok(),
+            Column::I16(v) => serde_json::to_value(v.clone()).ok(),
+            Column::I32(v) => serde_json::to_value(v.clone()).ok(),
+            Column::U32(v) => serde_json::to_value(v.clone()).ok(),
+            Column::I64(v) => serde_json::to_value(v.clone()).ok(),
+            Column::F32(v) => serde_json::to_value(v.clone()).ok(),
+            Column::F64(v) => serde_json::to_value(v.clone()).ok(),
+            Column::Numeric(v) => serde_json::to_value(v.clone()).ok(),
+            Column::Str(v) => serde_json::to_value(v.clone()).ok(),
+            Column::Json(v) => serde_json::to_value(v.clone()).ok(),
+            Column::Bytes(v) => serde_json::to_value(v.clone()).ok(),
+            Column::Nullable(col) => col.as_json_values()
+        }
+    }
+
     pub fn try_complete_from_nullable(null_col : NullableColumn) -> Result<Self, ()> {
         let n = null_col.len();
         let col : Column = match null_col {

@@ -280,7 +280,7 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
             let mut state = state.borrow_mut();
             filecase::set_win_dims_on_close(&win, &mut state.window);
             filecase::set_paned_on_close(&main_paned, &sidebar_paned, &mut state.paned);
-            gtk4::Inhibit(false)
+            glib::signal::Propagation::Proceed
         });
         
         // Connection
@@ -302,7 +302,7 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
             let state = self.clone();
             move|switch, _| {
                 state.borrow_mut().conn.save_conns = switch.is_active();
-                Inhibit(false)
+                glib::signal::Propagation::Proceed
             }
         });
 
@@ -329,21 +329,21 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
             let state = self.clone();
             move|switch, _| {
                 state.borrow_mut().execution.accept_ddl = switch.is_active();
-                Inhibit(false)
+                glib::signal::Propagation::Proceed
             }
         });
         win.settings.exec_bx.dml_switch.connect_state_set({
             let state = self.clone();
             move|switch, _| {
                 state.borrow_mut().execution.accept_dml = switch.is_active();
-                Inhibit(false)
+                glib::signal::Propagation::Proceed
             }
         });
         win.settings.exec_bx.async_switch.connect_state_set({
             let state = self.clone();
             move|switch, _| {
                 state.borrow_mut().execution.enable_async = switch.is_active();
-                Inhibit(false)
+                glib::signal::Propagation::Proceed
             }
         });
 
@@ -376,14 +376,14 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
             let state = self.clone();
             move|switch, _| {
                 state.borrow_mut().editor.highlight_current_line = switch.is_active();
-                Inhibit(false)
+                glib::signal::Propagation::Proceed
             }
         });
         win.settings.editor_bx.line_num_switch.connect_state_set({
             let state = self.clone();
             move|switch, _| {
                 state.borrow_mut().editor.show_line_numbers = switch.is_active();
-                Inhibit(false)
+                glib::signal::Propagation::Proceed
             }
         });
 
@@ -446,7 +446,8 @@ impl PersistentState<QueriesWindow> for SharedUserState {
                         &a.host[..] == &b.host[..] && &a.database[..] == &b.database[..] && &a.user[..] == &b.user[..]
                     });
 
-                    s.conns.retain(|c| !c.is_default() && !c.host.is_empty() || c.host != crate::client::DEFAULT_HOST );
+                    s.conns.retain(|c| !ignore_save_connection(c) );
+
                     s.conns.iter_mut().for_each(|c| {
                         if c.port == crate::client::DEFAULT_PORT {
                             c.port.clear();
@@ -504,6 +505,13 @@ impl PersistentState<QueriesWindow> for SharedUserState {
         queries_win.settings.editor_bx.line_highlight_switch.set_active(state.editor.highlight_current_line);
     }
 
+}
+
+fn ignore_save_connection(c : &ConnectionInfo) -> bool {
+    c.is_default() ||
+        c.host.is_empty() ||
+        c.host == crate::client::DEFAULT_HOST ||
+        c.host == "file://"
 }
 
 // It would be best to move this to PersistentState::update, but the client for now is

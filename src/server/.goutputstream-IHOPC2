@@ -100,7 +100,7 @@ where
     ) -> Result<Vec<StatementOutput>, String> {
 
         match crate::sql::parsing::fully_parse_sql(&query_seq) {
-            Ok(mut stmts) => {
+            Ok(stmts) => {
                 
                 if stmts.len() == 0 {
                     return Err(String::from("Empty statement sequence"));
@@ -118,12 +118,23 @@ where
                 }
                 
                 if is_plan {
-                    convert_queries_to_explain(&mut stmts)?;
+                    for stmt in stmts.iter_mut() {
+                        match stmt {
+                            AnyStatement::Parsed(_, ref mut sql) => {
+                                if !sql.trim().starts_with("explain") || !sql.trim().starts_with("EXPLAIN") {
+                                    *sql = format!("EXPLAIN {}", sql);
+                                }
+                                *sql = sql.replace("explain ", "explain (format json) ");
+                                *sql = sql.replace("EXPLAIN ", "EXPLAIN (FORMAT json) ");
+                            },
+                            _ => { }
+                        }
+                    }
                 }
 
                 // If sequence is exclusively composed of query statements, perform asysnchronous execution.
                 if all_queries && lock.enable_async {
-                    return Ok(self.query_async(&stmts[..]));
+                    return Ok(self.query_async(&stmts[..], is_plan));
                 }
                 
                 // If sequence has at least one non-query statement, default to synchronous exection.
@@ -133,7 +144,7 @@ where
                     match any_stmt {
                         AnyStatement::Parsed(stmt, s) => match stmt {
                             Statement::Query(_) | Statement::Explain { .. } => {
-                                results.push(self.query(&s));
+                                results.push(self.query(&s, is_plan));
                             },
                             stmt => {
                                 lock.accepts(&stmt)?;
@@ -157,7 +168,7 @@ where
                         },
                         AnyStatement::Raw(stmt_tokens, stmt_string, is_select) => {
                             if is_select {
-                                results.push(self.query(&format!("{}", stmt_string)));
+                                results.push(self.query(&format!("{}", stmt_string), is_plan));
                             } else {
                                 results.push(self.exec(&AnyStatement::Raw(stmt_tokens, format!("{}", stmt_string), is_select), /*&subs*/));
                             }
@@ -175,48 +186,5 @@ where
 
 }
 
-fn convert_queries_to_explain(stmts : &mut [AnyStatement]) -> Result<(), String> {
-    for stmt in stmts.iter_mut() {
-        match stmt {
-            AnyStatement::Parsed(Statement::Query { .. }, ref mut sql) => {
-                if !sql.trim().starts_with("explain") || !sql.trim().starts_with("EXPLAIN") {
-                    *sql = format!("EXPLAIN {}", sql);
-                }
 
-                match sqlparser::parser::Parser::parse_sql(&sqlparser::dialect::PostgreSqlDialect{},&sql)
-                    .ok()
-                    .and_then(|s| s.get(0).cloned() )
-                {
-                    Some(expl_stmt) => {
-                        match expl_stmt {
-                            Statement::Explain { .. } => {
-                                /* This replacement is done AFTER the explain prefix is inserted
-                                and re-parsed, because sqlparser does not understand the format json
-                                clause. */
-                                *sql = sql.replacen("explain ", "explain (format json) ", 1);
-                                *sql = sql.replacen("EXPLAIN ", "EXPLAIN (FORMAT json) ", 1);
-                                *stmt = AnyStatement::Parsed(expl_stmt.clone(), sql.clone());
-                            },
-                            _ => {
-                                return Err(String::from("Invalid explain statement formed"));
-                            }
-                        }
-
-                    },
-                    None => {
-                        return Err(String::from("Invalid explain statement formed"));
-                    }
-                }
-            },
-            AnyStatement::Parsed(Statement::Explain { .. }, _) => {
-                // Leave explain statements unaltered. The user
-                // will view raw the raw textual output in this case.
-            },
-            _ => {
-                return Err(String::from("Only SELECT commands supported in plan mode"));
-            }
-        }
-    }
-    Ok(())
-}
 

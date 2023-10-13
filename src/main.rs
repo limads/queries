@@ -14,6 +14,8 @@ fn main() {
 
     queries::register_resources();
     
+    // queries::ui::editor::COMPL.set(queries::ui::editor::SqlCompletionProvider::new());
+
     if let Err(e) = gtk4::init() {
         eprintln!("{}", e);
         return;
@@ -35,7 +37,8 @@ fn main() {
         eprintln!("Unable to get datadir for state recovery");
         SharedUserState::default()
     };
-    let client = QueriesClient::new(&user_state);
+    let modules = queries::load_modules();
+    let client = QueriesClient::new(&user_state, modules.clone());
 
     // Take shared ownership of the client state, because they will be needed to
     // persist the client state before the application closes (which is done outside
@@ -63,7 +66,7 @@ fn main() {
             } else {
                 eprintln!("Unable to get default GDK display");
             }
-            let queries_win = QueriesWindow::build(app, &user_state);
+            let queries_win = QueriesWindow::build(app, &user_state, &modules);
             queries::setup(&queries_win, &user_state, &client);
             queries_win.window.show();
         }

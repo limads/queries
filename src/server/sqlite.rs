@@ -19,6 +19,14 @@ use crate::client::ConnectionInfo;
 use crate::client::ConnConfig;
 use std::error::Error;
 use crate::client::ConnURI;
+use crate::ui::apply::Modules;
+use rusqlite::functions::{FunctionFlags, Aggregate, Context};
+use std::sync::Mutex;
+use std::sync::Arc;
+use std::rc::Rc;
+use std::sync::atomic::Ordering;
+use std::sync::atomic::AtomicU64;
+use rusqlite::OpenFlags;
 
 pub struct SqliteConnection {
 
@@ -62,7 +70,12 @@ impl SqliteConnection {
                 return Err("Parent path should be a directory".to_string());
             }
         }
-        let res_conn = rusqlite::Connection::open(&path);
+        let res_conn = if uri.info.readonly == Some(true) {
+            let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+            rusqlite::Connection::open_with_flags(&path, flags)
+        } else {
+            rusqlite::Connection::open(&path)
+        };
         match res_conn {
             Ok(conn) => {
                 Ok(Self{
@@ -87,6 +100,10 @@ impl SqliteConnection {
 }
 
 impl Connection for SqliteConnection {
+
+    fn bind_functions(&self, modules : &crate::ui::apply::Modules) {
+        attach_functions(&self.conn, modules);
+    }
 
     fn configure(&mut self, cfg : ConnConfig) {
 
@@ -218,267 +235,168 @@ impl Connection for SqliteConnection {
         } else {
             "Unknown".to_string()
         };
+
         let details = DBDetails {
-            uptime : "Unknown".to_string(),
+            uptime : "N/A".to_string(),
             server : "SQLite 3".to_string(),
             size,
-            locale : "Unknown".to_string()
+            locale : "N/A".to_string()
         };
         Ok(DBInfo { schema : top_objs, details : Some(details) })
     }
 
 }
 
-/*fn attach_functions(conn : &rusqlite::Connection) {
-        // generate N ordered real elements from a memory-contiguous
-        // byte array decodable as f64 (double precision)
-        let create_scalar_ok = conn.create_scalar_function("jdecode", 1, false, move |ctx| {
-            if ctx.len() != 1 {
-                println!("Function receives single argument");
-                return Err(rusqlite::Error::UserFunctionError(
-                    DecodingError::new("Function receives single argument")
-                ));
-            }
+type BoxedAgg = Box<dyn Fn(serde_json::Value)->Result<serde_json::Value, Box<dyn std::error::Error>> + Send + 'static>;
 
-            let res_buf = ctx.get::<Vec<u8>>(0);
-            match res_buf {
-                Ok(buf) => {
-                    match decoding::decode_bytes(&buf[..]) {
-                        Some(data) => {
-                            if data.len() >= 1 {
-                                let mut json = String::from("{");
-                                //println!("{:?}", data);
-                                for (i, d) in data.iter().enumerate() {
-                                    json += &format!("{:.8}", d)[..];
-                                    if i < data.len()-1 {
-                                        json += ","
-                                    } else {
-                                        json += "}"
-                                    }
-                                    if i < 10 {
-                                        println!("{}", d);
-                                    }
-                                }
-                                Ok(json)
-                            } else {
-                                println!("Empty buffer");
-                                Err(rusqlite::Error::UserFunctionError(
-                                    DecodingError::new("Empty buffer")
-                                ))
-                            }
-                        },
-                        None => {
-                            println!("Could not decode data");
-                            Err(rusqlite::Error::UserFunctionError(
-                                    DecodingError::new("Could not decode data")
-                                ))
-                        }
-                    }
-                },
-                Err(e) => {
-                    println!("{}", e);
-                    Err(rusqlite::Error::UserFunctionError(
-                        DecodingError::new("Field is not a blob")
-                    ))
-                }
-            }
-        });
+pub struct JsonAgg(BoxedAgg);
 
-        let my_fn = move |_ : Table| { String::from("Hello") };
-        let agg = TableAggregate::<String>{
-            ans : String::new(),
-            f : &my_fn
+impl Aggregate<Vec<Vec<serde_json::Value>>, serde_json::Value> for JsonAgg {
+
+    fn init(&self, ctx : &mut Context<'_>) -> rusqlite::Result<Vec<Vec<serde_json::Value>>> {
+        let mut vals = Vec::new();
+        for i in 0..ctx.len() {
+            vals.push(Vec::new());
+        }
+        Ok(vals)
+    }
+
+    fn step(&self, ctx: &mut Context<'_>, state : &mut Vec<Vec<serde_json::Value>>) -> rusqlite::Result<()> {
+        for i in 0..ctx.len() {
+            if let Ok(s) = ctx.get::<String>(i) {
+                state[i].push(serde_json::Value::String(s));
+            } else if let Ok(int) = ctx.get::<i64>(i) {
+                state[i].push(serde_json::Value::from(int));
+            } else if let Ok(f) = ctx.get::<f64>(i) {
+                state[i].push(serde_json::Value::from(f));
+            } else if let Ok(b) = ctx.get::<bool>(i) {
+                state[i].push(serde_json::Value::from(b));
+            } else {
+                return Err(rusqlite::Error::UserFunctionError(format!("Invalid type").into()));
+            }
+        }
+        Ok(())
+    }
+
+    fn finalize(&self, _: &mut Context<'_>, mut state: Option<Vec<Vec<serde_json::Value>>>) -> rusqlite::Result<serde_json::Value> {
+        let val = if let Some(mut state) = state {
+           serde_json::Value::Array(state.drain(..).map(|s| serde_json::Value::Array(s) ).collect())
+        } else {
+            serde_json::Value::Null
         };
-        let create_agg_ok = conn.create_aggregate_function("multi",
-            2,
-            false,
-            agg
-        );
-        match create_agg_ok {
-            Ok(_) => { },
-            Err(e) => { println!("{}", e); }
-        }
-        match create_scalar_ok {
-            Ok(_) => { },
-            Err(e) => { println!("{}", e); }
-        }
+        (self.0)(val).map_err(|e| rusqlite::Error::UserFunctionError(format!("{}",e).into()) )
     }
 
-    /*fn load_extension(
-        conn : &rusqlite::Connection,
-        path : &str
-    ) {
-        match conn.load_extension(path, None) {
-            Ok(_) => { },
-            Err(e) => { println!("{}", e); }
+}
+
+fn process_request(
+    this_mod : &mut crate::ui::apply::Module,
+    func_name : &str,
+    val : &serde_json::Value
+) -> Result<serde_json::Value, String> {
+    let input = serde_json::to_string(&val).map_err(|e| format!("{}",e) )?;
+    let bytes = this_mod.plugin.call(&func_name, &input[..]).map_err(|e| format!("{}",e) )?;
+    Ok(serde_json::from_reader::<_, serde_json::Value>(bytes).map_err(|e| format!("{}",e) )?)
+}
+
+fn attach_functions(conn : &rusqlite::Connection, mods : &Modules) {
+    use gtk4::glib;
+
+    /* We need to process the data at the main thread, because the Plugin held
+    by the module is neither Send nor UnwindSafe, which are requirements for
+    the closures bound by sqlite (and the database operations live in another thread).
+    The solution is to process the data in the glib main loop, blocking the function call
+    briefly until the result is ready. An improved solution would be to re-load the modules
+    at the database thread. But in this case each function would have its plugin instance,
+    since Plugin cannot be Send. */
+    let (tx, rx) = glib::MainContext::channel::<(u64, String, String, serde_json::Value)>(glib::source::Priority::DEFAULT);
+    let (ans_tx, ans_rx) = crossbeam::channel::unbounded::<Result<(u64, String, String, serde_json::Value), String>>();
+
+    rx.attach(None, {
+        let mods = mods.clone();
+        move |(call_id, mod_name, func_name, val)| {
+            let mut mods = mods.borrow_mut();
+            let this_mod = mods.get_mut(&mod_name).unwrap();
+            let res = process_request(this_mod, &func_name, &val);
+            ans_tx.send(res.map(|res| (call_id, mod_name, func_name, res)));
+            glib::ControlFlow::Continue
         }
-    }*/
-
-    /// Given a vector of paths to be loaded,
-    fn load_extensions(
-        conn : &rusqlite::Connection,
-        paths : Vec<String>
-    ) {
-        for p in paths.iter() {
-            Self::load_extension(conn, &p[..]);
-        }
-    }*/
-
-    /*pub fn try_new_postgre(conn_str : String) -> Result<Self, String> {
-        let tls_mode = NoTls{ };
-        //println!("{}", conn_str);
-        match Client::connect(&conn_str[..], tls_mode) {
-            Ok(conn) => Ok(SqlEngine::PostgreSql{
-                conn_str,
-                conn,
-                exec : Arc::new(Mutex::new((Executor::new(), String::new()))) ,
-                channel : None
-            }),
-            Err(e) => {
-                let mut e = e.to_string();
-                Self::format_pg_string(&mut e);
-                Err(e)
-            }
-        }
-    }*/
-
-    /*pub fn remove_sqlite3_udfs(&self, loader : &FunctionLoader, lib_name : &str) {
-        match self {
-            SqlEngine::Sqlite3{ conn, .. } => {
-                for f in loader.fn_list_for_lib(lib_name) {
-                    if let Err(e) = conn.remove_function(&f.name, f.args.len() as i32) {
-                        println!("{}", e);
-                    }
-                }
-            },
-            _ => println!("No UDFs can be registered with the current engine")
-        }
-    }
-
-    // Since we are handing over control of the function to the C
-    // SQLite API, we can't track the lifetime anymore. raw_fn is now
-    // assumed to stay alive while the last shared reference to the
-    // function loader is alive and the library has not been cleared
-    // from the "libs" array of loader. Two things mut happen to guarantee this:
-    // (1) The function is always removed when the library is removed, so this branch is
-    // not accessed;
-    // (2) The function is removed from the Sqlite connection via conn.remove_function(.)
-    // any time the library is de-activated.
-    // (3) No call to raw_fn must happen outside the TableEnvironment public API,
-    // (since TableEnvironment holds an Arc copy to FunctionLoader).
-    // Libraries that are not active but are loaded stay on main memory, but will not
-    // be registered by this function because load_functions return only active libraries.
-    // Perhaps only let the user add/remove/active libraries when there is no connection open
-    // for safety.
-    fn bind_sqlite3_udfs(conn : &rusqlite::Connection, loader : &FunctionLoader) {
-        // println!("Function loader state (New Sqlite3 conn): {:?}", loader);
-        match loader.load_functions() {
-            Ok(funcs) => {
-                for (func, load_func) in funcs {
-                    let n_arg = if func.var_arg {
-                        -1
-                    } else {
-                        func.args.len() as i32
-                    };
-                    let created = match load_func {
-                        LoadedFunc::I32(f) => {
-                            let raw_fn = unsafe { f.into_raw() };
-                            conn.create_scalar_function(
-                                &func.name,
-                                n_arg,
-                                FunctionFlags::empty(),
-                                move |ctx| { unsafe{ raw_fn(ctx) } }
-                            )
-                        },
-                        LoadedFunc::F64(f) => {
-                            let raw_fn = unsafe { f.into_raw() };
-                            conn.create_scalar_function(
-                                &func.name,
-                                n_arg,
-                                FunctionFlags::empty(),
-                                move |ctx| { unsafe{ raw_fn(ctx) } }
-                            )
-                        },
-                        LoadedFunc::Text(f) => {
-                            let raw_fn = unsafe { f.into_raw() };
-                            conn.create_scalar_function(
-                                &func.name,
-                                n_arg,
-                                FunctionFlags::empty(),
-                                move |ctx| { unsafe{ raw_fn(ctx) } }
-                            )
-                        },
-                        LoadedFunc::Bytes(f) => {
-                            let raw_fn = unsafe { f.into_raw() };
-                            conn.create_scalar_function(
-                                &func.name,
-                                n_arg,
-                                FunctionFlags::empty(),
-                                move |ctx| { unsafe{ raw_fn(ctx) } }
-                            )
-                        }
-                    };
-                    if let Err(e) = created {
-                        println!("{:?}", e);
-                    } else {
-                        println!("User defined function {:?} registered", func);
-                    }
-                }
-            },
-            Err(e) => {
-                println!("{:?}", e);
-            }
-        }
-    }*/
-
-
-    /*/// Inserts a table, but only if using in-memory SQLite3 database
-    pub fn insert_external_table(&mut self, tbl : &Table) {
-        match &self {
-            SqlEngine::Sqlite3{path, conn : _} => {
-                match &path {
-                    None => {
-                        if let Ok(q) = tbl.sql_string("transf_table") {
-                            // println!("{}", q);
-                            if let Err(e) = self.try_run(q, &HashMap::new(), true,/*None*/ ) {
-                                println!("{}", e);
+    });
+    let ans_rx = Arc::new(ans_rx);
+    let mods = mods.clone();
+    let call_id = Arc::new(AtomicU64::new(0));
+    for (mod_name, module) in mods.borrow().iter() {
+        for f in &module.funcs {
+            let call_id = call_id.clone();
+            let func_name = f.name.clone();
+            let mod_name = mod_name.clone();
+            let tx = tx.clone();
+            let ans_rx = ans_rx.clone();
+            if f.aggregate {
+                let agg = JsonAgg(Box::new(move |v| {
+                    call_id.fetch_add(1, Ordering::Relaxed);
+                    let id = call_id.load(Ordering::Relaxed);
+                    tx.send((id, mod_name.clone(), func_name.clone(), v));
+                    match ans_rx.recv() {
+                        Ok(Ok(ans)) => {
+                            if ans.0 == id && &ans.1[..] == &mod_name[..] && &ans.2[..] == &func_name[..] {
+                                Ok(ans.3)
+                            } else {
+                                Err(Box::new(rusqlite::Error::UserFunctionError("Synchronization error".into())))
                             }
-                        } else {
-                            println!("Tried to generate SQL for unnamed table");
+                        },
+                        Ok(Err(e)) => {
+                            Err(Box::new(rusqlite::Error::UserFunctionError(e.into())))
+                        },
+                        Err(_) => {
+                            Err(Box::new(rusqlite::Error::UserFunctionError("Disconnected".into())))
                         }
-                    },
-                    Some(_) => {
-                        println!("Can only insert tables to in-memory SQLite3 databases");
                     }
+                }));
+                if let Err(e) = conn.create_aggregate_function(&f.name, -1, FunctionFlags::empty(), agg) {
+                    println!("{}",e);
                 }
-            },
-            _ => {
-                println!("Tried to insert table to Non-sqlite3 database");
+            } else {
+                if let Err(e) = conn.create_scalar_function(&f.name, -1, FunctionFlags::empty(), move |ctx| {
+                    call_id.fetch_add(1, Ordering::Relaxed);
+                    let id = call_id.load(Ordering::Relaxed);
+                    let mut args = Vec::new();
+                    for i in 0..ctx.len() {
+                        if let Ok(s) = ctx.get::<String>(i) {
+                            args.push(serde_json::Value::String(s));
+                        } else if let Ok(int) = ctx.get::<i64>(i) {
+                            args.push(serde_json::Value::from(int));
+                        } else if let Ok(f) = ctx.get::<f64>(i) {
+                            args.push(serde_json::Value::from(f));
+                        } else if let Ok(b) = ctx.get::<bool>(i) {
+                            args.push(serde_json::Value::from(b));
+                        } else {
+                            return Err(rusqlite::Error::UserFunctionError(format!("Invalid type").into()));
+                        }
+                    }
+                    tx.send((id, mod_name.clone(), func_name.clone(), serde_json::Value::Array(args)));
+                    match ans_rx.recv() {
+                        Ok(Ok(ans)) => {
+                            if ans.0 == id && &ans.1[..] == &mod_name[..] && &ans.2[..] == &func_name[..] {
+                                Ok(ans.3)
+                            } else {
+                                Err(rusqlite::Error::UserFunctionError("Synchronization error".into()))
+                            }
+                        },
+                        Ok(Err(e)) => {
+                            Err(rusqlite::Error::UserFunctionError(e.into()))
+                        },
+                        Err(_) => {
+                            Err(rusqlite::Error::UserFunctionError("Disconnected".into()))
+                        }
+                    }
+                }) {
+                    println!("{}",e);
+                }
             }
         }
-    }*/
-
-
-    /*/// Table is an expesive data structure, so we pass ownership to the function call
-    /// because it may be disassembled if the function is found, but we return it back to
-    /// the user on an not-found error, since the caller will want to re-use it.
-    fn try_client_function(sub : Substitution, tbl : Table, loader : &FunctionLoader) -> StatementOutput {
-        match loader.try_exec_fn(sub.func_name, sub.func_args, tbl) {
-            Ok(tbl) => StatementOutput::Valid(String::new(), tbl),
-            Err(FunctionErr::UserErr(msg)) | Err(FunctionErr::TableAgg(msg)) => {
-                StatementOutput::Invalid(msg)
-            },
-            Err(FunctionErr::TypeMismatch(ix)) => {
-                StatementOutput::Invalid(format!("Type mismatch at column {}", ix))
-            },
-            Err(FunctionErr::NotFound(tbl)) => {
-                StatementOutput::Valid(String::new(), tbl)
-            }
-        }
-    }*/
-
-    /// After the statement execution status returned from the SQL engine,
-    /// build a message to display to the user.
+    }
+}
 
 /// Get all SQLite table names.
 /// TODO This will break if there is a table under the temp schema with the same name
@@ -530,11 +448,11 @@ fn get_sqlite_columns(conn : &mut SqliteConnection, tbl_name : &str) -> Option<D
                     }
                 })?;
             let pks = Vec::new();
-            let cols = pack_column_types(names, col_types, pks).ok()?;  
+            let cols = pack_column_types(names, col_types, pks).ok()?;
 
             // TODO pass empty schema. Treat empty schema as non-namespace qualified at query/insert/fncall commands.
             let obj = DBObject::Table{
-                schema : format!("public"),
+                schema : String::new(),
                 name : tbl_name.to_string(),
                 cols, rels : Vec::new()
             };
@@ -716,63 +634,4 @@ pub fn copy_table_to_sqlite(
     insert_stmt.execute([]).map_err(|e| format!("{}", e) )?;
     Ok(())
 }
-
-/*mod functions {
-
-    use rusqlite::{self, ToSql};
-    use rusqlite::functions::{Aggregate, Context};
-    use std::panic::{RefUnwindSafe, UnwindSafe};
-
-    pub struct ToSqlAgg<T,F>
-    where
-        T : ToSql,
-        F : ToSql
-    {
-        data : T,
-
-        init_func : Box<dyn Fn()->T>,
-
-        /// This function can be read as a dynamic external symbol
-        state_func : Box<dyn Fn(T)->T>,
-
-        /// This function also can be read as a dynamic external symbol
-        final_func : Box<dyn Fn(T)->F>
-    }
-
-    impl<T, F> Aggregate<T, F> for ToSqlAgg<T, F>
-    where
-        T : ToSql + RefUnwindSafe + UnwindSafe,
-        F : ToSql + RefUnwindSafe + UnwindSafe
-    {
-        fn init(&self) -> T {
-            unimplemented!()
-        }
-
-        fn step(&self, ctx : &mut Context, t : &mut T) ->rusqlite::Result<()> {
-            unimplemented!()
-        }
-
-        fn finalize(&self, t : Option<T>) -> rusqlite::Result<F> {
-            unimplemented!()
-        }
-
-    }
-
-}*/
-
-/*pub fn backup_if_sqlite(conn : &mut SqliteConnection, path : PathBuf) {
-    if let Err(e) = conn.conn.backup(rusqlite::DatabaseName::Main, path, None) {
-        println!("{}", e);
-    }
-}*/
-
-/*
-pub fn remove_udfs(&self, lib_name : &str) {
-        if let (Ok(engine), Ok(loader)) = (self.listener.engine.lock(), self.loader.lock()) {
-            engine.remove_sqlite3_udfs(&loader, lib_name);
-        } else {
-            println!("Failed acquiring lock over sql engine or function loader to remove UDFs");
-        }
-    }
-*/
 

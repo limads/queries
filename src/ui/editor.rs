@@ -22,6 +22,7 @@ use crate::client::SharedUserState;
 use crate::ui::QueriesSettings;
 use crate::client::EditorSettings;
 use filecase::MultiArchiverImpl;
+use once_cell::unsync::OnceCell;
 
 const MAX_VIEWS : usize = 16;
 
@@ -52,12 +53,15 @@ impl QueriesEditor {
         let open_dialog = OpenDialog::build();
         let export_dialog = ExportDialog::build();
         stack.add_named(&script_list.bx, Some("list"));
+        // let provider = SqlCompletionProvider::new();
         let views : [sourceview5::View; MAX_VIEWS]= Default::default();
         for ix in 0..MAX_VIEWS {
             configure_view(&views[ix], &EditorSettings::default());
             let scroll = ScrolledWindow::new();
             scroll.set_child(Some(&views[ix]));
             stack.add_named(&scroll, Some(&format!("editor{}", ix)));
+            // let compl = views[ix].completion();
+            // compl.add_provider(&provider);
         }
         open_dialog.react(&script_list);
         let ignore_file_save_action = gio::SimpleAction::new("ignore_file_save", Some(&i32::static_variant_type()));
@@ -380,7 +384,7 @@ fn configure_view(view : &View, settings : &EditorSettings) {
     buffer.set_max_undo_levels(40);
     let provider = CssProvider::new();
     let font = format!("textview {{ font-family: \"{}\"; font-size: {}pt; }}", settings.font_family, settings.font_size);
-    provider.load_from_data(font.as_bytes());
+    provider.load_from_data(&font);
 
     let ctx = view.style_context();
     ctx.add_provider(&provider, 800);
@@ -893,7 +897,7 @@ impl React<QueriesSettings> for QueriesEditor {
                 let mut state = editor.user_state.borrow_mut();
                 state.editor.show_line_numbers = switch.is_active();
                 editor.configure(&state.editor);
-                Inhibit(false)
+                glib::signal::Propagation::Proceed
             }
         });
         settings.editor_bx.line_highlight_switch.connect_state_set({
@@ -902,12 +906,170 @@ impl React<QueriesSettings> for QueriesEditor {
                 let mut state = editor.user_state.borrow_mut();
                 state.editor.highlight_current_line = switch.is_active();
                 editor.configure(&state.editor);
-                Inhibit(false)
+                glib::signal::Propagation::Proceed
             }
         });
     }
 
 }
 
+use sourceview5::CompletionContext;
+use sourceview5::CompletionProposal;
+use sourceview5::CompletionActivation;
+use sourceview5::{CompletionCell, CompletionProvider};
+use sourceview5::subclass::completion_provider::*;
+use sourceview5::subclass::prelude::*;
+use glib::{prelude::*, subclass::prelude::*};
+use std::path::Path;
+use gio::ListModel;
 
+/* Blocking issue (gtksourceview-5 0.7.1):
+GtkSourceView-CRITICAL: assertion GTK_SOURCE_IS_COMPLETION_PROVIDER(self) failed */
+glib::wrapper! {
+    pub struct SqlCompletionProvider(ObjectSubclass<imp::SqlCompletionProvider>)
+        @implements CompletionProvider;
+}
 
+impl SqlCompletionProvider {
+    pub fn new() -> Self {
+        glib::Object::new::<SqlCompletionProvider>()
+    }
+}
+
+pub mod imp {
+    use std::cell::RefCell;
+
+    use super::*;
+    pub struct SqlCompletionProvider(Rc<RefCell<Option<Vec<String>>>>);
+    impl Default for SqlCompletionProvider {
+        fn default() -> Self {
+            SqlCompletionProvider(Rc::new(RefCell::new(Some(vec![String::from("mytable")]))))
+        }
+    }
+    #[glib::object_subclass]
+    impl ObjectSubclass for SqlCompletionProvider {
+        const NAME: &'static str = "SqlCompletionProvider";
+        type Type = super::SqlCompletionProvider;
+        type ParentType = glib::Object;
+        type Interfaces = (CompletionProvider,);
+    }
+    impl ObjectImpl for SqlCompletionProvider {}
+    impl CompletionProviderImpl for SqlCompletionProvider {
+
+        fn is_trigger(&self, iter: &TextIter, c : char) -> bool {
+            false
+        }
+
+        /*fn display(
+            &self,
+            context: &CompletionContext,
+            proposal: &impl IsA<CompletionProposal>,
+            cell: &CompletionCell
+        ) {
+            // cell.set_text(proposal.typed_text());
+            // cell.set_icon_name("table-symbolic");
+        }*/
+
+        fn title(&self) -> Option<glib::GString> {
+            Some("sql".into())
+        }
+
+        /*fn populate_async<P: FnOnce(Result<ListModel, Error>) + 'static>(
+            &self,
+            context: &CompletionContext,
+            cancellable: Option<&impl IsA<gio::Cancellable>>,
+            callback: P
+        ) {
+
+        }*/
+
+        /*fn populate(&self, context: &CompletionContext) -> Result<ListModel, gtk4::glib::Error> {
+            let Some(inner) = self.0.borrow().clone() else { panic!() };
+            let tables = &inner.0;
+            let word = context.word().to_string();
+            let mut candidates : Vec<glib::Object> = tables.iter()
+                .map(|tbl| {
+                    let compl = CompletionCell::builder().text(tbl).build();
+                    compl.set_icon_name("table-symbolic");
+                    compl.upcast()
+                }).collect();
+            let obj = self.obj();
+            let provider = obj.dynamic_cast_ref::<CompletionProvider>().unwrap();
+            // context.set_proposals_for_provider(provider, Some(&*candidates));
+
+            // let store = ListStore::new(&[candidates[0].type_()]);
+            // let provider = obj.dynamic_cast_ref::<CompletionProvider>().unwrap();
+            // context.add_proposals(provider, &*candidates, true);
+
+            /*for cand in candidates {
+                let iter = store.append();
+                store.set(&iter, &[(0,&cand)]);
+            }*/
+
+            /*let list = StringList::new(&["World"]);
+            list.append("Hello");
+            let flm = FilterListModel::new(Some(&list), None::<&AnyFilter>);
+            Ok(flm.model().unwrap())*/
+
+            Ok(MyList::new().upcast())
+        }*/
+    }
+}
+
+use gtk4::subclass::prelude::ListModelImpl;
+glib::wrapper! {
+    pub struct MyList(ObjectSubclass<MyListInner>)
+        @implements ListModel;
+}
+impl MyList {
+    pub fn new() -> Self {
+        glib::Object::new::<MyList>()
+    }
+}
+#[derive(Default)]
+pub struct MyListInner { }
+#[glib::object_subclass]
+impl ObjectSubclass for MyListInner {
+    const NAME: &'static str = "MyList";
+    type Type = MyList;
+    type ParentType = glib::Object;
+    type Interfaces = (gio::ListModel,);
+}
+impl ObjectImpl for MyListInner {}
+impl ListModelImpl for MyListInner {
+    fn item_type(&self) -> glib::Type {
+        // CompletionCell::builder().build().type_()
+        MyProposal::new().type_()
+    }
+    fn n_items(&self) -> u32 {
+        1
+    }
+    fn item(&self, position: u32) -> Option<glib::Object> {
+        /*let compl = CompletionCell::builder().text("mytable").build();
+        compl.set_icon_name("table-symbolic");
+        Some(compl.upcast())*/
+        //Some(COMPL.get().unwrap().upcast())
+        Some(MyProposal::new().upcast())
+    }
+}
+
+glib::wrapper! {
+    pub struct MyProposal(ObjectSubclass<MyInnerProposal>)
+        @implements CompletionProposal;
+}
+impl MyProposal {
+    pub fn new() -> Self {
+        glib::Object::new::<MyProposal>()
+    }
+}
+#[derive(Default)]
+pub struct MyInnerProposal { }
+#[glib::object_subclass]
+impl ObjectSubclass for MyInnerProposal {
+    const NAME: &'static str = "MyProposal";
+    type Type = MyProposal;
+    type ParentType = glib::Object;
+    type Interfaces = (CompletionProposal,);
+}
+impl ObjectImpl for MyInnerProposal {}
+impl CompletionProposalImpl for MyInnerProposal { }

@@ -8,6 +8,146 @@ use stateful::React;
 use gtk4::prelude::*;
 use gtk4::glib;
 use gtk4::gio;
+use std::collections::BTreeMap;
+use std::path::Path;
+use std::ffi::OsStr;
+use std::rc::Rc;
+use std::cell::RefCell;
+use std::cell::Cell;
+use std::sync::Mutex;
+
+#[derive(Clone, Copy, Default)]
+pub struct MyType { }
+
+pub trait Singleton {
+    fn instance() -> &'static Self;
+}
+
+static MYTYPE : std::sync::OnceLock<Mutex<MyType>> = std::sync::OnceLock::new();
+
+impl Singleton for Mutex<MyType> {
+    fn instance() -> &'static Self {
+        MYTYPE.get_or_init(|| Mutex::new(MyType::default()) )
+    }
+}
+
+pub trait LockedSingleton {
+    type Inner;
+    fn instance() -> std::sync::MutexGuard<'static, Self::Inner>;
+    fn try_instance() -> Option<std::sync::MutexGuard<'static, Self::Inner>>;
+}
+
+impl<T> LockedSingleton for Mutex<T>
+where
+    Mutex<T> : Singleton
+{
+    type Inner = T;
+    fn instance() -> std::sync::MutexGuard<'static, T> {
+        <Mutex::<T> as Singleton>::instance().lock().unwrap()
+    }
+    fn try_instance() -> Option<std::sync::MutexGuard<'static, T>> {
+        <Mutex::<T> as Singleton>::instance().try_lock().ok()
+    }
+}
+
+/*use elsa::sync::FrozenVec;
+use stable_deref_trait::StableDeref;
+
+pub trait FrozenSingleton
+where
+    Self : Default + StableDeref
+{
+
+    fn history() -> &'static FrozenVec<Self>;
+
+    fn get() -> &'static Self {
+        let v = Self::history();
+        if v.len() == 0 {
+            v.push(Self::default());
+        }
+        v.get(v.len()-1).unwrap()
+    }
+
+    fn set(val : Self) {
+        let v = Self::history();
+        v.push(val);
+    }
+
+}
+
+static MYTYPE_HISTORY : std::sync::OnceLock<FrozenVec<MyType>> = std::sync::OnceLock::new();
+
+impl FrozenSingleton for MyType {
+    fn history() -> &'static FrozenVec<Self> {
+        MYTYPE_HISTORY.get_or_init(|| FrozenVec::new() )
+    }
+}*/
+
+pub trait ShareMany {
+    type Output;
+    fn share_many(&self) -> Self::Output;
+}
+
+impl<T1,T2> ShareMany for (&T1, &T2)
+where
+    T1 : Clone,
+    T2 : Clone
+{
+    type Output=(T1,T2);
+    fn share_many(&self) -> Self::Output {
+        (self.0.clone(), self.1.clone())
+    }
+}
+
+impl<T1,T2,T3> ShareMany for (&T1, &T2, &T3)
+where
+    T1 : Clone,
+    T2 : Clone,
+    T3 : Clone
+{
+    type Output=(T1,T2,T3);
+    fn share_many(&self) -> Self::Output {
+        (self.0.clone(), self.1.clone(), self.2.clone())
+    }
+}
+
+impl<T1,T2,T3,T4> ShareMany for (&T1, &T2, &T3, &T4)
+where
+    T1 : Clone,
+    T2 : Clone,
+    T3 : Clone,
+    T4 : Clone
+{
+    type Output=(T1,T2,T3,T4);
+    fn share_many(&self) -> Self::Output {
+        (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone())
+    }
+}
+
+pub trait Share
+where
+    Self : Sized
+{
+    type Inner : Sized;
+    fn share(&self) -> Self;
+    fn new_shared<const N : usize>(inner : Self::Inner) -> [Self; N];
+}
+
+impl<T> Share for Rc<T>
+where
+    T : Sized,
+{
+    type Inner = T;
+    fn share(&self) -> Self {
+        self.clone()
+    }
+
+    fn new_shared<const N : usize>(val : T) -> [Self; N] {
+        let val = Rc::new(val);
+        std::array::from_fn(|_| val.clone() )
+    }
+
+}
 
 pub mod tables;
 
@@ -84,6 +224,10 @@ fn hook_signals(
     queries_win.find_dialog.react(&queries_win.titlebar.main_menu);
     queries_win.find_dialog.react(&queries_win.content.editor);
     queries_win.find_dialog.react(&client.scripts);
+    queries_win.find_dialog.react(&client.scripts);
+
+    queries_win.model.react(&client.active_conn);
+    queries_win.apply.react(&client.env);
 
     queries_win.window.add_action(&queries_win.find_dialog.find_action);
     queries_win.window.add_action(&queries_win.find_dialog.replace_action);
@@ -116,3 +260,79 @@ pub fn setup(
 
     queries_win.content.editor.configure(&user_state.borrow().editor);
 }
+
+pub fn load_modules() -> crate::ui::apply::Modules {
+    crate::CONTEXT.set(Context::new());
+    if let Some(mut path) = filecase::get_datadir(crate::APP_ID) {
+        path.push(Path::new("modules"));
+        if !path.exists() {
+            if let Err(e) = std::fs::create_dir(&path) {
+                println!("{}", e);
+            }
+        }
+        match load_modules_at_path(&path) {
+            Ok(modules) => modules,
+            Err(e) => {
+                println!("{:?}", e);
+                Rc::new(RefCell::new(BTreeMap::new()))
+            }
+        }
+    } else {
+        println!("Could not find datadir (modules won't be loaded)");
+        Rc::new(RefCell::new(BTreeMap::new()))
+    }
+}
+
+use extism::{Plugin, Context};
+use extism::{Val, ValType, CurrentPlugin, UserData, Error};
+use ui::apply::*;
+use once_cell::sync::OnceCell;
+
+static CONTEXT : OnceCell<Context> = OnceCell::new();
+
+fn load_module(
+    modules : &mut BTreeMap<String, Module>,
+    module_name : &str,
+    wasm : &[u8]
+) -> Result<(), std::boxed::Box<dyn std::error::Error>> {
+    let mut plugin = Plugin::new(&CONTEXT.get().unwrap(), &wasm, [], false)?;
+    let bytes = plugin.call(&module_name, &[])?;
+    let mut module_def = serde_json::from_reader::<_, ModuleDef>(bytes)?;
+    module_def.functions.sort_by(|a, b| a.name.cmp(&b.name) );
+    modules.insert(module_def.module.to_string(), Module { plugin, funcs : module_def.functions });
+    Ok(())
+}
+
+fn load_modules_at_path(path : &Path) -> Result<Rc<RefCell<BTreeMap<String, Module>>>, std::boxed::Box<dyn std::error::Error>> {
+    let mut modules = BTreeMap::new();
+    for entry in std::fs::read_dir(&path)? {
+        let entry = entry?;
+        if entry.path().extension() == Some(OsStr::new("wasm")) {
+            if let Some(name) = entry.path().file_stem().and_then(|f| f.to_str() ) {
+                match std::fs::read(entry.path()) {
+                    Ok(wasm) => {
+                        if let Err(e) = load_module(&mut modules, &name, &wasm[..]) {
+                            println!("{:?}",e);
+                        }
+                    },
+                    Err(e) => {
+                        println!("{:?}",e);
+                    }
+                }
+            } else {
+                println!("Invalid file name");
+            }
+        }
+    }
+    Ok(Rc::new(RefCell::new(modules.into())))
+}
+
+pub fn safe_to_write(path : &std::path::Path) -> Result<(), std::boxed::Box<dyn std::error::Error>> {
+    if path.exists() && path.is_dir() {
+        Err("Path is a directory".into())
+    } else {
+        Ok(())
+    }
+}
+
+

@@ -206,7 +206,7 @@ impl React<QueriesWindow> for OpenedScripts {
         // will actually be closed on impl React<MultiArchiver> for QueriesWindow.
         win.window.connect_close_request(move |_win| {
             send.send(MultiArchiverAction::WindowCloseRequest).unwrap();
-            glib::signal::Inhibit(true)
+            glib::signal::Propagation::Stop
         });
     }
 }

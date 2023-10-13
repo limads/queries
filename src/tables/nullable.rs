@@ -28,6 +28,23 @@ pub enum NullableColumn {
 
 impl<'a> NullableColumn {
 
+    pub fn as_json_values(&self) -> Option<Value> {
+        match self {
+            NullableColumn::Bool(v) => serde_json::to_value(v.clone()).ok(),
+            NullableColumn::I8(v) => serde_json::to_value(v.clone()).ok(),
+            NullableColumn::I16(v) => serde_json::to_value(v.clone()).ok(),
+            NullableColumn::I32(v) => serde_json::to_value(v.clone()).ok(),
+            NullableColumn::U32(v) => serde_json::to_value(v.clone()).ok(),
+            NullableColumn::I64(v) => serde_json::to_value(v.clone()).ok(),
+            NullableColumn::F32(v) => serde_json::to_value(v.clone()).ok(),
+            NullableColumn::F64(v) => serde_json::to_value(v.clone()).ok(),
+            NullableColumn::Numeric(v) => serde_json::to_value(v.clone()).ok(),
+            NullableColumn::Str(v) => serde_json::to_value(v.clone()).ok(),
+            NullableColumn::Bytes(v) => serde_json::to_value(v.clone()).ok(),
+            NullableColumn::Json(v) => serde_json::to_value(v.clone()).ok(),
+        }
+    }
+
     const NULL : &'a str = "NULL";
 
     fn write_datum_or_null<T>(buffer : &mut String, e : &Option<T>)

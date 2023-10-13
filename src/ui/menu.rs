@@ -21,7 +21,9 @@ pub struct MainMenu {
     pub action_find_replace : gio::SimpleAction,
     pub action_about : gio::SimpleAction,
     pub action_graph : gio::SimpleAction,
-    pub action_builder : gio::SimpleAction
+    pub action_builder : gio::SimpleAction,
+    pub action_apply : gio::SimpleAction,
+    pub action_model : gio::SimpleAction
 }
 
 impl MainMenu {
@@ -34,7 +36,9 @@ impl MainMenu {
         menu.append(Some("Save as"), Some("win.save_as_file"));
         menu.append(Some("Find and replace"), Some("win.find_replace"));
         menu.append(Some("Query builder"), Some("win.builder"));
-        menu.append(Some("Graph editor"), Some("win.graph"));
+        menu.append(Some("Plot editor"), Some("win.graph"));
+        menu.append(Some("Database model"), Some("win.model"));
+        menu.append(Some("Client functions"), Some("win.apply"));
         menu.append(Some("Export"), Some("win.export"));
         menu.append(Some("Settings"), Some("win.settings"));
         menu.append(Some("About"), Some("win.about"));
@@ -49,6 +53,8 @@ impl MainMenu {
         let action_export = gio::SimpleAction::new("export", None);
         let action_settings = gio::SimpleAction::new("settings", None);
         let action_find_replace = gio::SimpleAction::new("find_replace", None);
+        let action_apply = gio::SimpleAction::new("apply", None);
+        let action_model = gio::SimpleAction::new("model", None);
         let action_about = gio::SimpleAction::new("about", None);
         action_save.set_enabled(false);
         action_save_as.set_enabled(false);
@@ -56,9 +62,11 @@ impl MainMenu {
         action_builder.set_enabled(false);
         action_export.set_enabled(false);
         action_find_replace.set_enabled(false);
+        // action_apply.set_enabled(false);
 
         Self { popover, action_new, action_open, action_save, action_save_as, action_export,
-        action_settings, action_find_replace, action_about, action_graph, action_builder
+        action_settings, action_find_replace, action_about, action_graph, action_builder, action_apply,
+        action_model
         }
     }
 
@@ -129,17 +137,21 @@ impl React<crate::client::ActiveConnection> for MainMenu {
         conn.connect_db_connected({
             let action_graph = self.action_graph.clone();
             let action_builder = self.action_builder.clone();
+            let action_apply = self.action_apply.clone();
             move |_| {
                 action_graph.set_enabled(true);
                 action_builder.set_enabled(true);
+                // action_apply.set_enabled(true);
             }
         });
         conn.connect_db_disconnected({
             let action_graph = self.action_graph.clone();
             let action_builder = self.action_builder.clone();
+            let action_apply = self.action_apply.clone();
             move |_| {
                 action_graph.set_enabled(false);
                 action_builder.set_enabled(false);
+                // action_apply.set_enabled(false);
             }
         });
     }

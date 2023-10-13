@@ -21,6 +21,8 @@ use futures::future;
 use std::ops::Range;
 use crate::client::TlsVersion;
 
+pub const PG_PUB : &'static str = "public";
+
 pub struct PostgresConnection {
 
     info : ConnectionInfo,
@@ -354,7 +356,7 @@ impl Connection for PostgresConnection {
         self.rt.as_ref().unwrap().block_on(async {
             match self.client.query(&query[..], &[]).await {
                 Ok(rows) => {
-                    build_table(&rows[..], query)
+                    build_table(&rows[..], &query)
                 },
                 Err(e) => {
                     let mut e = e.to_string();
@@ -971,16 +973,21 @@ fn retrieve_relations(col_info : &Table) -> Option<Vec<Relation>> {
     Some(rels)
 }
 
+const DB_ERROR_ERROR_PREFIX : &str = "db error: ERROR:";
+
+const DB_ERROR_FATAL_PREFIX : &str = "db error: FATAL:";
+
+const DB_ERROR_UNSPECIFIED_PREFIX : &str = "db error:";
+
 fn format_pg_string(e : &mut String) {
-    if e.starts_with("db error: ERROR:") || e.starts_with("db error: FATAL:") {
-        *e = e.clone().chars().skip(16).collect::<String>();
-    } else if e.starts_with("db error:") {
-        *e = e.clone().chars().skip(9).collect::<String>();
-    }
-    *e = e.clone().trim().to_string();
+    *e = e.trim_start_matches(DB_ERROR_ERROR_PREFIX)
+        .trim_start_matches(DB_ERROR_FATAL_PREFIX)
+        .trim_start_matches(DB_ERROR_UNSPECIFIED_PREFIX)
+        .to_string();
+    *e = e.trim().to_string();
     if e.len() >= 1 {
-        let fst_char = e[0..1].to_uppercase();
-        e.replace_range(0..1, &fst_char);
+        let fst_char_upper = e[0..1].to_uppercase();
+        e.replace_range(0..1, &fst_char_upper);
     }
     break_string(e, 80);
 }

@@ -22,6 +22,9 @@ use crate::ui::ExportDialog;
 use crate::client::ExecutionSettings;
 use crate::client::SharedUserState;
 use crate::ui::ExecButton;
+use std::rc::Rc;
+use std::cell::RefCell;
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone)]
 pub enum ExportItem {
@@ -42,6 +45,10 @@ pub enum EnvironmentAction {
 
     Clear,
 
+    Close(usize),
+
+    Reorder(usize, usize),
+
     Select(Option<usize>),
 
     /// Request to export the currently selected item to the path given as the argument.
@@ -61,6 +68,8 @@ pub struct Environment {
 
     on_tbl_update : Callbacks<Vec<Table>>,
 
+    on_tbl_selected : Callbacks<Table>,
+
     on_tbl_error : Callbacks<String>,
 
     on_export_error : Callbacks<String>
@@ -70,18 +79,20 @@ pub struct Environment {
 impl Environment {
 
     pub fn new(user_state : &SharedUserState) -> Self {
-        let (send, recv) = glib::MainContext::channel::<EnvironmentAction>(glib::PRIORITY_DEFAULT);
+        let (send, recv) = glib::MainContext::channel::<EnvironmentAction>(glib::source::Priority::DEFAULT);
         let mut tables = Tables::new();
         let mut plots = Plots::new();
         let on_tbl_update : Callbacks<Vec<Table>> = Default::default();
         let on_export_error : Callbacks<String> = Default::default();
         let on_tbl_error : Callbacks<String> = Default::default();
+        let on_tbl_selected : Callbacks<Table> = Default::default();
         let mut selected : Option<usize> = None;
         recv.attach(None, {
             let on_tbl_update = on_tbl_update.clone();
             let on_export_error = on_export_error.clone();
             let on_tbl_error = on_tbl_error.clone();
             let send = send.clone();
+            let on_tbl_selected = on_tbl_selected.clone();
             move |action| {
                 match action {
                     EnvironmentAction::Update(results) => {
@@ -114,7 +125,26 @@ impl Environment {
 
                     EnvironmentAction::Select(opt_pos) => {
                         selected = opt_pos;
+                        if let Some(pos) = opt_pos {
+                            if let Some(tbl) = tables.tables.get(pos) {
+                                on_tbl_selected.call(tbl.clone());
+                            }
+                        }
                     },
+                    EnvironmentAction::Close(pos) => {
+                        tables.tables.remove(pos);
+                        if let Some(ref mut ix) = selected {
+                            if *ix > pos {
+                                *ix -= 1;
+                            }
+                        }
+                    },
+                    EnvironmentAction::Reorder(old_pos, new_pos) => {
+                        let t = tables.tables.remove(old_pos);
+                        tables.tables.insert(new_pos,t);
+                        // TODO update selected
+                    }
+
                     EnvironmentAction::ExportRequest(path) => {
                         let item = if let Some(ix) = selected {
                             if let Some(plot_ix) = plots.ixs.iter().position(|i| *i == ix ) {
@@ -144,10 +174,10 @@ impl Environment {
                     },
                     _ => { }
                 }
-                Continue(true)
+                glib::ControlFlow::Continue
             }
         });
-        Self { send, on_tbl_update, on_export_error, on_tbl_error, user_state : user_state.clone() }
+        Self { send, on_tbl_update, on_export_error, on_tbl_error, user_state : user_state.clone(), on_tbl_selected }
     }
 
     pub fn connect_table_update<F>(&self, f : F)
@@ -155,6 +185,13 @@ impl Environment {
         F : Fn(Vec<Table>) + 'static
     {
         self.on_tbl_update.bind(f);
+    }
+
+    pub fn connect_table_selected<F>(&self, f : F)
+    where
+        F : Fn(Table) + 'static
+    {
+        self.on_tbl_selected.bind(f);
     }
 
     pub fn connect_export_error<F>(&self, f : F)
@@ -201,13 +238,50 @@ impl React<QueriesWorkspace> for Environment {
 
     fn react(&self, ws : &QueriesWorkspace) {
         let send = self.send.clone();
+
+        let old_pos = Rc::new(RefCell::new(None));
+        let old_pos_c = old_pos.clone();
+
+        /*glib::source::timeout_add_seconds(1, {
+            let tab_view = ws.tab_view.clone();
+            move || {
+                println!("{:?}", tab_view.selected_page());
+                glib::ControlFlow::Continue
+            }
+        });*/
         ws.tab_view.connect_selected_page_notify(move|view| {
             if view.selected_page().is_some() {
                 let pages = view.pages();
-                send.send(EnvironmentAction::Select(Some(pages.selection().nth(0) as usize))).unwrap();
+                let sel_ix = Some(pages.selection().nth(0) as usize);
+                let n_pages = view.n_pages();
+                send.send(EnvironmentAction::Select(sel_ix)).unwrap();
             } else {
                 send.send(EnvironmentAction::Select(None)).unwrap();
             }
+
+            if let Some(page) = view.selected_page() {
+                *old_pos_c.borrow_mut() = Some(view.page_position(&page) as usize);
+            } else {
+                *old_pos_c.borrow_mut() = None;
+            }
+        });
+        let send = self.send.clone();
+        // ws.tab_view.connect_close_page(move |tab_view,page| {
+        ws.tab_view.connect_page_detached(move |tab_view,page,pos| {
+            // let pos = tab_view.page_position(&page) as usize;
+            send.send(EnvironmentAction::Close(pos as usize));
+            // tab_view.close_page_finish(&page, true);
+            // true
+        });
+
+        let send = self.send.clone();
+        ws.tab_view.connect_page_reordered(move |tab_view,page,new_pos| {
+            if let Some(old_pos) = &*old_pos.borrow() {
+                send.send(EnvironmentAction::Reorder(*old_pos, new_pos as usize));
+            }
+            // send.send(EnvironmentAction::Close());
+            // tab_view.close_page_finish(&page, true);
+            // true
         });
     }
 
@@ -237,6 +311,7 @@ impl React<ExportDialog> for Environment {
 
 fn export_to_path(item : ExportItem, path : &Path) -> Result<(), String> {
     let ext = path.extension().map(|ext| ext.to_str().unwrap_or("") );
+    crate::safe_to_write(path).map_err(|e| format!("{}",e) )?;
     match item {
         ExportItem::Table(mut tbl) => {
             let mut export_format = TableSettings::default();
@@ -323,13 +398,17 @@ impl Plots {
     pub fn update_from_tables(&mut self, tables : &[Table]) -> Result<(), String> {
         self.clear();
         for (ix, tbl) in tables.iter().enumerate() {
-            if let Some(val) = tbl.single_json_field() {
+            if let Some(mut val) = tbl.single_json_field() {
                 match val {
                     serde_json::Value::Object(ref map) => {
                         let is_panel = map.contains_key("plots");
                         let is_plot = map.contains_key("x") && map.contains_key("y") && map.contains_key("mappings");
+
+                        filter_nulls(&mut val);
+                        println!("{:?}", val);
+
                         if is_panel || is_plot {
-                            match Panel::new_from_json(&val.to_string()) {
+                            match Panel::new_from_json_value(val) {
                                 Ok(panel) => {
                                     self.ixs.push(ix);
                                     self.panels.push(panel);
@@ -347,6 +426,71 @@ impl Plots {
         Ok(())
     }
 
+}
+
+fn remove_nulls(map : &mut serde_json::Map<String,serde_json::Value>, null_ixs : &BTreeSet<usize>, key : &str) {
+    if let Some(serde_json::Value::Array(ref mut a)) = map.get_mut(key) {
+        for ix in null_ixs.iter() {
+            a.remove(*ix);
+        }
+    }
+}
+
+fn add_nulls(null_ixs : &mut BTreeSet<usize>, map : &serde_json::Map<String,serde_json::Value>, key : &str) {
+    if let Some(serde_json::Value::Array(a)) = map.get(key) {
+        for (i, k) in a.iter().enumerate() {
+            if k.is_null() {
+                null_ixs.insert(i);
+            } else if let Some(n) = k.as_f64() {
+                if let Some(k) = k.as_f64() {
+                    if k.is_nan() {
+                        null_ixs.insert(i);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn filter_nulls_at_plot(pl : &mut serde_json::Value) {
+    match pl.get_mut("mappings") {
+        Some(serde_json::Value::Array(mappings)) => {
+            for mapping in mappings.iter_mut() {
+                match mapping.get_mut("map") {
+                    Some(serde_json::Value::Object(ref mut map)) => {
+                        let mut null_ixs = BTreeSet::new();
+                        let all_keys = ["x", "y", "z", "text"];
+                        all_keys.iter().for_each(|key| add_nulls(&mut null_ixs, &*map, key) );
+                        all_keys.iter().for_each(|key| remove_nulls(map, &null_ixs, key) );
+                    },
+                    _ => { }
+                }
+            }
+        },
+        _ => { }
+    }
+}
+
+fn filter_nulls(val : &mut serde_json::Value) {
+    match val {
+        serde_json::Value::Object(ref mut panel) => {
+            // Case top-level panel
+            match panel.get_mut("plots") {
+                Some(serde_json::Value::Array(plots)) => {
+                    for pl in plots.iter_mut() {
+                        filter_nulls_at_plot(pl);
+                    }
+                },
+                _ => {
+                    // Case top-level plot
+                    if panel.get("mappings").is_some() {
+                        filter_nulls_at_plot(val);
+                    }
+                }
+            }
+        },
+        _ => { }
+    }
 }
 
 pub struct Tables {

@@ -113,6 +113,14 @@ impl Index<usize> for Table {
 
 impl Table {
 
+    pub fn as_json_values(&self) -> Option<serde_json::Map<String, serde_json::Value>> {
+        let mut map = serde_json::Map::new();
+        for (n, c) in self.names.iter().zip(self.cols.iter()) {
+            map.insert(n.to_string(), c.as_json_values()?);
+        }
+        Some(map)
+    }
+
     pub fn filtered_by(&self, col_ix : usize, val : &str) -> Option<Table> {
         let (ixs, filtered_col) = self.cols[col_ix].filtered(val)?;
         let mut cols = Vec::new();

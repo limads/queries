@@ -133,7 +133,7 @@ impl SchemaTree {
 
         let gesture_click = GestureClick::builder().build();
         gesture_click.set_button(gdk::BUTTON_SECONDARY);
-        tree_view.add_controller(&gesture_click);
+        tree_view.add_controller(gesture_click.clone());
         gesture_click.connect_pressed({
             let schema_popover = schema_popover.clone();
             let tree_view = tree_view.clone();
@@ -286,8 +286,10 @@ impl SchemaTree {
                     let col_iter = model.append(Some(&tbl_iter));
                     let opt_rel = rels.iter().find(|rel| &rel.src_col[..] == &c.name[..] );
                     let is_fk = opt_rel.is_some();
+
+                    /* The empty schema is used for all sqlite tables. */
                     let name : String = if let Some(rel) = opt_rel {
-                        let tgt_schema = if &rel.tgt_schema[..] == "public" {
+                        let tgt_schema = if &rel.tgt_schema[..] == crate::server::PG_PUB || rel.tgt_schema.is_empty() {
                             format!("")
                         } else {
                             format!("{}.", rel.tgt_schema)
@@ -345,19 +347,28 @@ impl React<ConnectionBox> for SchemaTree {
 
     fn react(&self, conn_bx : &ConnectionBox) {
         let schema_tree = self.clone();
-        conn_bx.switch.connect_state_set(move |switch, _| {
-            if switch.is_active() {
-                schema_tree.repopulate(vec![DBObject::Schema { 
-                    name : String::from("Connecting..."), 
-                    children : Vec::new() 
-                }]);
-            } else {
-                schema_tree.clear();
-            }
-            glib::signal::Inhibit(false)
+        conn_bx.remote_switch.connect_state_set(move |switch, _| {
+            clear_on_switch(&switch, &schema_tree);
+            glib::signal::Propagation::Proceed
+        });
+        let schema_tree = self.clone();
+        conn_bx.local_switch.connect_state_set(move |switch, _| {
+            clear_on_switch(&switch, &schema_tree);
+            glib::signal::Propagation::Proceed
         });
     }
     
+}
+
+fn clear_on_switch(switch : &gtk4::Switch, schema_tree : &SchemaTree) {
+    if switch.is_active() {
+        schema_tree.repopulate(vec![DBObject::Schema {
+            name : String::from("Connecting..."),
+            children : Vec::new()
+        }]);
+    } else {
+        schema_tree.clear();
+    }
 }
 
 impl React<ActiveConnection> for SchemaTree {
@@ -502,7 +513,7 @@ pub fn load_type_icons(is_dark : bool) -> Rc<HashMap<DBType, Pixbuf>> {
     Rc::new(type_icons)
 }
 
-fn configure_tree_view(tree_view : &TreeView) -> TreeStore {
+pub fn configure_tree_view(tree_view : &TreeView) -> TreeStore {
     let model = TreeStore::new(&[Pixbuf::static_type(), Type::STRING]);
     tree_view.set_model(Some(&model));
     let pix_renderer = CellRendererPixbuf::new();

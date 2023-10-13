@@ -221,9 +221,9 @@ pub fn column_label(tbl : &Table, col : usize, fst_row : Option<usize>, nrows : 
 fn add_header_css(lbl : &Label) {
     let provider = CssProvider::new();
     if libadwaita::StyleManager::default().is_dark() {
-        provider.load_from_data(HEADER_DARK_CSS.as_bytes());
+        provider.load_from_data(HEADER_DARK_CSS);
     } else {
-        provider.load_from_data(HEADER_WHITE_CSS.as_bytes());
+        provider.load_from_data(HEADER_WHITE_CSS);
     }
     let ctx = lbl.style_context();
     ctx.add_provider(&provider,800);
@@ -232,9 +232,9 @@ fn add_header_css(lbl : &Label) {
 fn add_data_css(lbl : &Label) {
     let provider = CssProvider::new();
     if libadwaita::StyleManager::default().is_dark() {
-        provider.load_from_data(DATA_DARK_CSS.as_bytes());
+        provider.load_from_data(DATA_DARK_CSS);
     } else {
-        provider.load_from_data(DATA_WHITE_CSS.as_bytes());
+        provider.load_from_data(DATA_WHITE_CSS);
     }
     let ctx = lbl.style_context();
     ctx.add_provider(&provider,800);
@@ -310,7 +310,7 @@ impl TableWidget {
         // TODO disable selection at Esc key press
         let click = GestureClick::new();
         click.set_button(gdk::BUTTON_PRIMARY);
-        label.add_controller(&click);
+        label.add_controller(click.clone());
         click.connect_pressed({
             let grid = self.grid.clone();
             let label = label.clone();

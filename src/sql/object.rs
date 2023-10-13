@@ -7,6 +7,7 @@ use std::cmp::{Eq, PartialEq};
 use std::str::FromStr;
 use std::fmt;
 use serde::{Serialize, Deserialize};
+use crate::ui::model::ModelDesign;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct DBDetails {
@@ -20,6 +21,127 @@ pub struct DBDetails {
 pub struct DBInfo {
     pub schema : Vec<DBObject>,
     pub details : Option<DBDetails>
+}
+
+impl DBInfo {
+
+    /* Must use a mono font, or else spacing will be uneven across lines. */
+    pub fn diagram(&self, design : &ModelDesign) -> String {
+        let mut s = String::new();
+        let mut all_tbls = Vec::new();
+        collect_tbls(&mut all_tbls, &self.schema);
+        s = build_er_diagram(s, &self.schema, &all_tbls);
+        // labeljust="l";
+        // size=20;
+        // pad=0.1;
+        // rankdir=TB,LR
+        //
+        let ModelDesign { background, node_fill, font_name, font_size } = design;
+        format!(r##"
+            graph {{
+                ratio=1.6;
+                dpi=96;
+                bgcolor="{background}";
+                rankdir="LR";
+
+                node [fontname = "{font_name}", style="filled", color="#bbbbbb", fillcolor="{node_fill}",fontcolor="#363636", fontsize={font_size}, margin=0.12 ];
+                edge [fontname = "{font_name}", color="#bbbbbb",fontcolor="#363636", fontsize=12.0];
+
+                {s}
+            }}
+        "##)
+    }
+
+}
+
+fn collect_tbls(names : &mut Vec<(String, String)>, tbls : &[DBObject]) {
+    for t in tbls {
+        match t {
+            DBObject::Schema { children, .. } => {
+                collect_tbls(names, children);
+            },
+            DBObject::Table { schema, name, .. } => {
+                names.push((schema.clone(), name.clone()));
+            },
+            _ => {
+
+            }
+        }
+    }
+}
+
+fn cols_string(cols : &[DBColumn]) -> String {
+    if cols.len() == 0 {
+        return String::new();
+    }
+    let lens : Vec<usize> = cols.iter().map(line_len).collect();
+    let largest_line = lens.iter().max().unwrap();
+    let mut lines = Vec::new();
+    for i in 0..cols.len() {
+        let extra_space = largest_line - lens[i];
+        let mut s = cols[i].name.clone();
+        for i in 0..(MIN_SPACE+extra_space) {
+            s.push(' ');
+        }
+        s += &cols[i].ty.name();
+        lines.push(s);
+    }
+    lines.join("<br/><br/>")
+}
+
+const MIN_SPACE : usize = 8;
+
+fn line_len(col : &DBColumn) -> usize {
+    col.name.len() + col.ty.name().len() + MIN_SPACE
+}
+
+// penwidth for link thickness.
+pub fn build_er_diagram(mut er : String, schemata : &[DBObject], all_tbls : &[(String,String)]) -> String {
+    // let mut disconnected = Vec::new();
+    for obj in schemata.iter() {
+        match &obj {
+            DBObject::Schema { children, .. } => {
+                er = build_er_diagram(er, children, all_tbls);
+            },
+            DBObject::Table { schema, name, cols, rels } => {
+                let cols = cols_string(&cols);
+                let qual_name = if schema == crate::server::PG_PUB || schema.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}.{}", schema, name)
+                };
+
+                let lbl = format!("<b>{qual_name}</b><br/><br/>{cols}");
+                let mut tbl = format!("{name} [ label = <{lbl}>, shape=\"note\"];\n");
+                for rel in rels.iter() {
+                    if all_tbls.iter()
+                        .any(|t| &t.0[..] == &rel.tgt_schema[..] && &t.1[..] == &rel.tgt_tbl[..] )
+                    {
+                        let tgt = &rel.tgt_tbl;
+                        tbl += &format!("{name} -- {tgt} [label=\"1:n\"];\n");
+                    }
+                }
+
+                er += &tbl[..];
+            },
+            _ => { }
+        }
+    }
+    /*if disconnected.len() >= 2 {
+        for i in 1..disconnected.len() {
+            let j = i-1;
+            // for j in ((i+1)..disconnected.len()) {
+            let a = &disconnected[i];
+            let b = &disconnected[j];
+            er += &format!("{a} -- {b} [style=invis];\n");
+        }
+    }
+    if disconnected.len() >= 3 {
+        let a = &disconnected[0];
+        let b = &disconnected[disconnected.len()-1];
+        er += &format!("{a} -- {b} [style=invis];\n");
+    }*/
+    er
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -40,6 +162,29 @@ pub enum DBType {
     Array,
     Trigger,
     Unknown
+}
+
+impl DBType {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Bool => "bool",
+            Self::I16 => "smallint",
+            Self::I32 => "integer",
+            Self::I64 => "bigint",
+            Self::F32 => "real",
+            Self::F64 => "dp",
+            Self::Numeric => "numeric",
+            Self::Text => "text",
+            Self::Date => "date",
+            Self::Time => "time",
+            Self::Bytes => "bytea",
+            Self::Json => "json",
+            Self::Xml => "xml",
+            Self::Array => "array",
+            Self::Trigger => "trigger",
+            Self::Unknown => "unknown"
+        }
+    }
 }
 
 impl FromStr for DBType {
@@ -85,25 +230,7 @@ impl FromStr for DBType {
 impl fmt::Display for DBType {
 
     fn fmt(&self, f : &mut fmt::Formatter) -> fmt::Result {
-        let name = match self {
-            Self::Bool => "bool",
-            Self::I16 => "smallint",
-            Self::I32 => "integer",
-            Self::I64 => "bigint",
-            Self::F32 => "real",
-            Self::F64 => "dp",
-            Self::Numeric => "numeric",
-            Self::Text => "text",
-            Self::Date => "date",
-            Self::Time => "time",
-            Self::Bytes => "bytea",
-            Self::Json => "json",
-            Self::Xml => "xml",
-            Self::Array => "array",
-            Self::Trigger => "trigger",
-            Self::Unknown => "unknown"
-        };
-        write!(f, "{}", name)
+        write!(f, "{}", self.name())
     }
 
 }
@@ -187,7 +314,7 @@ pub fn schema_has_table(table : &str, schema : &[DBObject]) -> bool {
     for obj in schema.iter() {
         match obj {
             DBObject::Schema { ref name, ref children } => {
-                if name == "public" {
+                if name == crate::server::PG_PUB || name.is_empty() {
                     return schema_has_table(table, &children[..]);
                 }
             },
@@ -200,26 +327,6 @@ pub fn schema_has_table(table : &str, schema : &[DBObject]) -> bool {
         }
     }
     false
-}
-
-pub fn build_er_diagram(mut er : String, schemata : &[DBObject]) -> String {
-    for obj in schemata.iter() {
-        match &obj {
-            DBObject::Schema { children, .. } => {
-                er = build_er_diagram(er, children);
-            },
-            DBObject::Table { schema: _, name, cols, rels } => {
-                let cols : String = cols.iter().map(|c| c.name.clone() ).collect::<Vec<_>>().join("\\n");
-                let mut tbl = format!("{} [ label = \"{} | {} \"];\n", name, name, cols);
-                for rel in rels.iter() {
-                    tbl += &format!("{} -- {} [label=\"1:n\"];\n", rel.tgt_tbl, name);
-                }
-                er += &tbl[..];
-            },
-            _ => { }
-        }
-    }
-    er
 }
 
 impl fmt::Display for DBObject {

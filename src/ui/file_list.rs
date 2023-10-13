@@ -162,7 +162,7 @@ impl React<OpenedScripts> for FileList {
 impl React<ActiveConnection> for FileList {
 
     fn react(&self, conn : &ActiveConnection) {
-        conn.connect_schedule_start({
+        /*conn.connect_schedule_start({
             let list = self.list.clone();
             move|_| {
                 list.set_sensitive(false);
@@ -173,7 +173,7 @@ impl React<ActiveConnection> for FileList {
             move|_| {
                 list.set_sensitive(true);
             }
-        });
+        });*/
     }
     
 }

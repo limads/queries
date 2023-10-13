@@ -58,6 +58,9 @@
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/padlock2-symbolic.svg">../icons/hicolor/symbolic/actions/padlock2-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/padlock2-open-symbolic.svg">../icons/hicolor/symbolic/actions/padlock2-open-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/larger-brush-symbolic.svg">../icons/hicolor/symbolic/actions/larger-brush-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/local-add-symbolic.svg">../icons/hicolor/symbolic/actions/local-add-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/remote-add-symbolic.svg">../icons/hicolor/symbolic/actions/remote-add-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/crate-symbolic.svg">../icons/hicolor/symbolic/actions/crate-symbolic.svg</file>
     
     <!-- Mapping icons -->
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/mapping-area-symbolic.svg">../icons/hicolor/symbolic/actions/mapping-area-symbolic.svg</file>

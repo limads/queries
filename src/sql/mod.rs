@@ -408,8 +408,8 @@ pub fn require_insert_n(stmt : &AnyStatement, ncols : usize, nrows : usize) -> R
             }
             match &*source.body {
                 SetExpr::Values(values) => {
-                    if values.0.len() == nrows {
-                        for tuple in &values.0   {
+                    if values.rows.len() == nrows {
+                        for tuple in &values.rows   {
                             for expr in tuple {
                                 match expr {
                                     Expr::Value(_) => { },
@@ -421,7 +421,7 @@ pub fn require_insert_n(stmt : &AnyStatement, ncols : usize, nrows : usize) -> R
                         }
                         Ok(())
                     } else {
-                        Err(format!("Invalid number of insertion rows\n(expected {}, but got {}", nrows, values.0.len()))
+                        Err(format!("Invalid number of insertion rows\n(expected {}, but got {}", nrows, values.rows.len()))
                     }
                 },
                 _ => {
@@ -457,7 +457,8 @@ pub fn build_statement_result(any_stmt : &AnyStatement, n : usize) -> StatementO
                     ObjectType::Index => "DROP INDEX",
                     ObjectType::Schema => "DROP SCHEMA",
                     ObjectType::Role => "DROP ROLE",
-                    ObjectType::Sequence => "DROP SEQUENCE"
+                    ObjectType::Sequence => "DROP SEQUENCE",
+                    ObjectType::Stage => "DROP STAGE"
                 };
                 StatementOutput::Modification(format!("{}", drop_msg))
             },
@@ -555,7 +556,8 @@ pub fn append_relation(t_expr : &TableFactor, out : &mut String) {
             }
             *out += &name.to_string();
         },
-        TableFactor::Derived{ .. } | TableFactor::NestedJoin{ .. } | TableFactor::TableFunction{ .. } | TableFactor::UNNEST { .. } => {
+        TableFactor::Derived{ .. } | TableFactor::NestedJoin{ .. } | TableFactor::TableFunction{ .. } |
+        TableFactor::UNNEST { .. } | TableFactor::Pivot { .. } => {
 
         }
     }
@@ -647,7 +649,8 @@ pub fn parse_sql(sql : &str, subs : &HashMap<String, String>) -> Result<Vec<Stat
         .map_err(|e| {
             match e {
                 ParserError::TokenizerError(s) => s,
-                ParserError::ParserError(s) => s
+                ParserError::ParserError(s) => s,
+                ParserError::RecursionLimitExceeded => String::from("Recursion limit exceeded")
             }
         })
 }

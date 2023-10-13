@@ -5,6 +5,10 @@ fn main() {
         "data/resources/resources.gresource.xml",
         "compiled.gresource",
     );
+    println!("cargo:rustc-link-lib=gvc");
+    println!("cargo:rustc-link-lib=cgraph");
+    println!("cargo:rustc-link-lib=cdt");
+    // -lgvc -lcgraph -lcdt
 }
 
 

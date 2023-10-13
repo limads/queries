@@ -526,7 +526,7 @@ impl SecurityRow {
             move |switch, _| {
                 let change = SecurityChange::Hostname { host : host.clone(), verify : Some(switch.is_active()) };
                 action.activate(Some(&serde_json::to_string(&change).unwrap().to_variant()));
-                Inhibit(false)
+                glib::signal::Propagation::Proceed
             }
         });
 

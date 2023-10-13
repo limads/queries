@@ -12,7 +12,6 @@ use crate::ui::QueryBuilderWindow;
 use crate::ui::GraphWindow;
 use std::boxed;
 use glib::MainContext;
-// use std::collections::HashMap;
 use super::listener::SqlListener;
 use crate::server::*;
 use std::thread;
@@ -37,6 +36,10 @@ use crate::client::UserState;
 use url::Url;
 use std::fmt;
 use std::error::Error;
+use std::cell::Cell;
+use crate::Share;
+use sqlparser::keywords::Keyword;
+use sqlparser::tokenizer::Word;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Engine {
@@ -149,6 +152,8 @@ pub struct ConnectionInfo {
     // associated certificate, it is non-encrypted.
     pub security : Security,
 
+    pub readonly : Option<bool>
+
 }
 
 impl fmt::Display for ConnectionInfo {
@@ -166,6 +171,18 @@ pub enum HostKind {
 }
 
 impl ConnectionInfo {
+
+    pub fn default_local() -> Self {
+        Self {
+            engine : Engine::SQLite,
+            host : String::new(),
+            port : String::new(),
+            user : String::new(),
+            database : String::new(),
+            security : Security::new_insecure(),
+            readonly : None
+        }
+    }
 
     pub fn new_sqlite(path : &str) -> Self {
         let mut info = ConnectionInfo::default();
@@ -228,9 +245,9 @@ impl ConnectionInfo {
             }
             s += "\t\t";
             if self.is_verified() {
-                s += "✓ Hostname verified";
+                s += "✓ Host name verified";
             } else {
-                s += "⨯ Hostname not verified";
+                s += "⨯ Host name not verified";
             }
         } else {
             s += "⨯ Not encrypted";
@@ -344,6 +361,7 @@ impl Default for ConnectionInfo {
             user : String::from(DEFAULT_USER),
             database : String::from(DEFAULT_DB),
             security : Security::new_secure(),
+            readonly : None
         }
     }
 
@@ -357,11 +375,11 @@ pub enum ConnectionChange {
 #[derive(Debug, Clone)]
 pub enum ConnectionAction {
     Switch(Option<i32>),
-    Add,
+    Add { remote : bool },
     UpdateHost(String),
     UpdatePort(String),
     UpdateUser(String),
-
+    UpdateReadonly(bool),
     UpdateDB(String),
     Remove(i32),
 }
@@ -401,7 +419,7 @@ pub type ConnSetTypes = (
 impl ConnectionSet {
 
     pub fn new(user_state : &SharedUserState) -> Self {
-        let (send, recv) = MainContext::channel::<ConnectionAction>(glib::source::PRIORITY_DEFAULT);
+        let (send, recv) = MainContext::channel::<ConnectionAction>(glib::source::Priority::DEFAULT);
         let (selected, added, updated, removed) : ConnSetTypes = Default::default();
         recv.attach(None, {
 
@@ -421,11 +439,15 @@ impl ConnectionSet {
                         selected.call(opt_ix.map(|ix| (ix, user_state.borrow().conns[ix as usize].clone()) ));
                     },
                     
-                    ConnectionAction::Add => {
+                    ConnectionAction::Add { remote } => {
 
                         // If the user clicked the 'plus' button, this will be None. If the connection
                         // was added from the settings file, there will be a valid value here.
-                        let conn = ConnectionInfo::default();
+                        let conn = if remote {
+                            ConnectionInfo::default()
+                        } else {
+                            ConnectionInfo::default_local()
+                        };
                         
                         user_state.borrow_mut().conns.push(conn.clone());
 
@@ -508,6 +530,17 @@ impl ConnectionSet {
                         }
                     },
                     
+                    ConnectionAction::UpdateReadonly(readonly) => {
+                        if let Some(ix) = curr_conn {
+                            let mut us = user_state.borrow_mut();
+                            if us.conns[ix as usize].engine == Engine::SQLite {
+                                let mut this_conn = &mut us.conns[ix as usize];
+                                this_conn.readonly = Some(readonly);
+                                updated.call((ix as i32, this_conn.clone()));
+                            }
+                        }
+                    },
+
                     ConnectionAction::Remove(ix) => {
                         user_state.borrow_mut().conns.remove(ix as usize);
                         removed.call(ix);
@@ -515,7 +548,7 @@ impl ConnectionSet {
                     },
 
                 }
-                Continue(true)
+                glib::ControlFlow::Continue
             }
         });
         Self {
@@ -594,10 +627,28 @@ impl React<ConnectionBox> for ConnectionSet {
                 }
             }
         });
+        let local_changed = conn_bx.local_entry.connect_changed({
+            let send = self.send.clone();
+            move |entry| {
+                let txt = entry.text().to_string();
+                if &txt[..] != "" {
+                    send.send(ConnectionAction::UpdateHost(txt)).unwrap();
+                } else {
+                    send.send(ConnectionAction::UpdateHost("file://".to_string())).unwrap();
+                }
+            }
+        });
+        conn_bx.check_readonly.connect_toggled({
+            let send = self.send.clone();
+            move |check| {
+                send.send(ConnectionAction::UpdateReadonly(check.is_active()));
+            }
+        });
         conn_bx.host_changed.replace(Some(host_changed));
         conn_bx.user_changed.replace(Some(user_changed));
         conn_bx.db_changed.replace(Some(db_changed));
         conn_bx.port_changed.replace(Some(port_changed));
+        conn_bx.local_changed.replace(Some(local_changed));
     }
     
 }
@@ -611,10 +662,16 @@ impl React<ConnectionList> for ConnectionSet {
                 send.send(ConnectionAction::Switch(opt_row.map(|row| row.index() ))).unwrap();
             }
         });
-        conn_list.add_btn.connect_clicked({
+        conn_list.add_remote_btn.connect_clicked({
             let send = self.send.clone();
             move |_btn| {
-                send.send(ConnectionAction::Add).unwrap();
+                send.send(ConnectionAction::Add { remote : true }).unwrap();
+            }
+        });
+        conn_list.add_local_btn.connect_clicked({
+            let send = self.send.clone();
+            move |_btn| {
+                send.send(ConnectionAction::Add { remote : false }).unwrap();
             }
         });
         conn_list.remove_btn.connect_clicked({
@@ -698,10 +755,20 @@ impl ConnURI {
 impl ConnURI {
 
     pub fn new(
-        info : ConnectionInfo,
+        mut info : ConnectionInfo,
         password : &str
     ) -> Result<ConnURI, String> {
-        if info.is_file() {
+
+        if info.host.is_empty() || &info.host[..] == "file://" {
+            return Err(String::from("Missing host"));
+        }
+
+        if info.engine == Engine::SQLite {
+
+            if !info.host.starts_with("file://") {
+                info.host = format!("file://{}", info.host);
+            }
+
             match Url::parse(&info.host) {
                 Ok(uri) => {
                     Ok(ConnURI { info, uri })
@@ -825,14 +892,16 @@ pub enum ActiveConnectionAction {
     Disconnect,
 
     // Requires an arbitrary sequence of SQL commands.
-    ExecutionRequest(String),
+    // Also carries a flag informing if the commands should
+    // be executed in plan mode.
+    ExecutionRequest(String, bool),
 
     // Requires a sigle table or view name to do a single SQL query.
     SingleQueryRequest,
 
-    StartSchedule(String),
+    // StartSchedule(String),
 
-    EndSchedule,
+    // EndSchedule,
 
     ExecutionCompleted(Vec<StatementOutput>),
 
@@ -860,9 +929,9 @@ pub struct ActiveConnection {
     
     on_disconnected : Callbacks<()>,
     
-    on_schedule_start : Callbacks<()>,
+    // on_schedule_start : Callbacks<()>,
     
-    on_schedule_end : Callbacks<()>,
+    // on_schedule_end : Callbacks<()>,
 
     on_error : Callbacks<String>,
 
@@ -894,23 +963,23 @@ impl ActiveConnection {
         self.send.send(msg).unwrap();
     }
 
-    pub fn new(user_state : &SharedUserState) -> Self {
+    pub fn new(user_state : &SharedUserState, mods : crate::ui::apply::Modules) -> Self {
         let (on_connected, on_disconnected, on_error) : ActiveConnCallbacks = Default::default();
         let on_exec_result : Callbacks<Vec<StatementOutput>> = Default::default();
         let on_single_query_result : Callbacks<Table> = Default::default();
         let on_conn_failure : Callbacks<(ConnectionInfo, String)> = Default::default();
-        let (send, recv) = glib::MainContext::channel::<ActiveConnectionAction>(glib::source::PRIORITY_DEFAULT);
+        let (send, recv) = glib::MainContext::channel::<ActiveConnectionAction>(glib::source::Priority::DEFAULT);
         let on_schema_update : Callbacks<Option<Vec<DBObject>>> = Default::default();
         let on_object_selected : Callbacks<Option<DBObject>> = Default::default();
         let on_schema_invalidated : Callbacks<()> = Default::default();
-        let on_schedule_start : Callbacks<()> = Default::default();
-        let on_schedule_end : Callbacks<()> = Default::default();
+        // let on_schedule_start : Callbacks<()> = Default::default();
+        // let on_schedule_end : Callbacks<()> = Default::default();
         
         let mut schema_valid = true;
         
         /* Active schedule, unlike the other state variables, needs to be wrapped in a RefCell
         because it is shared with any new callbacks that start when the user schedule a set of statements. */
-        let active_schedule = Rc::new(RefCell::new(false));
+        // let active_schedule = Rc::new(RefCell::new(false));
         
         // Thread that waits for SQL statements via the standard library mpsc channels (with a
         // single producer).
@@ -947,7 +1016,7 @@ impl ActiveConnection {
                 on_exec_result.clone(),
                 on_single_query_result.clone()
             );
-            let (on_schedule_start, on_schedule_end) = (on_schedule_start.clone(), on_schedule_end.clone());
+            // let (on_schedule_start, on_schedule_end) = (on_schedule_start.clone(), on_schedule_end.clone());
             let on_conn_failure = on_conn_failure.clone();
             let on_object_selected = on_object_selected.clone();
             let on_schema_update = on_schema_update.clone();
@@ -973,7 +1042,7 @@ impl ActiveConnection {
                                 uri.info.clone(),
                                 format!("Previous connection attempt not finished yet")
                             )).unwrap();
-                            return glib::Continue(true);
+                            return glib::ControlFlow::Continue;
                         }
                         attempting_conn = true;
                         
@@ -1008,9 +1077,11 @@ impl ActiveConnection {
                         schema = db_info.as_ref().map(|info| info.schema.clone() );
                         selected_obj = None;
                         let info = conn.conn_info();
+                        conn.bind_functions(&mods);
                         if let Err(e) = listener.update_engine(conn) {
                             eprintln!("{}", e);
                         }
+
                         on_connected.call((info, db_info));
                     },
                     
@@ -1021,32 +1092,32 @@ impl ActiveConnection {
                         // connect_accepted message back.
                         schema = None;
                         selected_obj = None;
-                        active_schedule.replace(false);
+                        // active_schedule.replace(false);
                         on_disconnected.call(());
                     },
                     
                     // When the user clicks the exec button or activates the execute action.
-                    ActiveConnectionAction::ExecutionRequest(stmts) => {
+                    ActiveConnectionAction::ExecutionRequest(stmts, is_plan) => {
                     
                         if !schema_valid {
                             on_error.call(format!("Cannot execute command right now (schema update pending)"));
-                            return glib::Continue(true);
+                            return glib::ControlFlow::Continue;
                         }
 
-                        if *(active_schedule.borrow()) {
-                            on_error.call(format!("Attempted to execute statement during active schedule"));
-                            return glib::Continue(true);
-                        }
+                        // if *(active_schedule.borrow()) {
+                        //     on_error.call(format!("Attempted to execute statement during active schedule"));
+                        //     return glib::ControlFlow::Continue;
+                        // }
                         
                         if listener.is_running() {
                             // This shouldn't happen. The user is prevented from sending statements
                             // when the engine is working.
                             on_error.call(format!("Previous statement not completed yet."));
-                            return glib::Continue(true);
+                            return glib::ControlFlow::Continue;
                         }
 
                         let us = user_state.borrow();
-                        match listener.send_commands(stmts, /*HashMap::new(),*/ us.safety(), false) {
+                        match listener.send_commands(stmts, /*HashMap::new(),*/ us.safety(), is_plan) {
                             Ok(_) => { },
                             Err(e) => {
                                 on_error.call(e.clone());
@@ -1054,29 +1125,30 @@ impl ActiveConnection {
                         }
                     },
                     
-                    // SingleQueryRequest is used when the schema tree is useed to generate a report.
+                    // SingleQueryRequest is used when the schema tree is used to generate a report.
                     ActiveConnectionAction::SingleQueryRequest => {
                     
                         if !schema_valid {
                             on_error.call(format!("Cannot execute command right now (schema update pending)"));
-                            return glib::Continue(true);
+                            return glib::ControlFlow::Continue;
                         }
                         
-                        if *(active_schedule.borrow()) {
-                            on_error.call(format!("Attempted to execute statement during active schedule"));
-                            return glib::Continue(true);
-                        }
+                        // if *(active_schedule.borrow()) {
+                        //    on_error.call(format!("Attempted to execute statement during active schedule"));
+                        //    return glib::ControlFlow::Continue;
+                        //}
                         
                         if listener.is_running() {
                             // This shouldn't happen. The user is prevented from sending statements
                             // when the engine is working.
                             on_error.call(format!("Previous statement not completed yet."));
-                            return glib::Continue(true);
+                            return glib::ControlFlow::Continue;
                         }
                         
                         match &selected_obj {
                             Some(DBObject::View { schema, name, .. }) | Some(DBObject::Table { schema, name, .. }) => {
-                                let cmd = format!("select * from {schema}.{name};");
+                                println!("{:?}", schema);
+                                let cmd = format!("SELECT * from {schema}.{name};");
                                 let us = user_state.borrow();
                                 match listener.send_single_command(cmd, us.safety()) {
                                     Ok(_) => { },
@@ -1090,11 +1162,11 @@ impl ActiveConnection {
                     },
                     
                     // Execute action was clicked while execution mode is set to scheduled.
-                    ActiveConnectionAction::StartSchedule(stmts) => {
+                    /*ActiveConnectionAction::StartSchedule(stmts) => {
                     
                         if *(active_schedule.borrow()) {
                             on_error.call(format!("Tried to start schedule twice"));
-                            return glib::Continue(true);
+                            return glib::ControlFlow::Continue;
                         }
                         
                         active_schedule.replace(true);
@@ -1109,14 +1181,14 @@ impl ActiveConnection {
                                 // Just ignore this schedule step if the previous statement is not
                                 // executed yet. Queries will try to execute it again at the next timeout interval.
                                 if listener.is_running() {
-                                    return Continue(true);
+                                    return glib::ControlFlow::Continue;
                                 }
 
                                 let us = user_state.borrow();
                                 
                                 let should_continue = *active_schedule.borrow();
                                 if !should_continue {
-                                    return Continue(false);
+                                    return glib::ControlFlow::Break;
                                 }
                                 let send_ans = listener.send_commands(
                                     stmts.clone(),
@@ -1126,11 +1198,15 @@ impl ActiveConnection {
                                 );
                                 match send_ans {
                                     Ok(_) => { 
-                                        Continue(should_continue)    
+                                        if should_continue {
+                                            glib::ControlFlow::Continue
+                                        } else {
+                                            glib::ControlFlow::Break
+                                        }
                                     },
                                     Err(e) => {
                                         send.send(ActiveConnectionAction::Error(e)).unwrap();
-                                        Continue(false)
+                                        glib::ControlFlow::Break
                                     }
                                 }
                             }
@@ -1143,12 +1219,12 @@ impl ActiveConnection {
                     
                         if !*(active_schedule.borrow()) {
                             on_error.call(format!("Tried to end schedule, but there is no active schedule."));
-                            return glib::Continue(true);
+                            return glib::ControlFlow::Continue;
                         }
                         
                         active_schedule.replace(false);
                         on_schedule_end.call(());
-                    },
+                    },*/
                     
                     // Table import at the schema tree.
                     ActiveConnectionAction::TableImport(csv_path) => {
@@ -1193,9 +1269,9 @@ impl ActiveConnection {
                         if let Some(error) = fst_error {
                             on_error.call(error.clone());
                             
-                            if *(active_schedule.borrow()) == true {
-                                send.send(ActiveConnectionAction::EndSchedule).unwrap();
-                            }
+                            // if *(active_schedule.borrow()) == true {
+                            //     send.send(ActiveConnectionAction::EndSchedule).unwrap();
+                            // }
                         
                         } else {
                             on_exec_result.call(results.clone());
@@ -1264,12 +1340,12 @@ impl ActiveConnection {
                     
                     ActiveConnectionAction::Error(e) => {
                         on_error.call(e.clone());
-                        if *(active_schedule.borrow()) == true {
-                            send.send(ActiveConnectionAction::EndSchedule).unwrap();
-                        }
+                        // if *(active_schedule.borrow()) == true {
+                        //     send.send(ActiveConnectionAction::EndSchedule).unwrap();
+                        // }
                     }
                 }
-                glib::Continue(true)
+                glib::ControlFlow::Continue
             }
         });
 
@@ -1285,8 +1361,8 @@ impl ActiveConnection {
             on_object_selected,
             on_single_query_result,
             on_schema_invalidated,
-            on_schedule_start,
-            on_schedule_end
+            // on_schedule_start,
+            // on_schedule_end
         }
     }
 
@@ -1308,7 +1384,7 @@ impl ActiveConnection {
         self.on_disconnected.bind(f);
     }
     
-    pub fn connect_schedule_start<F>(&self, f : F)
+    /*pub fn connect_schedule_start<F>(&self, f : F)
     where
         F : Fn(()) + 'static
     {
@@ -1320,7 +1396,7 @@ impl ActiveConnection {
         F : Fn(()) + 'static
     {
         self.on_schedule_end.bind(f);
-    }
+    }*/
     
     pub fn connect_db_error<F>(&self, f : F)
     where
@@ -1397,21 +1473,11 @@ fn augment_uri_with_params(
     Ok(())
 }
 
-/*pub fn connect_to_sqlite(
-    uri : ConnURI,
-    send : glib::Sender<ActiveConnectionAction>,
-    us : &UserState
-) {
-    match SqliteConnection::try_new(uri) {
-
-    }
-}*/
-
 pub fn connect<F, C>(
     f : F,
     uri : ConnURI,
     send : glib::Sender<ActiveConnectionAction>,
-    us : &UserState
+    us : &UserState,
 )
 where
     F : Fn(ConnURI)->Result<C, String>,
@@ -1476,7 +1542,7 @@ impl React<ConnectionBox> for ActiveConnection {
         );
         let send = self.send.clone();
         let user_state = self.user_state.clone();
-        conn_bx.switch.connect_state_set(move |switch, _state| {
+        conn_bx.remote_switch.connect_state_set(move |switch, _state| {
             if switch.is_active() {
 
                 // The form URI is built from the entry values - It does not
@@ -1499,9 +1565,10 @@ impl React<ConnectionBox> for ActiveConnection {
                         // All hosts with the same name will have the same security settings, so
                         // take the first one.
 
-                        let req_sent = if uri.is_file() {
-                            send_sqlite_conn_request(uri.clone(), &send)
-                        } else if uri.is_postgres() {
+                        // let req_sent = if uri.is_file() {
+                        //    send_sqlite_conn_request(uri.clone(), &send)
+                        // } else if uri.is_postgres() {
+                        let req_sent = if uri.is_postgres() {
                             send_postgres_conn_request(uri, &user_state, &send)
                         } else {
                             let info = extract_conn_info(&host_entry, &port_entry, &db_entry, &user_entry).unwrap_or_default();
@@ -1521,7 +1588,31 @@ impl React<ConnectionBox> for ActiveConnection {
             } else {
                 send.send(ActiveConnectionAction::Disconnect).unwrap();
             }
-            Inhibit(false)
+            glib::signal::Propagation::Proceed
+        });
+
+        let local_entry = conn_bx.local_entry.clone();
+        let send = self.send.clone();
+        let check_readonly = conn_bx.check_readonly.clone();
+        conn_bx.local_switch.connect_state_set(move |switch, _state| {
+            if switch.is_active() {
+                let path = local_entry.text().to_string();
+                let mut info = ConnectionInfo::new_sqlite(&path);
+                if check_readonly.is_active() {
+                    info.readonly = Some(true);
+                }
+                match ConnURI::new(info.clone(), "") {
+                    Ok(uri) => {
+                        send_sqlite_conn_request(uri.clone(), &send);
+                    },
+                    Err(e) => {
+                        send.send(ActiveConnectionAction::ConnectFailure(info.clone(), e)).unwrap();
+                    }
+                }
+            } else {
+                send.send(ActiveConnectionAction::Disconnect).unwrap();
+            }
+            glib::signal::Propagation::Proceed
         });
     }
 }
@@ -1615,35 +1706,34 @@ impl React<ExecButton> for ActiveConnection {
 
     fn react(&self, btn : &ExecButton) {
         let send = self.send.clone();
-        let schedule_action = btn.schedule_action.clone();
-        let is_scheduled = Rc::new(RefCell::new(false));
+        let is_plan_action = btn.set_plan_action.clone();
+        let is_plan = Rc::new(RefCell::new(false));
         btn.exec_action.connect_activate({
-            let is_scheduled = is_scheduled.clone();
+            let is_plan = is_plan.clone();
             let exec_btn = btn.btn.clone();
             move |_action, param| {
 
-                let mut is_scheduled = is_scheduled.borrow_mut();
+                // let mut is_plan = is_plan.borrow_mut();
 
-                if *is_scheduled {
+                /*if *is_scheduled {
                     exec_btn.set_icon_name("download-db-symbolic");
                     *is_scheduled = false;
                     send.send(ActiveConnectionAction::EndSchedule).unwrap();
-                } else {
-
-                    let stmts = param.unwrap().get::<String>().unwrap();
-                    let must_schedule = schedule_action.state().unwrap().get::<bool>().unwrap();
-                    if must_schedule {
-                        exec_btn.set_icon_name("clock-app-symbolic");
-                        *is_scheduled = true;
-                        send.send(ActiveConnectionAction::StartSchedule(stmts)).unwrap();
-                    } else {
-                        send.send(ActiveConnectionAction::ExecutionRequest(stmts)).unwrap();
-                    }
-                }
+                } else {*/
+                let stmts = param.unwrap().get::<String>().unwrap();
+                let is_plan = is_plan_action.state().unwrap().get::<bool>().unwrap();
+                // if must_schedule {
+                //    exec_btn.set_icon_name("clock-app-symbolic");
+                //    *is_scheduled = true;
+                //    send.send(ActiveConnectionAction::StartSchedule(stmts)).unwrap();
+                // } else {
+                send.send(ActiveConnectionAction::ExecutionRequest(stmts, is_plan)).unwrap();
+                // }
+                // }
             }
         });
         
-        self.connect_schedule_end({
+        /*self.connect_schedule_end({
             let is_scheduled = is_scheduled.clone();
             let exec_btn = btn.btn.clone();
             move|_| { 
@@ -1653,7 +1743,7 @@ impl React<ExecButton> for ActiveConnection {
                     exec_btn.set_icon_name("download-db-symbolic");
                 }
              }
-        });
+        });*/
 
     }
 
@@ -1664,9 +1754,22 @@ impl React<GraphWindow> for ActiveConnection {
     fn react(&self, win : &GraphWindow) {
         let send = self.send.clone();
         let win_c = win.clone();
+
+        let [is_remote_1, is_remote_2] = Rc::new_shared(Cell::new(true));
+        self.connect_db_connected({
+            move |(info, _)| {
+                is_remote_1.set(info.engine != Engine::SQLite);
+            }
+        });
         win.btn_plot.connect_clicked(move |_| {
-            let sql = win_c.plot_sql();
-            send.send(ActiveConnectionAction::ExecutionRequest(sql));
+            match win_c.plot_sql(is_remote_2.get()) {
+                Ok(sql) => {
+                    send.send(ActiveConnectionAction::ExecutionRequest(sql, false));
+                },
+                Err(e) => {
+                    send.send(ActiveConnectionAction::Error(e));
+                }
+            }
         });
     }
 
@@ -1679,8 +1782,8 @@ impl React<QueryBuilderWindow> for ActiveConnection {
         let win_c = win.clone();
         win.btn_run.connect_clicked(move |_| {
             let sql = win_c.current_sql();
-            println!("SQL = {}", sql);
-            send.send(ActiveConnectionAction::ExecutionRequest(sql));
+            // println!("SQL = {}", sql);
+            send.send(ActiveConnectionAction::ExecutionRequest(sql, false));
         });
     }
 
@@ -1721,7 +1824,13 @@ impl React<SchemaTree> for ActiveConnection {
                         let obj : DBObject = serde_json::from_str(&s).unwrap();
                         match obj {
                             DBObject::Table { schema, name, .. } | DBObject::View { schema, name, .. } => {
-                                send.send(ActiveConnectionAction::ExecutionRequest(format!("select * from {}.{} limit {};", schema, name, row_limit))).unwrap();
+                                let src = if schema.is_empty() {
+                                    name.clone()
+                                } else {
+                                    format!("{schema}.{name}")
+                                };
+                                let query = format!("SELECT * FROM {src} LIMIT {row_limit};");
+                                send.send(ActiveConnectionAction::ExecutionRequest(query, false)).unwrap();
                             },
                             _ => { }
                         }
@@ -1775,10 +1884,15 @@ impl React<SchemaTree> for ActiveConnection {
                         match sql_literal_tuple(&entries, Some(&names), &tys) {
                             Ok(tuple) => {
                                 let tpl_names = crate::tables::table::insertion_tuple(&names);
-                                let insert_stmt = format!("insert into {}.{} {} values {};", schema, name, tpl_names, tuple);
+                                let src = if schema.is_empty() {
+                                    format!("{schema}.{name}")
+                                } else {
+                                    name.clone()
+                                };
+                                let insert_stmt = format!("INSERT INTO {src} {tpl_names} VALUES {tuple};");
                                 match crate::sql::require_insert_n_from_sql(&insert_stmt, tys.len(), 1) {
                                     Ok(_) => {
-                                        send.send(ActiveConnectionAction::ExecutionRequest(insert_stmt)).unwrap();
+                                        send.send(ActiveConnectionAction::ExecutionRequest(insert_stmt, false)).unwrap();
                                     },
                                     Err(e) => {
                                         send.send(ActiveConnectionAction::Error(e)).unwrap();
@@ -1792,7 +1906,7 @@ impl React<SchemaTree> for ActiveConnection {
                     },
                     DBObject::Function { schema, name, args, ret, .. } => {
                         if ret.is_some() {
-                            let tuple = if args.len() == 0 {
+                            let arg_tuple = if args.len() == 0 {
                                 String::from("()")
                             } else {
                                 match sql_literal_tuple(&entries, None, &args) {
@@ -1803,10 +1917,12 @@ impl React<SchemaTree> for ActiveConnection {
                                     }
                                 }
                             };
-                            let stmt = format!("select {}.{}{};", schema, name, tuple);
+
+                            /* This will work for postgres only. */
+                            let stmt = format!("SELECT {schema}.{name}{arg_tuple};");
                             match crate::sql::require_single_fn_select_from_sql(&stmt) {
                                 Ok(_) => {
-                                    send.send(ActiveConnectionAction::ExecutionRequest(stmt)).unwrap();
+                                    send.send(ActiveConnectionAction::ExecutionRequest(stmt, false)).unwrap();
                                 },
                                 Err(e) => {
                                     send.send(ActiveConnectionAction::Error(e)).unwrap();
@@ -1896,7 +2012,8 @@ fn text_to_sql_literal(entry : &Entry, ty : &DBType) -> Result<String, String> {
             Ok(tokens) => {
                 if tokens.len() == 1 {
                     match &tokens[0] {
-                        Token::Number(_, _) | Token::SingleQuotedString(_) => {
+                        Token::Number(_, _) | Token::SingleQuotedString(_) |
+                        Token::Word(Word { keyword : Keyword::TRUE, ..} | Word { keyword : Keyword::FALSE, ..} ) => {
                             Ok(desired_lit)
                         },
                         _ => {

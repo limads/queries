@@ -24,6 +24,9 @@ use std::cmp::{Ord, Ordering, PartialEq};
 use stateful::{Deferred, Reactive, Exclusive /*Owned*/};
 use tuples::TupleCloned;
 use either::Either;
+use quickcheck::{Gen, Arbitrary};
+use sqlparser::keywords::Keyword;
+use sqlparser::tokenizer::{Tokenizer, Token, Word};
 
 /* Query builder restrictions:
 (1) Each table can have a single source column for a join operation to the right-hand table
@@ -70,6 +73,7 @@ impl JoinBox {
             JoinOp::FullOuter => "full-symbolic"
         };
         let join_icon = Image::from_icon_name(join_icon);
+        join_icon.set_margin_end(6);
         // join_bx_inner.append(&);
         let lbl_bx = Box::new(Orientation::Vertical, 6);
 
@@ -157,7 +161,7 @@ fn set_css(bx : &gtk4::Box) {
     } else {
         TABLE_WHITE_CSS
     };
-    provider.load_from_data(css.as_bytes());
+    provider.load_from_data(css);
     bx.style_context().add_provider(&provider, 800);
 }
 
@@ -209,6 +213,21 @@ pub enum GroupOp {
     Any
 }
 
+impl Arbitrary for GroupOp {
+    fn arbitrary(g: &mut Gen) -> GroupOp {
+        *g.choose(&[
+            GroupOp::GroupBy,
+            GroupOp::Count,
+            GroupOp::Sum,
+            GroupOp::Avg,
+            GroupOp::Min,
+            GroupOp::Max,
+            GroupOp::Every,
+            GroupOp::Any
+        ]).unwrap()
+    }
+}
+
 impl GroupOp {
 
     pub fn combo_str(&self) -> &str {
@@ -246,6 +265,15 @@ pub enum SortOp {
     Descending
 }
 
+impl Arbitrary for SortOp {
+    fn arbitrary(g: &mut Gen) -> SortOp {
+        *g.choose(&[
+            SortOp::Ascending,
+            SortOp::Descending,
+        ]).unwrap()
+    }
+}
+
 impl SortOp {
 
     pub fn combo_str(&self) -> &str {
@@ -266,12 +294,11 @@ impl SortOp {
 }
 
 const HELP : &'static str = r#"
-• Add columns by specifying their table name as a prefix.
+• Add columns by specifying their table name as a prefix
 
-• The second to last columns must belong to the same table as any previous
-column (or be the argument to a new join clause).
+• Combine tables by specifying a column for the join clause
 
-• Aggregates (if any) must be applied to all columns.
+• Aggregates (if any) must be applied to all columns
 "#;
 
 /* TODO if the filter field is set and the
@@ -288,6 +315,19 @@ impl QueryBuilderWindow {
     pub fn build() -> Self {
         let win = Window::new();
         super::configure_dialog(&win, false);
+        let list = ListBox::new();
+
+        let provider = CssProvider::new();
+        let css = if libadwaita::StyleManager::default().is_dark() {
+            "* { border-right : 1px solid #454545; } "
+        } else {
+            "* { border-right : 1px solid #d9dada; } "
+        };
+        provider.load_from_data(css);
+        list.style_context().add_provider(&provider, 800);
+
+        let bx_outer = Box::new(Orientation::Horizontal, 0);
+        bx_outer.append(&list);
         win.set_title(Some("Query builder"));
         win.set_width_request(1200);
         win.set_height_request(800);
@@ -295,8 +335,11 @@ impl QueryBuilderWindow {
         bx.set_margin_start(64);
         bx.set_margin_end(64);
 
+        // bx_outer.append(&bx);
+
         let entry_col = Entry::new();
         entry_col.set_placeholder_text(Some("Column"));
+        entry_col.set_hexpand(true);
 
         let toggles = Rc::new(RefCell::new(BTreeMap::new()));
         let boxes = Rc::new(RefCell::new(Vec::new()));
@@ -327,6 +370,7 @@ impl QueryBuilderWindow {
         middle_stack.add_named(&help_bx, Some("help"));
         middle_stack.set_visible_child_name("help");
 
+        let overlay = libadwaita::ToastOverlay::new();
         let query = Deferred::new(Query::default());
         query.on_changed({
             let (middle_bx, toggles, boxes, entry_col, middle_stack) = (&middle_bx, &toggles, &boxes, &entry_col, &middle_stack).cloned();
@@ -347,10 +391,13 @@ impl QueryBuilderWindow {
         });
         btn_sql.connect_clicked({
             let query = query.share();
+            let overlay = overlay.clone();
             move|_| {
                 if let Some(displ) = gdk::Display::default() {
-                    if let Some(sql) = query.view().sql() {
+                    if let Ok(sql) = query.view().sql() {
                         displ.clipboard().set_text(&sql);
+                        let toast = libadwaita::Toast::builder().title("Query copied to clipboard").build();
+                        overlay.add_toast(toast.clone());
                     }
                 } else {
                     eprintln!("No default display to use");
@@ -364,7 +411,7 @@ impl QueryBuilderWindow {
         }
         btn_run.style_context().add_class("suggested-action");
 
-        let top_bx = Box::new(Orientation::Vertical, 6);
+        // let top_bx = Box::new(Orientation::Vertical, 6);
         let info_bar = InfoBar::new();
         info_bar.set_revealed(false);
         let info_lbl = Label::new(None);
@@ -378,12 +425,13 @@ impl QueryBuilderWindow {
             }
         });
 
-        top_bx.set_margin_top(18);
-        let top_bx_upper = Box::new(Orientation::Horizontal, 0);
-        let top_bx_lower = Box::new(Orientation::Horizontal, 0);
+        //top_bx.set_margin_top(18);
+        //let top_bx_upper = Box::new(Orientation::Horizontal, 0);
+        //let top_bx_lower = Box::new(Orientation::Horizontal, 0);
 
         let sort_bx = Box::new(Orientation::Horizontal, 0);
         let sort_icon = Image::from_icon_name("view-sort-descending-symbolic");
+        sort_icon.set_margin_end(6);
         sort_bx.append(&sort_icon);
         let combo_sort = ComboBoxText::new();
         for it in SORT_OPS {
@@ -391,9 +439,11 @@ impl QueryBuilderWindow {
         }
         combo_sort.set_active_id(Some("Unsorted"));
         sort_bx.append(&combo_sort);
+        combo_sort.set_hexpand(true);
 
         let group_bx = Box::new(Orientation::Horizontal, 0);
         let group_icon = Image::from_icon_name("view-grid-symbolic");
+        group_icon.set_margin_end(6);
         group_bx.append(&group_icon);
         let combo_group = ComboBoxText::new();
         combo_group.set_hexpand(true);
@@ -405,10 +455,10 @@ impl QueryBuilderWindow {
         }
         combo_group.set_active_id(Some("No aggregate"));
 
-        top_bx.append(&top_bx_upper);
-        top_bx.append(&top_bx_lower);
+        //top_bx.append(&top_bx_upper);
+        //top_bx.append(&top_bx_lower);
 
-        bx.append(&top_bx);
+        // bx.append(&top_bx);
         bx.append(&middle_stack);
         bx.append(&bottom_bx);
 
@@ -417,22 +467,26 @@ impl QueryBuilderWindow {
 
         let scroll = ScrolledWindow::new();
         scroll.set_child(Some(&bx));
-        win.set_child(Some(&scroll));
+        scroll.set_hexpand(true);
+        scroll.set_vexpand(true);
+        overlay.set_child(Some(&scroll));
+        bx_outer.append(&overlay);
 
-        entry_col.set_hexpand(true);
+        win.set_child(Some(&bx_outer));
+
+        // win.set_child(Some(&scroll));
+        // win.set_child(Some(&bx_outer));
+
         let add_btn = Button::from_icon_name("list-add-symbolic");
         let delete_btn = Button::from_icon_name("user-trash-symbolic");
-        add_btn.style_context().add_class("flat");
-        delete_btn.style_context().add_class("flat");
+        // add_btn.style_context().add_class("flat");
+        // delete_btn.style_context().add_class("flat");
+        add_btn.set_width_request(64);
+        delete_btn.set_width_request(64);
         add_btn.set_halign(Align::End);
         delete_btn.set_halign(Align::End);
         delete_btn.set_sensitive(false);
         add_btn.set_sensitive(false);
-
-        let tbl_img = Image::from_icon_name("table-symbolic");
-        tbl_img.set_margin_end(6);
-        top_bx_upper.append(&tbl_img);
-        top_bx_upper.append(&entry_col);
 
         let entry_filter = Entry::new();
         entry_filter.set_placeholder_text(Some("Filter argument"));
@@ -458,9 +512,6 @@ impl QueryBuilderWindow {
         filter_bx.append(&entry_filter);
         entry_filter.set_hexpand(true);
         filter_bx.set_hexpand(true);
-        top_bx_lower.append(&filter_bx);
-        top_bx_lower.append(&group_bx);
-        top_bx_lower.append(&sort_bx);
 
         let join_combo = ComboBoxText::new();
         for op in JOIN_OPS.iter() {
@@ -473,7 +524,6 @@ impl QueryBuilderWindow {
         let entry_join = Entry::new();
         entry_join.set_placeholder_text(Some("Join column"));
         let join_img = Image::from_icon_name("inner-symbolic");
-        join_img.set_margin_start(18);
         join_img.set_margin_end(6);
 
         let entry_join_c = entry_join.clone();
@@ -488,19 +538,44 @@ impl QueryBuilderWindow {
         join_bx.append(&join_combo);
         join_bx.append(&entry_join);
         entry_join.set_hexpand(true);
-        top_bx_upper.append(&join_bx);
 
+        let tbl_img = Image::from_icon_name("table-symbolic");
+        tbl_img.set_margin_end(6);
+
+        let col_bx = Box::new(Orientation::Horizontal, 0);
+        col_bx.append(&tbl_img);
+        col_bx.append(&entry_col);
+
+        let btn_bx = Box::new(Orientation::Horizontal, 0);
+        btn_bx.append(&delete_btn);
+        btn_bx.append(&add_btn);
+        btn_bx.style_context().add_class("linked");
+        btn_bx.set_halign(Align::Center);
+        btn_bx.set_hexpand(true);
+
+        /*top_bx_upper.append(&tbl_img);
+        top_bx_upper.append(&entry_col);
+        top_bx_upper.append(&join_bx);
         top_bx_upper.append(&add_btn);
-        top_bx_upper.append(&delete_btn);
+        top_bx_upper.append(&delete_btn);*/
+
+        // top_bx_lower.append(&filter_bx);
+        // top_bx_lower.append(&group_bx);
+        // top_bx_lower.append(&sort_bx);
+
+        for w in [&col_bx, &join_bx, &filter_bx, &group_bx, &sort_bx,&btn_bx] {
+            let r = ListBoxRow::new();
+            super::set_margins(w, 6, 6);
+            r.set_selectable(false);
+            r.set_activatable(false);
+            r.set_child(Some(w));
+            list.append(&r);
+        }
 
         // let tbl_bx = TableBox::build();
         // let tbl_bx2 = TableBox::build();
         // let join_bx = JoinBox::new("Column1 : Column 2", tbl_bx.clone(), tbl_bx2.clone());
         // middle_bx.append(&join_bx.outer);
-
-        // add_toggle(&toggles, "Column1", &tbl_bx);
-        // add_toggle(&toggles, "Column2", &tbl_bx);
-        // add_toggle(&toggles, "Column3", &tbl_bx2);
 
         let qw = Self {
             win,
@@ -730,7 +805,6 @@ fn verify_can_add(query : &Query, entry_col : &Entry, entry_join : &Entry, join_
         let has_col = query.column(&tblname, &colname).is_some();
         let has_tbl = query.table(&tblname).is_some();
         let join_ok = validate_join(&entry_col, &entry_join, join_combo);
-        // println!("has col = {:?} has tbl = {:?}", has_col, has_tbl);
         !has_col && join_ok && (query.0.is_empty() || has_tbl )
     } else {
         false
@@ -832,13 +906,39 @@ fn add_join_or_table(
     }
 }
 
-fn split_tbl_col(s : &str) -> Option<(String, String)> {
-    let mut split : Vec<_> = s.split(".").collect();
-    if split.iter().any(|s| s.is_empty() ) || split.len() < 2 {
+pub fn split_tbl_col(s : &str) -> Option<(String, String)> {
+
+    if s.trim().chars().any(|c| !c.is_alphanumeric() && c != '.' && c != '_' ) {
         return None;
     }
+
+    let mut split : Vec<_> = s.trim().split(".").collect();
+
+    if split.iter().any(|s| s.is_empty() ) || (split.len() != 2 && split.len() != 3) {
+        return None;
+    }
+
+    for s in &split {
+        let mut tkn = Tokenizer::new(&sqlparser::dialect::PostgreSqlDialect{}, s);
+        let tkns = tkn.tokenize().ok()?;
+        if tkns.len() != 1 {
+            return None;
+        }
+        match tkns[0] {
+            Token::Word(Word { keyword : sqlparser::keywords::Keyword::NoKeyword, .. }) => {
+
+            },
+            _ => {
+                return None;
+            }
+        }
+    }
+
     let col = split.pop()?.to_string();
+
+    /* The schema is part of the table name. */
     let tbl : String = split.join(".");
+
     Some((tbl, col))
 }
 
@@ -937,8 +1037,8 @@ impl Reactive for Query {
 
 impl Query {
 
-    pub fn sql(&self) -> Option<String> {
-        Some(self.0.get(0)?.sql())
+    pub fn sql(&self) -> Result<String, std::boxed::Box<dyn std::error::Error>> {
+        self.0.get(0).ok_or("Empty query informed")?.sql()
     }
 
     pub fn table_mut(&mut self, tblname : &str) -> Option<&mut Table> {
@@ -1116,7 +1216,7 @@ impl React<ActiveConnection> for QueryBuilderWindow {
 
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FilterOp {
     Eq,
     Greater,
@@ -1124,6 +1224,19 @@ pub enum FilterOp {
     Less,
     LessEq,
     Like
+}
+
+impl Arbitrary for FilterOp {
+    fn arbitrary(g: &mut Gen) -> FilterOp {
+        *g.choose(&[
+            FilterOp::Eq,
+            FilterOp::Greater,
+            FilterOp::GreaterEq,
+            FilterOp::Less,
+            FilterOp::LessEq,
+            FilterOp::Like,
+        ]).unwrap()
+    }
 }
 
 impl FilterOp {
@@ -1172,18 +1285,74 @@ pub struct Filter {
 
 impl Filter {
 
-    pub fn sql(&self) -> String {
-        format!("{} {}", self.op.sql(), self.arg)
+    pub fn sql(&self) -> Result<String, std::boxed::Box<std::error::Error>> {
+        let trimmed_arg = self.arg.trim();
+        let is_bool_or_num = trimmed_arg.trim() == "true" ||
+            trimmed_arg == "false" ||
+            trimmed_arg.parse::<f64>().is_ok() ||
+            trimmed_arg.parse::<i64>().is_ok();
+        let arg = if is_bool_or_num {
+            trimmed_arg.to_owned()
+        } else {
+            if !trimmed_arg.starts_with("'") && !trimmed_arg.ends_with("'") {
+                format!("'{}'", self.arg)
+            } else {
+                trimmed_arg.to_owned()
+            }
+        };
+        let mut tkn = Tokenizer::new(&sqlparser::dialect::PostgreSqlDialect{}, &arg);
+
+        let tkns = tkn.tokenize()?;
+        println!("{:?}", tkns);
+
+        if tkns.len() != 1 {
+            return Err("Invalid filter argument (expected SQL literal)".into());
+        }
+        match tkns[0] {
+            Token::Number(_, _) | Token::Char(_) | Token::SingleQuotedString(_) |
+            Token::Word(Word { keyword : Keyword::TRUE, ..} | Word { keyword : Keyword::FALSE, ..} ) => {
+                Ok(arg)
+            },
+            _ => Err(String::from("Invalid filter argument (expected SQL literal)").into())
+        }
     }
 
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+fn random_ident(g : &mut Gen) -> String {
+    let chars : Vec<_> = ('a'..'z').collect();
+
+    // To big to be any SQL keyword.
+    let mut s = String::new();
+    for i in 0..16 {
+        s.push(*g.choose(&chars).unwrap());
+    }
+    s
+}
+
+impl Arbitrary for Filter {
+    fn arbitrary(g: &mut Gen) -> Filter {
+        Filter { op : FilterOp::arbitrary(g), arg : random_ident(g) }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Copy)]
 pub enum JoinOp {
     Inner,
     LeftOuter,
     RightOuter,
     FullOuter
+}
+
+impl Arbitrary for JoinOp {
+    fn arbitrary(g: &mut Gen) -> JoinOp {
+        *g.choose(&[
+            JoinOp::Inner,
+            JoinOp::LeftOuter,
+            JoinOp::RightOuter,
+            JoinOp::FullOuter
+        ]).unwrap()
+    }
 }
 
 impl JoinOp {
@@ -1236,6 +1405,18 @@ pub struct Join {
     dst_table : String
 }
 
+impl Arbitrary for Join {
+    fn arbitrary(g: &mut Gen) -> Join {
+        Join {
+            op : JoinOp::arbitrary(g),
+            src_table : random_ident(g),
+            src_col : random_ident(g),
+            dst_col : random_ident(g),
+            dst_table : random_ident(g)
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Column {
     name : String,
@@ -1243,6 +1424,18 @@ pub struct Column {
     filter : Option<Filter>,
     group : Option<GroupOp>,
     sort : Option<SortOp>
+}
+
+impl Arbitrary for Column {
+    fn arbitrary(g: &mut Gen) -> Column {
+        Column {
+            name : random_ident(g),
+            join : Option::<Join>::arbitrary(g),
+            filter : Option::<Filter>::arbitrary(g),
+            group : Option::<GroupOp>::arbitrary(g),
+            sort : Option::<SortOp>::arbitrary(g),
+        }
+    }
 }
 
 impl Column {
@@ -1269,15 +1462,31 @@ pub struct Table {
     cols : Vec<Column>
 }
 
-fn filter_clause_recursive(s : &mut Vec<String>, tbl : &Table) {
+impl Arbitrary for Table {
+    fn arbitrary(g: &mut Gen) -> Table {
+        let n : Vec<usize> = (2..16).collect();
+        let sz = *g.choose(&n[..]).unwrap();
+        Table {
+            name : random_ident(g),
+            join_rhs : Option::<Table>::arbitrary(g).map(|t| std::boxed::Box::new(t) ),
+            cols : (1..sz).map(|_| Column::arbitrary(g) ).collect()
+        }
+    }
+}
+
+fn filter_clause_recursive(
+    s : &mut Vec<String>,
+    tbl : &Table
+) -> Result<(), std::boxed::Box<dyn std::error::Error>> {
     for c in &tbl.cols {
         if let Some(filt) = &c.filter {
-            s.push(format!("{} {}", c.name, filt.sql()));
+            s.push(format!("{} {}", c.name, filt.sql()?));
         }
     }
     if let Some(rhs_tbl) = &tbl.join_rhs {
-        filter_clause_recursive(s, rhs_tbl);
+        filter_clause_recursive(s, rhs_tbl)?;
     }
+    Ok(())
 }
 
 fn sort_clause_recursive(s : &mut Vec<String>, tbl : &Table) {
@@ -1310,7 +1519,11 @@ fn group_clause_recursive(s : &mut Vec<String>, tbl : &Table) {
 
 fn from_clause_recursive(s : &mut Vec<String>, tbl : &Table) {
     if let (Some(rhs_tbl), Some(join)) = (&tbl.join_rhs, tbl.join()) {
-        s.push(format!(" {} {} ON {} = {} ", join.op.sql_keyword(), rhs_tbl.name, join.src_col, join.dst_col));
+        let join_keyword = join.op.sql_keyword();
+        let join_target = &rhs_tbl.name;
+        let join_lhs = format!("{}.{}", tbl.name, join.src_col);
+        let join_rhs = format!("{}.{}", join_target, join.dst_col);
+        s.push(format!(" {join_keyword} {join_target} ON {join_lhs} = {join_rhs} "));
     }
 }
 
@@ -1325,9 +1538,10 @@ fn columns_recursive(s : &mut Vec<String>, tbl : &Table) {
 
 impl Table {
 
-    pub fn sql(&self) -> String {
+    pub fn sql(&self) -> Result<String, std::boxed::Box<std::error::Error>> {
         let mut s = format!("SELECT {}{}", self.body(), self.from_clause());
-        if let Some(filter) = self.filter_clause() {
+        let filter = self.filter_clause()?;
+        if !filter.is_empty() {
             s += "\n";
             s += &filter;
         }
@@ -1340,7 +1554,7 @@ impl Table {
             s += &sort;
         }
         s += ";";
-        s
+        Ok(s)
     }
 
     pub fn body(&self) -> String {
@@ -1351,13 +1565,13 @@ impl Table {
         s
     }
 
-    pub fn filter_clause(&self) -> Option<String> {
+    pub fn filter_clause(&self) -> Result<String, std::boxed::Box<dyn std::error::Error>> {
         let mut filter = Vec::new();
-        filter_clause_recursive(&mut filter, self);
+        filter_clause_recursive(&mut filter, self)?;
         if filter.is_empty() {
-            None
+            Ok(String::new())
         } else {
-            Some(format!("WHERE {}", filter.join(" AND\n")))
+            Ok(format!("WHERE {}", filter.join(" AND\n")))
         }
     }
 

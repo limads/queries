@@ -13,6 +13,7 @@ use crate::tables::table::Table;
 use crate::ui::PlotView;
 use papyri::render::Panel;
 use crate::client::UserState;
+use crate::ui::analyze::*;
 
 #[derive(Debug, Clone)]
 pub struct QueriesWorkspace {
@@ -78,7 +79,22 @@ pub fn populate_with_tables(
                     new_pages.push(tab_page);
                     continue;
                 },
-                _ => { }
+                _ => {
+                    match serde_json::from_value::<Vec<Explain>>(val) {
+                        Ok(expl) => {
+                            let expl_panel = ExplainPanel::new(expl[0].clone());
+                            let tab_page = tab_view.append(&expl_panel.paned);
+                            let s = String::from("?");
+                            let title = expl[0].plan.relation_name.as_ref().unwrap_or(&s);
+                            configure_plan_page(&tab_page, &title);
+                            new_pages.push(tab_page.clone());
+                            continue;
+                        },
+                        Err(e) => {
+                            println!("{:?}", e);
+                        }
+                    }
+                }
             }
         }
         let tbl_wid = TableWidget::new_from_table(&tbl, state.execution.row_limit as usize, COLUMN_LIMIT);
@@ -112,6 +128,11 @@ impl<'a> React<Environment> for QueriesWorkspace {
 fn configure_plot_page(tab_page : &libadwaita::TabPage, _panel : &Panel) {
     tab_page.set_icon(Some(&gio::ThemedIcon::new("roll-symbolic")));
     tab_page.set_title("Plot");
+}
+
+fn configure_plan_page(tab_page : &libadwaita::TabPage, title : &str) {
+    tab_page.set_title(&title);
+    tab_page.set_icon(Some(&gio::ThemedIcon::new("share-alt-symbolic")));
 }
 
 fn configure_table_page(tab_page : &libadwaita::TabPage, table : &Table, row_limit : usize) {

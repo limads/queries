@@ -12,13 +12,23 @@ use crate::client::Environment;
 use crate::sql::StatementOutput;
 use crate::client::OpenedScripts;
 use crate::sql::object::{DBType, DBColumn};
-mod overview;
 use core::cell::RefCell;
 use std::rc::Rc;
 use filecase::MultiArchiverImpl;
 use crate::client::SharedUserState;
+use crate::client::Engine;
 
 // TODO set find/replace insensitive when workspace is selected.
+
+pub mod model;
+
+pub use model::*;
+
+mod overview;
+
+pub mod analyze;
+
+pub use analyze::*;
 
 pub mod plots;
 
@@ -70,9 +80,11 @@ mod form;
 
 pub use form::*;
 
-mod builder;
+pub mod builder;
 
 pub use builder::*;
+
+pub mod apply;
 
 pub type SharedSignal = Rc<RefCell<Option<glib::SignalHandlerId>>>;
 
@@ -128,7 +140,7 @@ impl React<Environment> for QueriesContent {
                     t.dismiss();
                 }
                 let toast = libadwaita::Toast::builder().title(&msg[..]).build();
-                overlay.add_toast(&toast);
+                overlay.add_toast(toast.clone());
                 connect_toast_dismissed(&toast, &curr_toast);
                 *last_toast = Some(toast);
             }
@@ -142,7 +154,7 @@ impl React<Environment> for QueriesContent {
                     t.dismiss();
                 }
                 let toast = libadwaita::Toast::builder().title(&msg[..]).build();
-                overlay.add_toast(&toast);
+                overlay.add_toast(toast.clone());
                 connect_toast_dismissed(&toast, &curr_toast);
                 *last_toast = Some(toast);
             }
@@ -190,7 +202,7 @@ impl React<OpenedScripts> for QueriesContent {
                     .priority(libadwaita::ToastPriority::High)
                     .timeout(0)
                     .build();
-                overlay.add_toast(&toast);
+                overlay.add_toast(toast.clone());
                 connect_toast_dismissed(&toast, &curr_toast);
                 *last_toast = Some(toast);
             }
@@ -204,7 +216,7 @@ impl React<OpenedScripts> for QueriesContent {
                     t.dismiss();
                 }
                 let toast = libadwaita::Toast::builder().title(&msg[..]).build();
-                overlay.add_toast(&toast);
+                overlay.add_toast(toast.clone());
                 *last_toast = Some(toast);
             }
         });
@@ -273,7 +285,7 @@ impl React<ActiveConnection> for QueriesContent {
                     t.dismiss();
                 }
                 let toast = libadwaita::Toast::builder().title(&err).build();
-                overlay.add_toast(&toast);
+                overlay.add_toast(toast.clone());
                 connect_toast_dismissed(&toast, &curr_toast);
                 *last_toast = Some(toast);
                 results_page.set_icon_name(Some("db-symbolic"));
@@ -295,7 +307,7 @@ impl React<ActiveConnection> for QueriesContent {
                     t.dismiss();
                 }
                 let toast = libadwaita::Toast::builder().title(&err).build();
-                overlay.add_toast(&toast);
+                overlay.add_toast(toast.clone());
                 connect_toast_dismissed(&toast, &curr_toast);
                 *last_toast = Some(toast);
                 results_page.set_icon_name(Some("db-symbolic"));
@@ -326,7 +338,7 @@ impl React<ActiveConnection> for QueriesContent {
                         t.dismiss();
                     }
                     let toast = libadwaita::Toast::builder().title(&msg).build();
-                    overlay.add_toast(&toast);
+                    overlay.add_toast(toast.clone());
                     connect_toast_dismissed(&toast, &curr_toast);
                     *last_toast = Some(toast);
                 }
@@ -385,12 +397,14 @@ pub struct QueriesWindow {
     pub graph_win : plots::GraphWindow,
     pub builder_win : QueryBuilderWindow,
     pub settings : QueriesSettings,
-    pub find_dialog : FindDialog
+    pub find_dialog : FindDialog,
+    pub model : model::ModelWindow,
+    pub apply : apply::ApplyWindow
 }
 
 impl QueriesWindow {
 
-    pub fn build(app : &Application, state : &SharedUserState) -> Self {
+    pub fn build(app : &Application, state : &SharedUserState, modules : &apply::Modules) -> Self {
 
         let window = ApplicationWindow::builder()
             .application(app)
@@ -402,6 +416,9 @@ impl QueriesWindow {
         let sidebar = QueriesSidebar::build();
         let titlebar = QueriesTitlebar::build();
         let content = QueriesContent::build(state);
+        content.results.overview.db_new_dialog.dialog.set_transient_for(Some(&window));
+        content.results.overview.db_open_dialog.dialog.set_transient_for(Some(&window));
+
         let find_dialog = FindDialog::build();
 
         content.editor.save_dialog.0.dialog.set_transient_for(Some(&window));
@@ -437,15 +454,17 @@ impl QueriesWindow {
         window.add_action(&titlebar.main_menu.action_export);
         window.add_action(&titlebar.main_menu.action_settings);
         window.add_action(&titlebar.main_menu.action_about);
+        window.add_action(&titlebar.main_menu.action_apply);
+        window.add_action(&titlebar.main_menu.action_model);
         window.add_action(&content.editor.ignore_file_save_action);
         window.add_action(&titlebar.sidebar_hide_action);
 
         // Add actions to execution menu
         window.add_action(&titlebar.exec_btn.queue_exec_action);
         window.add_action(&titlebar.exec_btn.exec_action);
+        window.add_action(&titlebar.exec_btn.set_plan_action);
+        window.add_action(&titlebar.exec_btn.set_exec_action);
         window.add_action(&titlebar.exec_btn.clear_action);
-        window.add_action(&titlebar.exec_btn.schedule_action);
-        window.add_action(&titlebar.exec_btn.single_action);
         window.add_action(&titlebar.exec_btn.restore_action);
 
         window.add_action(&sidebar.file_list.close_action);
@@ -479,7 +498,7 @@ impl QueriesWindow {
             move |_, _| {
                 dialog.show();
                 list.select_row(list.row_at_index(3).as_ref());
-                Inhibit(true)
+                glib::signal::Propagation::Stop
             }
         });
         settings.settings.dialog.connect_show({
@@ -491,8 +510,13 @@ impl QueriesWindow {
         });
 
         for info in &state.borrow().conns {
-            let new_row = ConnectionRow::from(info);
-            content.results.overview.conn_list.list.append(&new_row.row);
+            if info.engine == Engine::SQLite {
+                let new_row = LocalConnectionRow::from(info.clone());
+                content.results.overview.conn_list.list.append(&new_row.row);
+            } else {
+                let new_row = ConnectionRow::from(info);
+                content.results.overview.conn_list.list.append(&new_row.row);
+            }
         }
 
         let graph_win = plots::GraphWindow::build();
@@ -501,7 +525,26 @@ impl QueriesWindow {
         let builder_win = QueryBuilderWindow::build();
         builder_win.react(&titlebar.main_menu);
 
-        Self { paned, sidebar, titlebar, content, window, settings, find_dialog, graph_win, builder_win }
+        // TODO move to impl React<MainMenu> for ApplyWindow
+        let apply = apply::ApplyWindow::build(modules.clone());
+        titlebar.main_menu.action_apply.connect_activate({
+            let dialog = apply.dialog.clone();
+            move |_,_| {
+                dialog.show();
+            }
+        });
+        apply.dialog.set_transient_for(Some(&window));
+
+        let model = model::ModelWindow::build();
+        titlebar.main_menu.action_model.connect_activate({
+            let dialog = model.dialog.clone();
+            move |_,_| {
+                dialog.show();
+            }
+        });
+        model.dialog.set_transient_for(Some(&window));
+
+        Self { paned, sidebar, titlebar, content, window, settings, find_dialog, graph_win, builder_win, model, apply }
     }
 
 }
@@ -578,7 +621,7 @@ impl PackedImageLabel {
 #[derive(Debug, Clone)]
 pub struct PackedImageEntry  {
     pub bx : Box,
-    _img : Image,
+    pub img : Image,
     pub entry : Entry
 }
 
@@ -593,7 +636,7 @@ impl PackedImageEntry {
         set_margins(&entry, 6, 6);
         bx.append(&img);
         bx.append(&entry);
-        Self { bx, _img : img, entry }
+        Self { bx, img : img, entry }
     }
 
 }
@@ -689,7 +732,7 @@ fn set_border_to_title(bx : &Box) {
     } else {
         "* { border-bottom : 1px solid #d9dada; } "
     };
-    provider.load_from_data(css.as_bytes());
+    provider.load_from_data(css);
     bx.style_context().add_provider(&provider, 800);
 }
 

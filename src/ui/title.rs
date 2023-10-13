@@ -119,8 +119,8 @@ pub struct ExecButton {
     // statement is executed repeatedly every n seconds. Although logically we
     // would need only one action, we use two so the two modes are visible
     // to be chosen by the user at the menu.
-    pub schedule_action : gio::SimpleAction,
-    pub single_action : gio::SimpleAction,
+    pub set_exec_action : gio::SimpleAction,
+    pub set_plan_action : gio::SimpleAction,
 
 }
 
@@ -131,16 +131,16 @@ impl ExecButton {
         self.exec_action.set_enabled(active);
         self.clear_action.set_enabled(active);
         self.restore_action.set_enabled(active);
-        self.schedule_action.set_enabled(active);
-        self.single_action.set_enabled(active);
+        self.set_exec_action.set_enabled(active);
+        self.set_plan_action.set_enabled(active);
     }
     
     fn build() -> Self {
         let exec_menu = gio::Menu::new();
 
         let exec_section = gio::Menu::new();
-        exec_section.append(Some("Immediate"), Some("win.single"));
-        exec_section.append(Some("Scheduled"), Some("win.schedule"));
+        exec_section.append(Some("Execute"), Some("win.set_exec"));
+        exec_section.append(Some("Plan"), Some("win.set_plan"));
         exec_menu.append_section(Some("Execution mode"), &exec_section);
 
         let workspace_section = gio::Menu::new();
@@ -166,29 +166,29 @@ impl ExecButton {
         });
         queue_exec_action.set_enabled(false);
         
-        let schedule_action = gio::SimpleAction::new_stateful("schedule", None, &(false).to_variant());
-        let single_action = gio::SimpleAction::new_stateful("single", None, &(true).to_variant());
+        let set_exec_action = gio::SimpleAction::new_stateful("set_exec", None, &(true).to_variant());
+        let set_plan_action = gio::SimpleAction::new_stateful("set_plan", None, &(false).to_variant());
 
-        single_action.connect_activate({
-            let schedule_action = schedule_action.clone();
+        set_exec_action.connect_activate({
+            let set_plan_action = set_plan_action.clone();
             move |action, _| {
                 action.set_state(&true.to_variant());
-                schedule_action.set_state(&false.to_variant());
+                set_plan_action.set_state(&false.to_variant());
             }
         });
 
-        schedule_action.connect_activate({
-            let single_action = single_action.clone();
+        set_plan_action.connect_activate({
+            let set_exec_action = set_exec_action.clone();
             move |action, _| {
                 action.set_state(&true.to_variant());
-                single_action.set_state(&false.to_variant());
+                set_exec_action.set_state(&false.to_variant());
             }
         });
 
         // single_action.set_enabled(true);
         // schedule_action.
         // btn.activate_action(&exec_action, None);
-        Self { btn, queue_exec_action, exec_action, clear_action, restore_action, schedule_action, single_action }
+        Self { btn, queue_exec_action, exec_action, clear_action, restore_action, set_plan_action, set_exec_action }
     }
 
 }
@@ -358,4 +358,5 @@ impl React<QueriesContent> for ExecButton {
     }
 
 }
+
 

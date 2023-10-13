@@ -16,10 +16,10 @@ pub struct QueriesClient {
 
 impl QueriesClient {
 
-    pub fn new(user_state : &SharedUserState) -> Self {
+    pub fn new(user_state : &SharedUserState, modules : crate::ui::apply::Modules) -> Self {
         let client = Self {
             conn_set : ConnectionSet::new(user_state),
-            active_conn : ActiveConnection::new(user_state),
+            active_conn : ActiveConnection::new(user_state, modules),
             env : Environment::new(user_state),
             scripts : OpenedScripts::new(),
         };
