@@ -11,7 +11,7 @@ use std::borrow::Cow;
 use serde_json;
 use itertools::Itertools;
 use std::cmp::{PartialOrd, PartialEq, Ordering};
-
+use crate::sql::object::DBType;
 use std::str::FromStr;
 use std::fmt::Write;
 
@@ -32,6 +32,28 @@ pub enum Column {
     Bytes(Vec<Vec<u8>>),
     Json(Vec<Value>),
     Nullable(NullableColumn)
+}
+
+impl Column {
+
+    pub fn db_type(&self) -> DBType {
+        match self {
+            Column::Bool(_) => DBType::Bool,
+            Column::I8(_) => DBType::Unknown,
+            Column::I16(_) => DBType::I16,
+            Column::I32(_) => DBType::I32,
+            Column::U32(_) => DBType::Unknown,
+            Column::I64(_) => DBType::I64,
+            Column::F32(_) => DBType::F32,
+            Column::F64(_) => DBType::F64,
+            Column::Numeric(_) => DBType::Numeric,
+            Column::Str(_) => DBType::Text,
+            Column::Bytes(_) => DBType::Bytes,
+            Column::Json(_) => DBType::Json,
+            Column::Nullable(ref c) => c.db_type()
+        }
+    }
+
 }
 
 pub fn rearrange<T, U>(vs : &[T], ixs : &[usize]) -> U

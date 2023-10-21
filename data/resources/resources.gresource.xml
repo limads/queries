@@ -17,6 +17,7 @@
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/clock-app-white.svg">../icons/hicolor/scalable/actions/clock-app-white.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/view-white.svg">../icons/hicolor/scalable/actions/view-white.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/key-white.svg">../icons/hicolor/scalable/actions/key-white.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/crate-white.svg">../icons/hicolor/scalable/actions/crate-white.svg</file>
     
     <!-- Custom type icons used at schema tree -->
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/type-boolean-symbolic.svg">../icons/hicolor/symbolic/actions/type-boolean-symbolic.svg</file>
@@ -61,6 +62,7 @@
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/local-add-symbolic.svg">../icons/hicolor/symbolic/actions/local-add-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/remote-add-symbolic.svg">../icons/hicolor/symbolic/actions/remote-add-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/crate-symbolic.svg">../icons/hicolor/symbolic/actions/crate-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="icons/scalable/actions/query-plan-symbolic.svg">../icons/hicolor/symbolic/actions/query-plan-symbolic.svg</file>
     
     <!-- Mapping icons -->
     <file preprocess="xml-stripblanks" alias="icons/scalable/actions/mapping-area-symbolic.svg">../icons/hicolor/symbolic/actions/mapping-area-symbolic.svg</file>

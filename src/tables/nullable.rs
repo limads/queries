@@ -9,6 +9,7 @@ use crate::tables::field::Field;
 use rust_decimal::Decimal;
 use serde_json::Value;
 use std::fmt::Write;
+use crate::sql::object::DBType;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NullableColumn {
@@ -27,6 +28,23 @@ pub enum NullableColumn {
 }
 
 impl<'a> NullableColumn {
+
+    pub fn db_type(&self) -> DBType {
+        match self {
+            NullableColumn::Bool(_) => DBType::Bool,
+            NullableColumn::I8(_) => DBType::Unknown,
+            NullableColumn::I16(_) => DBType::I16,
+            NullableColumn::I32(_) => DBType::I32,
+            NullableColumn::U32(_) => DBType::Unknown,
+            NullableColumn::I64(_) => DBType::I64,
+            NullableColumn::F32(_) => DBType::F32,
+            NullableColumn::F64(_) => DBType::F64,
+            NullableColumn::Numeric(_) => DBType::Numeric,
+            NullableColumn::Str(_) => DBType::Text,
+            NullableColumn::Bytes(_) => DBType::Bytes,
+            NullableColumn::Json(_) => DBType::Json
+        }
+    }
 
     pub fn as_json_values(&self) -> Option<Value> {
         match self {

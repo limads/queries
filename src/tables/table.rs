@@ -25,6 +25,7 @@ use quick_xml::events::{Event };
 use crate::tables::nullable::NullableColumn;
 use std::ops::Index;
 use std::collections::HashMap;
+use crate::sql::object::DBType;
 
 #[derive(Debug, Clone)]
 pub struct TableSource {
@@ -42,11 +43,11 @@ pub struct Table {
 
     name : Option<String>,
 
-    relation : Option<String>,
-
     names : Vec<String>,
 
     cols : Vec<Column>,
+
+    relation : Option<String>,
 
     nrows : usize,
 
@@ -111,7 +112,43 @@ impl Index<usize> for Table {
 
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+enum ParseMode {
+    Unknown,
+    Text,
+    Json,
+    Int,
+    Float,
+    Bool
+}
+
 impl Table {
+
+    pub fn view_names(&self) -> &[String] {
+        &self.names[..]
+    }
+
+    pub fn update_column(&mut self, ix : usize, name : Option<&str>, col : Option<Column>) {
+        if ix >= self.cols.len() {
+            return;
+        }
+        if let Some(col) = col {
+            self.cols[ix] = col;
+        }
+        if let Some(name) = name {
+            self.names[ix] = name.to_string();
+        }
+    }
+
+    pub fn rename(&mut self, new_name : &str) {
+        self.name = Some(new_name.to_string());
+    }
+
+    pub fn description<'a>(&'a self) -> impl Iterator<Item=(&'a str, DBType)> + 'a {
+        self.names.iter()
+            .zip(self.cols.iter())
+            .map(|(n, c)| (&n[..], c.db_type()) )
+    }
 
     pub fn as_json_values(&self) -> Option<serde_json::Map<String, serde_json::Value>> {
         let mut map = serde_json::Map::new();
@@ -544,40 +581,107 @@ impl Table {
                 let mut parsed_cols = Vec::new();
                 let mut names = Vec::new();
                 for (name, values) in cols.drain(0..) {
+                    let mut mode = ParseMode::Unknown;
                     let mut parsed_int = Vec::new();
                     let mut parsed_float = Vec::new();
+                    let mut parsed_bool = Vec::new();
+                    let mut parsed_text = Vec::new();
                     let mut parsed_json = Vec::new();
-                    let mut all_int = true;
-                    let mut all_float = true;
-                    let mut all_json = true;
                     for s in values.iter() {
-                        if all_int {
-                            if let Ok(int) = s.parse::<i64>() {
-                                parsed_int.push(int);
+                        if &s[..] == "NULL" || &s[..] == "null" {
+                            if mode == ParseMode::Int {
+                                parsed_int.push(None);
+                            } else if mode == ParseMode::Float {
+                                parsed_float.push(None);
+                            } else if mode == ParseMode::Bool {
+                                parsed_bool.push(None);
+                            } else if mode == ParseMode::Json {
+                                parsed_json.push(None);
                             } else {
-                                all_int = false;
+                                parsed_text.push(None);
                             }
-                        }
-                        if all_float {
-                            if let Ok(float) = s.parse::<f64>() {
-                                parsed_float.push(float);
-                            } else {
-                                all_float = false;
-                            }
-                        }
-                        if all_json {
-                            if let Ok(json) = s.parse::<Value>() {
-                                parsed_json.push(json);
-                            } else {
-                                all_json = false;
+                        } else {
+                            match mode {
+                                ParseMode::Unknown => {
+                                    if let Ok(int) = s.parse::<i64>() {
+                                        parsed_int.extend(std::iter::repeat(None::<i64>).take(parsed_text.len()));
+                                        parsed_text.clear();
+                                        parsed_int.push(Some(int));
+                                        mode = ParseMode::Int;
+                                    } else if let Ok(float) = s.parse::<f64>() {
+                                        parsed_float.extend(std::iter::repeat(None::<f64>).take(parsed_text.len()));
+                                        parsed_text.clear();
+                                        parsed_float.push(Some(float));
+                                        mode = ParseMode::Float;
+                                    } else if let Ok(json) = s.parse::<Value>() {
+                                        parsed_json.extend(std::iter::repeat(None::<Value>).take(parsed_text.len()));
+                                        parsed_text.clear();
+                                        parsed_json.push(Some(json));
+                                        mode = ParseMode::Json;
+                                    } else if s == "true" {
+                                        parsed_bool.extend(std::iter::repeat(None::<bool>).take(parsed_text.len()));
+                                        parsed_text.clear();
+                                        parsed_bool.push(Some(true));
+                                        mode = ParseMode::Bool;
+                                    } else if s == "false" {
+                                        parsed_bool.extend(std::iter::repeat(None::<bool>).take(parsed_text.len()));
+                                        parsed_text.clear();
+                                        parsed_bool.push(Some(false));
+                                        mode = ParseMode::Bool;
+                                    } else {
+                                        parsed_text.push(Some(s.clone()));
+                                        mode = ParseMode::Text;
+                                    }
+                                },
+                                ParseMode::Float => {
+                                    if let Ok(float) = s.parse::<f64>() {
+                                        parsed_float.push(Some(float));
+                                    } else {
+                                        parsed_text.extend(parsed_float.drain(..).map(|f| f.map(|f| format!("{}",f) ) ));
+                                        mode = ParseMode::Text;
+                                    }
+                                },
+                                ParseMode::Bool => {
+                                    if &s[..] == "true" {
+                                        parsed_bool.push(Some(true));
+                                    } else if &s[..] == "false" {
+                                        parsed_bool.push(Some(false));
+                                    } else {
+                                        parsed_text.extend(parsed_bool.drain(..).map(|b| b.map(|b| format!("{:?}",b) ) ));
+                                        mode = ParseMode::Text;
+                                    }
+                                },
+                                ParseMode::Int => {
+                                    if let Ok(int) = s.parse::<i64>() {
+                                        parsed_int.push(Some(int));
+                                    } else {
+                                        parsed_text.extend(parsed_int.drain(..).map(|i| i.map(|i| format!("{}",i) ) ));
+                                        mode = ParseMode::Text;
+                                    }
+                                },
+                                ParseMode::Json => {
+                                    if let Ok(json) = s.parse::<Value>() {
+                                        parsed_json.push(Some(json));
+                                    } else {
+                                        parsed_text.extend(parsed_json.drain(..).map(|j| j.map(|j| format!("{}",j) ) ));
+                                        mode = ParseMode::Text;
+                                    }
+                                },
+                                ParseMode::Text => {
+                                    parsed_text.push(Some(s.clone()));
+                                }
                             }
                         }
                     }
-                    match (all_int, all_float, all_json) {
-                        (true, _, _) => parsed_cols.push(Column::I64(parsed_int)),
-                        (false, true, _) => parsed_cols.push(Column::F64(parsed_float)),
-                        (false, false, true) => parsed_cols.push(Column::Json(parsed_json)),
-                        _ => parsed_cols.push(Column::Str(values))
+                    match mode {
+                        ParseMode::Unknown => {
+                            return Err("Could not determine column type");
+                        },
+                        ParseMode::Int => parsed_cols.push(Column::Nullable(NullableColumn::from(parsed_int))),
+                        ParseMode::Float => parsed_cols.push(Column::Nullable(NullableColumn::from(parsed_float))),
+                        ParseMode::Json => parsed_cols.push(Column::Nullable(NullableColumn::from(parsed_json))),
+                        ParseMode::Bool => parsed_cols.push(Column::Nullable(NullableColumn::from(parsed_bool))),
+                        ParseMode::Text => parsed_cols.push(Column::Nullable(NullableColumn::from(parsed_text))),
                     }
                     names.push(name);
                 }
@@ -658,12 +762,13 @@ impl Table {
     /// be invalid if there are reserved keywords as column names.
     pub fn sql_string(&self, name : &str) -> Result<String, String> {
         if let Some(mut creation) = self.sql_table_creation(name, &[]) {
-            creation += &self.sql_table_insertion(name, &[])?;
-            /*match crate::sql::parsing::parse_sql(&creation[..], &HashMap::new()) {
+            if let Some(insertion) = self.sql_table_insertion(name, &[], false)? {
+                creation = format!("BEGIN;\n{creation}\n{insertion};\nCOMMIT;")
+            }
+            match crate::sql::parsing::parse_sql(&creation[..]) {
                 Ok(_) => Ok(creation),
                 Err(e) => Err(format!("{}", e))
-            }*/
-            Ok(creation)
+            }
         } else {
             Err(format!("Unable to form create table statement"))
         }
@@ -678,27 +783,37 @@ impl Table {
     }
 
     pub fn sql_table_creation(&self, name : &str, _cols : &[String]) -> Option<String> {
-        let mut query = format!("CREATE TABLE {}(", name);
+        let mut sql = format!("CREATE TABLE {}(", name);
         for (i, (name, col)) in self.names.iter().zip(self.cols.iter()).enumerate() {
             let name = match name.chars().find(|c| *c == ' ') {
                 Some(_) => String::from("\"") + &name[..] + "\"",
                 None => name.clone()
             };
-            query += &format!("{} {}", name, col.sqlite3_type());
+            sql += &format!("{} {}", name, col.sqlite3_type());
             if i < self.cols.len() - 1 {
-                query += ","
+                sql += ","
             } else {
-                query += ");\n"
+                sql += ");\n"
             }
         }
-        Some(query)
+        Some(sql)
     }
 
     /// Always successful, but query might be empty if there is no data on the columns.
-    pub fn sql_table_insertion(&self, name : &str, cols : &[String]) -> Result<String, String> {
+    pub fn sql_table_insertion(&self, name : &str, cols : &[String], is_transaction : bool) -> Result<Option<String>, String> {
         let mut stmt = String::new();
         let nrows = self.nrows();
         
+        if cols.len() == 0 {
+            return Ok(None);
+        }
+        if self.cols.len() == 0 {
+            return Ok(None);
+        }
+        if self.cols[0].len() == 0 {
+            return Ok(None);
+        }
+
         for i in 0..(cols.len()-1) {
             for j in (i+1)..cols.len() {
                 if &cols[i][..] == &cols[j][..] {
@@ -708,10 +823,10 @@ impl Table {
         }
         
         if cols.len() == 0 {
-            stmt += &format!("insert into {} values ", name)[..];
+            stmt += &format!("INSERT INTO {} VALUES ", name)[..];
         } else {
             let tuple = insertion_tuple(&cols);
-            stmt += &format!("insert into {} {} values ", name, tuple)[..];
+            stmt += &format!("INSERT INTO {} {} VALUES ", name, tuple)[..];
         }
         
         let types = self.sql_types();
@@ -743,7 +858,11 @@ impl Table {
                 }
             }
         }
-        Ok(stmt)
+        if is_transaction {
+            Ok(Some(format!("BEGIN;\n{stmt}\nCOMMIT;\n")))
+        } else {
+            Ok(Some(stmt))
+        }
     }
 
     /// Decide if column at ix should be displayed, according to the current display rules.
@@ -1436,10 +1555,52 @@ impl TryFrom<serde_json::Value> for Table {
                 }
                 Table::new(None, names, cols).map_err(|e| format!("{}", e) )
             },
+            Value::Array(arr) => {
+                Table::try_from(flatten_json(arr)?)
+            },
             _ => Err(format!("Root JSON object should be a key:value map"))
         }
     }
 
+}
+
+fn flatten_json(mut arr : Vec<Value>) -> Result<Value, String> {
+    if arr.len() == 0 {
+        return Ok(Value::Object(serde_json::Map::new()));
+    }
+    let mut fst = arr.remove(0);
+    match fst {
+        Value::Object(ref mut obj) => {
+            for v in obj.values_mut() {
+                *v = Value::Array(vec![v.clone()]);
+            }
+        },
+        _ => {
+            Err(format!("Could not flatten JSON: Expected object at first entry"))?;
+        }
+    }
+
+    for (j, obj) in arr.drain(..).enumerate() {
+        let i = j + 1;
+        match (&mut fst, obj) {
+            (Value::Object(ref mut fst), Value::Object(mut obj)) => {
+                for (i, (k, acc)) in fst.iter_mut().enumerate() {
+                    match (obj.remove(&k[..]), acc) {
+                        (Some(new_val), Value::Array(ref mut acc)) => {
+                            acc.push(new_val);
+                        },
+                        _ => {
+                            Err(format!("Could not flatten JSON: Invalid key {k} at row {i}"))?;
+                        }
+                    }
+                }
+            },
+            _ => {
+                Err(format!("Could not flatten JSON: Expected object at row {i}"))?;
+            }
+        }
+    }
+    Ok(fst)
 }
 
 pub fn col_as_vec<'a, T>(

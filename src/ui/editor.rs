@@ -65,6 +65,23 @@ impl QueriesEditor {
         }
         open_dialog.react(&script_list);
         let ignore_file_save_action = gio::SimpleAction::new("ignore_file_save", Some(&i32::static_variant_type()));
+
+        /* This is required so that the allocation of the script list does not
+        limit the position of the inner scroll when the user is editing SQL
+        at the split view. */
+        stack.connect_visible_child_notify({
+            let scroll = script_list.scroll.clone();
+            move |stack| {
+                if let Some(nm) = stack.visible_child_name() {
+                    if &nm[..] != "list" {
+                        scroll.set_visible(false);
+                    } else {
+                        scroll.set_visible(true);
+                    }
+                }
+            }
+        });
+
         Self { views, stack, script_list, save_dialog, open_dialog, ignore_file_save_action, export_dialog, user_state : user_state.clone() }
     }
 
@@ -244,7 +261,8 @@ pub struct ScriptList {
     pub open_btn : Button,
     pub new_btn : Button,
     pub list : ListBox,
-    pub bx : Box
+    pub bx : Box,
+    pub scroll : ScrolledWindow
 }
 
 impl ScriptList {
@@ -258,8 +276,8 @@ impl ScriptList {
         list.style_context().add_class("boxed-list");
         let scroll = ScrolledWindow::new();
         scroll.set_child(Some(&list));
-        scroll.set_width_request(520);
-        scroll.set_height_request(380);
+        scroll.set_width_request(480);
+        scroll.set_height_request(240);
         scroll.set_has_frame(false);
         list.set_activate_on_single_click(true);
         list.set_show_separators(true);
@@ -279,7 +297,7 @@ impl ScriptList {
         bx.set_halign(Align::Center);
         bx.set_valign(Align::Center);
 
-        Self { open_btn, new_btn, list, bx }
+        Self { open_btn, new_btn, list, bx, scroll }
     }
 
     pub fn add_row(&self, path : &str) {

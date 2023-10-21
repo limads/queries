@@ -183,6 +183,7 @@ fn hook_signals(
     client.active_conn.react(&queries_win.sidebar.schema_tree);
     client.active_conn.react(&queries_win.graph_win);
     client.active_conn.react(&queries_win.builder_win);
+    client.active_conn.react(&queries_win.apply);
 
     client.env.react(&client.active_conn);
     client.env.react(&queries_win.content.results.workspace);
@@ -221,13 +222,13 @@ fn hook_signals(
 
     queries_win.react(&queries_win.titlebar);
     queries_win.react(&client.scripts);
+    queries_win.apply.react(&client.active_conn);
     queries_win.find_dialog.react(&queries_win.titlebar.main_menu);
     queries_win.find_dialog.react(&queries_win.content.editor);
     queries_win.find_dialog.react(&client.scripts);
     queries_win.find_dialog.react(&client.scripts);
 
     queries_win.model.react(&client.active_conn);
-    queries_win.apply.react(&client.env);
 
     queries_win.window.add_action(&queries_win.find_dialog.find_action);
     queries_win.window.add_action(&queries_win.find_dialog.replace_action);
@@ -295,7 +296,8 @@ fn load_module(
     module_name : &str,
     wasm : &[u8]
 ) -> Result<(), std::boxed::Box<dyn std::error::Error>> {
-    let mut plugin = Plugin::new(&CONTEXT.get().unwrap(), &wasm, [], false)?;
+    let wasi = true;
+    let mut plugin = Plugin::new(&CONTEXT.get().unwrap(), &wasm, [], wasi)?;
     let bytes = plugin.call(&module_name, &[])?;
     let mut module_def = serde_json::from_reader::<_, ModuleDef>(bytes)?;
     module_def.functions.sort_by(|a, b| a.name.cmp(&b.name) );

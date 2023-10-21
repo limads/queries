@@ -129,7 +129,9 @@ impl Connection for SqliteConnection {
             create_stmt.execute(rusqlite::NO_PARAMS).map_err(|e| format!("{}", e) )?;
         }*/
 
-        let insert = tbl.sql_table_insertion(dst, cols).map_err(|e| format!("Invalid SQL: {}",e) )?;
+        let insert = tbl.sql_table_insertion(dst, cols, false)
+            .map_err(|e| format!("Invalid SQL: {}",e) )?
+            .ok_or(String::from("Empty table"))?;
         let mut insert_stmt = client.prepare(&insert).map_err(|e| format!("{}", e) )?;
         insert_stmt.execute([]).map_err(|e| format!("{}", e) )?;
         Ok(tbl.shape().0)
@@ -629,7 +631,7 @@ pub fn copy_table_to_sqlite(
         create_stmt.execute([]).map_err(|e| format!("{}", e) )?;
     }
 
-    let insert = tbl.sql_table_insertion(dst, cols)?;
+    let insert = tbl.sql_table_insertion(dst, cols, false)?.ok_or(String::from("Empty table"))?;
     let mut insert_stmt = client.prepare(&insert).map_err(|e| format!("{}", e) )?;
     insert_stmt.execute([]).map_err(|e| format!("{}", e) )?;
     Ok(())

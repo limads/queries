@@ -31,22 +31,28 @@ impl DBInfo {
         let mut all_tbls = Vec::new();
         collect_tbls(&mut all_tbls, &self.schema);
         s = build_er_diagram(s, &self.schema, &all_tbls);
-        // labeljust="l";
-        // size=20;
-        // pad=0.1;
-        // rankdir=TB,LR
-        //
-        let ModelDesign { background, node_fill, font_name, font_size } = design;
+        let ModelDesign { background, node_fill, font_name, font_size, font_color } = design;
         format!(r##"
             graph {{
                 ratio=1.6;
                 dpi=96;
                 bgcolor="{background}";
                 rankdir="LR";
-
-                node [fontname = "{font_name}", style="filled", color="#bbbbbb", fillcolor="{node_fill}",fontcolor="#363636", fontsize={font_size}, margin=0.12 ];
-                edge [fontname = "{font_name}", color="#bbbbbb",fontcolor="#363636", fontsize=12.0];
-
+                node [
+                    fontname = "{font_name}",
+                    fontcolor = "{font_color}",
+                    style="filled",
+                    color="#bbbbbb",
+                    fillcolor="{node_fill}",
+                    fontsize={font_size},
+                    margin=0.12
+                ];
+                edge [
+                    fontname = "{font_name}",
+                    color="#bbbbbb",
+                    fontcolor = "{font_color}",
+                    fontsize=12.0
+                ];
                 {s}
             }}
         "##)
@@ -118,7 +124,9 @@ pub fn build_er_diagram(mut er : String, schemata : &[DBObject], all_tbls : &[(S
                         .any(|t| &t.0[..] == &rel.tgt_schema[..] && &t.1[..] == &rel.tgt_tbl[..] )
                     {
                         let tgt = &rel.tgt_tbl;
-                        tbl += &format!("{name} -- {tgt} [label=\"1:n\"];\n");
+                        let src_col = format!("{}.{}", name, rel.src_col);
+                        let tgt_col = format!("{}.{}", rel.tgt_tbl, rel.tgt_col);
+                        tbl += &format!("{name} -- {tgt} [label=\"{src_col}\n{tgt_col}\"];\n");
                     }
                 }
 
@@ -165,6 +173,14 @@ pub enum DBType {
 }
 
 impl DBType {
+
+    pub fn requires_quotes(&self) -> bool {
+        match self {
+            Self::Bool | Self::I16 | Self::I32 | Self::I64 | Self::F32 | Self::F64 | Self::Numeric => false,
+            _ => true
+        }
+    }
+
     pub fn name(&self) -> &'static str {
         match self {
             Self::Bool => "bool",

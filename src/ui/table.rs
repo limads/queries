@@ -256,10 +256,10 @@ fn set_table_selection_style(grid : &Grid, col : usize, ncols : usize, was_selec
 
 impl TableWidget {
 
-    pub fn new_from_table(tbl : &Table, max_nrows : usize, _max_ncols : usize) -> Self {
+    pub fn new_from_table(tbl : &Table, max_nrows : usize, _max_ncols : usize, interactive : bool) -> Self {
         let mut tbl_wid = Self::new(tbl.nrows(), max_nrows);
         tbl_wid.tbl = Rc::new(tbl.clone());
-        tbl_wid.update_data(&tbl, Some(1), Some(max_nrows), true);
+        tbl_wid.update_data(&tbl, Some(1), Some(max_nrows), true, interactive);
         tbl_wid
     }
 
@@ -297,13 +297,19 @@ impl TableWidget {
         _nrows : usize,
         ncols : usize,
         _include_header : bool,
-        displayed_tbl : &Rc<RefCell<Option<DisplayedTable>>>
+        displayed_tbl : &Rc<RefCell<Option<DisplayedTable>>>,
+        interactive : bool
     ) -> Label {
         let label = Label::new(None);
         label.set_use_markup(true);
         label.set_markup(&data);
         label.set_hexpand(true);
-        let _ctx = label.style_context();
+        // let _ctx = label.style_context();
+
+        if !interactive {
+            return label;
+        }
+
         let cursor = Cursor::builder().name("pointer").build();
         label.set_cursor(Some(&cursor));
 
@@ -540,7 +546,14 @@ impl TableWidget {
         });
     }
 
-    fn update_data(&self, tbl : &Table, fst_row : Option<usize>, num_rows : Option<usize>, include_header : bool) {
+    pub fn update_data(
+        &self,
+        tbl : &Table,
+        fst_row : Option<usize>,
+        num_rows : Option<usize>,
+        include_header : bool,
+        interactive : bool
+    ) {
         if include_header {
             self.clear_table();
         } else {
@@ -560,7 +573,7 @@ impl TableWidget {
 
         // Add header
         for (j, col) in tbl.names().drain(..).enumerate() {
-            let cell = self.create_header_cell(col.as_ref(), j, nrows, ncols, include_header, &displayed_tbl);
+            let cell = self.create_header_cell(col.as_ref(), j, nrows, ncols, include_header, &displayed_tbl, interactive);
             add_header_css(&cell);
             self.grid.attach(&cell, j as i32, 0 as i32, 1, 1);
         }

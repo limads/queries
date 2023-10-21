@@ -135,7 +135,7 @@ where
     }
 }
 
-pub fn parse_sql(sql : &str, _subs : &HashMap<String, String>) -> Result<Vec<Statement>, String> {
+pub fn parse_sql(sql : &str) -> Result<Vec<Statement>, String> {
     
     let dialect = PostgreSqlDialect {};
     Parser::parse_sql(&dialect, &sql[..])

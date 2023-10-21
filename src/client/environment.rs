@@ -133,6 +133,7 @@ impl Environment {
                     },
                     EnvironmentAction::Close(pos) => {
                         tables.tables.remove(pos);
+                        tables.queries.remove(pos);
                         if let Some(ref mut ix) = selected {
                             if *ix > pos {
                                 *ix -= 1;
@@ -142,7 +143,6 @@ impl Environment {
                     EnvironmentAction::Reorder(old_pos, new_pos) => {
                         let t = tables.tables.remove(old_pos);
                         tables.tables.insert(new_pos,t);
-                        // TODO update selected
                     }
 
                     EnvironmentAction::ExportRequest(path) => {
@@ -267,12 +267,18 @@ impl React<QueriesWorkspace> for Environment {
         });
         let send = self.send.clone();
         // ws.tab_view.connect_close_page(move |tab_view,page| {
-        ws.tab_view.connect_page_detached(move |tab_view,page,pos| {
+        let handler = ws.tab_view.connect_page_detached(move |tab_view,page,pos| {
             // let pos = tab_view.page_position(&page) as usize;
+
+            /* Page might be detached when environment is cleared and notebook
+            is also cleared. */
+            println!("Close sent");
+
             send.send(EnvironmentAction::Close(pos as usize));
             // tab_view.close_page_finish(&page, true);
             // true
         });
+        *ws.detached_handler.borrow_mut() = Some(handler);
 
         let send = self.send.clone();
         ws.tab_view.connect_page_reordered(move |tab_view,page,new_pos| {
@@ -405,7 +411,6 @@ impl Plots {
                         let is_plot = map.contains_key("x") && map.contains_key("y") && map.contains_key("mappings");
 
                         filter_nulls(&mut val);
-                        println!("{:?}", val);
 
                         if is_panel || is_plot {
                             match Panel::new_from_json_value(val) {
@@ -541,9 +546,11 @@ impl Tables {
         &mut self,
         results : Vec<StatementOutput>
     ) -> Option<Result<EnvironmentUpdate, ExecutionError>> {
+
         self.tables.clear();
         self.queries.clear();
         self.exec_results.clear();
+
         if results.len() == 0 {
             self.history.push(EnvironmentUpdate::Clear);
             return Some(Ok(EnvironmentUpdate::Clear));

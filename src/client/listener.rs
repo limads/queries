@@ -20,13 +20,14 @@ pub struct ExecutionRequest {
     sql : String,
     safety : SafetyLock,
     is_plan : bool,
-    mode : ExecMode
+    tgt : QueryTarget
 }
 
 #[derive(Clone)]
 pub struct SqlListener {
 
-    /// Carries a query sequence; sequence substitutions; and whether this query should be parsed at the client; and a timeout in seconds.
+    /// Carries a query sequence; sequence substitutions; and whether
+    /// this query should be parsed at the client; and a timeout in seconds.
     cmd_sender : Sender<ExecutionRequest>,
 
     pub engine : Arc<Mutex<Option<Box<dyn Connection>>>>,
@@ -106,7 +107,7 @@ impl SqlListener {
 
     pub fn launch<F>(result_cb : F) -> Self
     where
-        F : Fn(Vec<StatementOutput>, ExecMode) + 'static + Send
+        F : Fn(Vec<StatementOutput>, QueryTarget) + 'static + Send
     {
         let (cmd_tx, cmd_rx) = mpsc::channel::<ExecutionRequest>();
         let engine : Arc<Mutex<Option<Box<dyn Connection>>>> = Arc::new(Mutex::new(None));
@@ -124,8 +125,8 @@ impl SqlListener {
         }
     }
 
-    pub fn send_single_command(&self, sql : String, safety : SafetyLock) -> Result<(), String> {
-        match self.cmd_sender.send(ExecutionRequest { sql : sql.clone(), safety, is_plan : false, mode : ExecMode::Single }) {
+    pub fn send_single_command(&self, sql : String, safety : SafetyLock, tgt : QueryTarget) -> Result<(), String> {
+        match self.cmd_sender.send(ExecutionRequest { sql : sql.clone(), safety, is_plan : false, tgt }) {
             Ok(_) => {
 
             },
@@ -155,10 +156,9 @@ impl SqlListener {
 
         let request = ExecutionRequest { 
             sql : sql.clone(), 
-            // subs,
             safety, 
             is_plan,
-            mode : ExecMode::Multiple 
+            tgt : QueryTarget::Environment
         };
         match self.cmd_sender.send(request) {
             Ok(_) => {
@@ -284,12 +284,11 @@ impl SqlListener {
 
 }
 
-/// The queries table environment only listens to "multiple" mode. Use
-/// "single" mode to query information that wont't be displayed as tables.
-#[derive(Debug, Clone, Copy)]
-pub enum ExecMode {
-    Single,
-    Multiple
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub enum QueryTarget {
+    ClientFunction,
+    Report,
+    Environment
 }
 
 fn spawn_listener_thread<F>(
@@ -298,13 +297,13 @@ fn spawn_listener_thread<F>(
     cmd_rx : Receiver<ExecutionRequest>
 ) -> JoinHandle<()>
 where
-    F : Fn(Vec<StatementOutput>, ExecMode) + 'static + Send
+    F : Fn(Vec<StatementOutput>, QueryTarget) + 'static + Send
 {
     thread::spawn(move ||  {
         loop {
             match cmd_rx.recv() {
             
-                Ok(ExecutionRequest { sql, safety, is_plan, mode }) => {
+                Ok(ExecutionRequest { sql, safety, is_plan, tgt }) => {
                 
                     let result;
                     
@@ -336,7 +335,7 @@ where
                     /* It is important to call the result callback only after the engine mutex
                     is unlocked, so that new statements can be promptly sent after results arrive
                     (used during testing, but a good practice for ordinary use nevertheless). */
-                    result_cb(result, mode);
+                    result_cb(result, tgt);
                     
                 },
                 Err(_e) => {

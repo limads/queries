@@ -46,10 +46,12 @@ pub struct SchemaTree {
     pub import_action : gio::SimpleAction,
     pub call_action : gio::SimpleAction,
     pub report_action : gio::SimpleAction,
+    pub create_action : gio::SimpleAction,
     pub form : super::Form,
     pub import_dialog : ImportDialog,
     pub report_dialog : ReportDialog,
-    pub report_export_dialog : filecase::SaveDialog
+    pub report_export_dialog : filecase::SaveDialog,
+    pub create_dialog : super::CreateDialog
 }
 
 // TODO views with a homonimous table are not being shown at the schema tree.
@@ -79,8 +81,9 @@ impl SchemaTree {
         let menu = gio::Menu::new();
         menu.append(Some("Query"), Some("win.query"));
         menu.append(Some("Report"), Some("win.report"));
-        menu.append(Some("Insert"), Some("win.insert"));
-        menu.append(Some("Import"), Some("win.import"));
+        menu.append(Some("Insert row"), Some("win.insert"));
+        menu.append(Some("Create table"), Some("win.create"));
+        menu.append(Some("Import data"), Some("win.import"));
         menu.append(Some("Call"), Some("win.call"));
 
         let schema_popover = PopoverMenu::builder().menu_model(&menu).build();
@@ -148,9 +151,11 @@ impl SchemaTree {
         });
 
         let form = super::Form::new();
+        let create_dialog = super::CreateDialog::new();
         let query_action = gio::SimpleAction::new_stateful("query", None, &String::from("").to_variant());
         let insert_action = gio::SimpleAction::new_stateful("insert", None, &String::from("").to_variant());
         let import_action = gio::SimpleAction::new_stateful("import", None, &String::from("").to_variant());
+        let create_action = gio::SimpleAction::new_stateful("create", None, &String::from("").to_variant());
         let call_action = gio::SimpleAction::new_stateful("call", None, &String::from("").to_variant());
         let report_action = gio::SimpleAction::new_stateful("report", None, &String::from("").to_variant());
         query_action.set_enabled(false);
@@ -158,6 +163,7 @@ impl SchemaTree {
         import_action.set_enabled(false);
         call_action.set_enabled(false);
         report_action.set_enabled(false);
+        create_action.set_enabled(false);
         insert_action.connect_activate({
             let form = form.clone();
             move |action, _| {
@@ -180,6 +186,17 @@ impl SchemaTree {
                         let obj : DBObject = serde_json::from_str(&s[..]).unwrap();
                             form.update_from_function(&obj);
                             form.dialog.show();
+                    }
+                }
+            }
+        });
+        create_action.connect_activate({
+            let create_dialog = create_dialog.clone();
+            move |action, _| {
+                if let Some(state) = action.state() {
+                    let schema_name = state.get::<String>().unwrap();
+                    if !schema_name.is_empty() {
+                        create_dialog.dialog.show();
                     }
                 }
             }
@@ -263,6 +280,8 @@ impl SchemaTree {
             import_action,
             report_action,
             call_action,
+            create_action,
+            create_dialog,
             form,
             import_dialog,
             report_dialog,
@@ -402,6 +421,7 @@ impl React<ActiveConnection> for SchemaTree {
             let call_action = self.call_action.clone();
             let import_action = self.import_action.clone();
             let report_action = self.report_action.clone();
+            let create_action = self.create_action.clone();
             move |opt_obj| {
                 match &opt_obj {
                     Some(DBObject::Table { .. }) => {
@@ -411,6 +431,7 @@ impl React<ActiveConnection> for SchemaTree {
                             action.set_state(&s);
                         }
                         call_action.set_enabled(false);
+                        create_action.set_enabled(false);
                         call_action.set_state(&String::new().to_variant());
                     },
                     Some(DBObject::View { .. }) => {
@@ -418,20 +439,24 @@ impl React<ActiveConnection> for SchemaTree {
                         query_action.set_enabled(true);
                         report_action.set_enabled(true);
                         query_action.set_state(&s);
-                        for action in [&insert_action, &import_action, &call_action] {
+                        for action in [&insert_action, &import_action, &call_action, &create_action] {
                             action.set_enabled(false);
                             action.set_state(&String::new().to_variant());
                         }
                     },
-                    Some(DBObject::Schema { .. }) => {
+                    Some(DBObject::Schema { name, .. }) => {
                         for action in [&insert_action, &query_action, &import_action, &call_action, &report_action] {
                             action.set_enabled(false);
                             action.set_state(&String::new().to_variant());
                         }
+                        if !name.starts_with("Functions (") && !name.starts_with("Views (") {
+                            create_action.set_enabled(true);
+                            create_action.set_state(&name.to_variant());
+                        }
                     },
                     Some(DBObject::Function { .. }) => {
                         let s = serde_json::to_string(&opt_obj.unwrap()).unwrap().to_variant();
-                        for action in [&insert_action, &query_action, &import_action, &report_action] {
+                        for action in [&insert_action, &query_action, &import_action, &report_action, &create_action] {
                             action.set_enabled(false);
                             action.set_state(&String::new().to_variant());
                         }
@@ -439,7 +464,7 @@ impl React<ActiveConnection> for SchemaTree {
                         call_action.set_state(&s);
                     },
                     _ => {
-                        for action in [&insert_action, &query_action, &import_action, &call_action, &report_action] {
+                        for action in [&insert_action, &query_action, &import_action, &call_action, &report_action, &create_action] {
                             action.set_enabled(false);
                             action.set_state(&String::new().to_variant());
                         }
@@ -447,7 +472,7 @@ impl React<ActiveConnection> for SchemaTree {
                 }
             }
         });
-        conn.connect_single_query_result({
+        conn.connect_report_query_result({
             let files = self.report_dialog.files.clone();
             let rendered_content = self.report_dialog.rendered_content.clone();
             let export_dialog = self.report_export_dialog.dialog.clone();

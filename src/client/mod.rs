@@ -6,6 +6,8 @@ For a copy, see http://www.gnu.org/licenses.*/
 use std::mem;
 use filecase::MultiArchiverAction;
 use filecase::MultiArchiverImpl;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 pub struct QueriesClient {
     pub conn_set : ConnectionSet,
@@ -16,10 +18,14 @@ pub struct QueriesClient {
 
 impl QueriesClient {
 
-    pub fn new(user_state : &SharedUserState, modules : crate::ui::apply::Modules) -> Self {
+    pub fn new(
+        user_state : &SharedUserState,
+        modules : crate::ui::apply::Modules,
+        call_params : Rc<RefCell<crate::ui::apply::CallParams>>
+    ) -> Self {
         let client = Self {
             conn_set : ConnectionSet::new(user_state),
-            active_conn : ActiveConnection::new(user_state, modules),
+            active_conn : ActiveConnection::new(user_state, modules, call_params),
             env : Environment::new(user_state),
             scripts : OpenedScripts::new(),
         };

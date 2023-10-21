@@ -28,7 +28,7 @@ use crate::sql::copy::*;
 use std::time::Duration;
 use std::hash::Hash;
 use crate::client::SharedUserState;
-use super::listener::ExecMode;
+use super::listener::QueryTarget;
 use crate::tables::table::Table;
 use std::str::FromStr;
 use std::net::{Ipv4Addr, Ipv6Addr};
@@ -40,6 +40,9 @@ use std::cell::Cell;
 use crate::Share;
 use sqlparser::keywords::Keyword;
 use sqlparser::tokenizer::Word;
+use crate::ui::apply::*;
+use serde_json::Value;
+use std::convert::TryFrom;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Engine {
@@ -896,6 +899,8 @@ pub enum ActiveConnectionAction {
     // be executed in plan mode.
     ExecutionRequest(String, bool),
 
+    FunctionApplyRequest(String),
+
     // Requires a sigle table or view name to do a single SQL query.
     SingleQueryRequest,
 
@@ -905,9 +910,11 @@ pub enum ActiveConnectionAction {
 
     ExecutionCompleted(Vec<StatementOutput>),
 
-    SingleQueryCompleted(StatementOutput),
+    ReportQueryCompleted(StatementOutput),
 
     SchemaUpdate(Option<Vec<DBObject>>),
+
+    ProcessRequest(Table),
 
     ObjectSelected(Option<Vec<usize>>),
 
@@ -963,7 +970,11 @@ impl ActiveConnection {
         self.send.send(msg).unwrap();
     }
 
-    pub fn new(user_state : &SharedUserState, mods : crate::ui::apply::Modules) -> Self {
+    pub fn new(
+        user_state : &SharedUserState,
+        mods : crate::ui::apply::Modules,
+        call_params : Rc<RefCell<crate::ui::apply::CallParams>>
+    ) -> Self {
         let (on_connected, on_disconnected, on_error) : ActiveConnCallbacks = Default::default();
         let on_exec_result : Callbacks<Vec<StatementOutput>> = Default::default();
         let on_single_query_result : Callbacks<Table> = Default::default();
@@ -985,12 +996,23 @@ impl ActiveConnection {
         // single producer).
         let mut listener = SqlListener::launch({
             let send = send.clone();
-            move |mut results, mode| {
-                match mode {
-                    ExecMode::Single => {
-                        send.send(ActiveConnectionAction::SingleQueryCompleted(results.remove(0))).unwrap();
+            move |mut results, tgt| {
+                match tgt {
+                    QueryTarget::Report => {
+                        send.send(ActiveConnectionAction::ReportQueryCompleted(results.remove(0))).unwrap();
                     },
-                    ExecMode::Multiple => {
+                    QueryTarget::ClientFunction => {
+                        let out = results.remove(0);
+                        match out {
+                            StatementOutput::Valid(_, tbl) => {
+                                send.send(ActiveConnectionAction::ProcessRequest(tbl));
+                            },
+                            other => {
+                                send.send(ActiveConnectionAction::ExecutionCompleted(vec![other])).unwrap();
+                            }
+                        }
+                    },
+                    QueryTarget::Environment => {
                         send.send(ActiveConnectionAction::ExecutionCompleted(results)).unwrap();
                     }
                 }
@@ -1070,6 +1092,18 @@ impl ActiveConnection {
                         });
                     },
 
+                    ActiveConnectionAction::ProcessRequest(tbl) => {
+                        match call_client_function(&mods, &call_params, &tbl) {
+                            Ok(tbl) => {
+                                let ans = vec![StatementOutput::Valid(String::new(), tbl)];
+                                send.send(ActiveConnectionAction::ExecutionCompleted(ans)).unwrap();
+                            },
+                            Err(e) => {
+                                on_error.call(format!("{e}"));
+                            }
+                        }
+                    },
+
                     // At this stage, the connection is active, and the URI is already
                     // forgotten.
                     ActiveConnectionAction::ConnectAccepted(conn, db_info) => {
@@ -1117,7 +1151,7 @@ impl ActiveConnection {
                         }
 
                         let us = user_state.borrow();
-                        match listener.send_commands(stmts, /*HashMap::new(),*/ us.safety(), is_plan) {
+                        match listener.send_commands(stmts, us.safety(), is_plan) {
                             Ok(_) => { },
                             Err(e) => {
                                 on_error.call(e.clone());
@@ -1125,6 +1159,16 @@ impl ActiveConnection {
                         }
                     },
                     
+                    ActiveConnectionAction::FunctionApplyRequest(cmd) => {
+                        let us = user_state.borrow();
+                        match listener.send_single_command(cmd, us.safety(), QueryTarget::ClientFunction) {
+                            Ok(_) => { },
+                            Err(e) => {
+                                on_error.call(e.clone());
+                            }
+                        }
+                    }
+
                     // SingleQueryRequest is used when the schema tree is used to generate a report.
                     ActiveConnectionAction::SingleQueryRequest => {
                     
@@ -1147,10 +1191,9 @@ impl ActiveConnection {
                         
                         match &selected_obj {
                             Some(DBObject::View { schema, name, .. }) | Some(DBObject::Table { schema, name, .. }) => {
-                                println!("{:?}", schema);
                                 let cmd = format!("SELECT * from {schema}.{name};");
                                 let us = user_state.borrow();
-                                match listener.send_single_command(cmd, us.safety()) {
+                                match listener.send_single_command(cmd, us.safety(), QueryTarget::Report) {
                                     Ok(_) => { },
                                     Err(e) => {
                                         on_error.call(e.clone());
@@ -1301,7 +1344,7 @@ impl ActiveConnection {
                     },
                     
                     // Results arrived from a report request.
-                    ActiveConnectionAction::SingleQueryCompleted(out) => {
+                    ActiveConnectionAction::ReportQueryCompleted(out) => {
                         match out {
                             StatementOutput::Valid(_, tbl) => {
                                 on_single_query_result.call(tbl.clone());
@@ -1419,7 +1462,7 @@ impl ActiveConnection {
         self.on_exec_result.bind(f);
     }
 
-    pub fn connect_single_query_result<F>(&self, f : F)
+    pub fn connect_report_query_result<F>(&self, f : F)
     where
         F : Fn(Table) + 'static
     {
@@ -1848,7 +1891,6 @@ impl React<SchemaTree> for ActiveConnection {
         });
 
         tree.form.btn_ok.connect_clicked({
-
             let insert_action = tree.insert_action.clone();
             let call_action = tree.call_action.clone();
             let entries = tree.form.entries.clone();
@@ -1941,6 +1983,61 @@ impl React<SchemaTree> for ActiveConnection {
             }
         });
 
+        tree.create_dialog.btn_create.connect_clicked({
+            let send = self.send.clone();
+            let dialog = tree.form.dialog.clone();
+            let curr_tbl = tree.create_dialog.curr_tbl.clone();
+            let create_action = tree.create_action.clone();
+            let tbl_entry = tree.create_dialog.tbl_entry.clone();
+            let overlay = tree.create_dialog.overlay.clone();
+            move |_| {
+                let tbl = &*curr_tbl.borrow();
+                if let Some(name) = table_create_name(&create_action, &tbl_entry) {
+                    match tbl.sql(&name) {
+                        Ok(stmt) => {
+                            send.send(ActiveConnectionAction::ExecutionRequest(stmt, false)).unwrap();
+                            dialog.close();
+                        },
+                        Err(e) => {
+                            let toast = libadwaita::Toast::builder().title(&e.to_string()).build();
+                            overlay.add_toast(toast.clone());
+                        }
+                    }
+                } else {
+                    let toast = libadwaita::Toast::builder().title("Invalid table name").build();
+                    overlay.add_toast(toast.clone());
+                }
+            }
+        });
+        tree.create_dialog.btn_sql.connect_clicked({
+            let curr_tbl = tree.create_dialog.curr_tbl.clone();
+            let overlay = tree.create_dialog.overlay.clone();
+            let create_action = tree.create_action.clone();
+            let send = self.send.clone();
+            let tbl_entry = tree.create_dialog.tbl_entry.clone();
+            move |_| {
+                if let Some(displ) = gdk::Display::default() {
+                    let tbl = &*curr_tbl.borrow();
+                    if let Some(name) = table_create_name(&create_action, &tbl_entry) {
+                        match tbl.sql(&name) {
+                            Ok(stmt) => {
+                                displ.clipboard().set_text(&stmt);
+                                let toast = libadwaita::Toast::builder().title("Statement copied to clipboard").build();
+                                overlay.add_toast(toast.clone());
+                            },
+                            Err(e) => {
+                                let toast = libadwaita::Toast::builder().title(&e.to_string()).build();
+                                overlay.add_toast(toast.clone());
+                            }
+                        }
+                    } else {
+                        let toast = libadwaita::Toast::builder().title("Invalid table name").build();
+                        overlay.add_toast(toast.clone());
+                    }
+                }
+            }
+        });
+
         let send = self.send.clone();
         tree.import_dialog.dialog.connect_response({
             move |dialog, resp| {
@@ -1954,6 +2051,23 @@ impl React<SchemaTree> for ActiveConnection {
                 }
             }
         });
+    }
+}
+
+fn table_create_name(action : &gio::SimpleAction, entry : &Entry) -> Option<String> {
+    if let Some(state) = action.state() {
+        let s = state.get::<String>().unwrap();
+        let tbl_name = entry.text().to_string();
+        if tbl_name.is_empty() {
+            return None;
+        }
+        if s.is_empty() {
+            Some(tbl_name)
+        } else {
+            Some(format!("{}.{}", s, tbl_name))
+        }
+    } else {
+        None
     }
 }
 
@@ -2029,6 +2143,91 @@ fn text_to_sql_literal(entry : &Entry, ty : &DBType) -> Result<String, String> {
             }
         }
     }
+}
+
+impl React<ApplyWindow> for ActiveConnection {
+
+    fn react(&self, win : &ApplyWindow) {
+        win.call_btn.connect_clicked({
+            let call_params = win.call_params.clone();
+            let send = self.send.clone();
+            let dialog = win.dialog.clone();
+            move |_| {
+                match call_params.borrow().sql() {
+                    Ok(sql) => {
+                        send.send(ActiveConnectionAction::FunctionApplyRequest(sql));
+                        call_params.borrow_mut().pending = true;
+                        dialog.hide();
+                    },
+                    Err(e) => {
+
+                    }
+                }
+            }
+        });
+    }
+
+}
+
+fn call_client_function(
+    modules : &Modules,
+    call_params : &Rc<RefCell<CallParams>>,
+    tbl : &Table
+) -> Result<Table,std::boxed::Box<std::error::Error>> {
+    let mut call_params = call_params.borrow_mut();
+    if !call_params.pending {
+        return Err("Function call not pending".into());
+    }
+    call_params.pending = false;
+    let mut modules = modules.borrow_mut();
+    if let (Some(module), Some(func)) = (&call_params.module, &call_params.func) {
+        if let Some(m) = modules.get_mut(&module[..]) {
+            let args_map = collect_call_args(&call_params, tbl)?;
+            let val = m.call(&func.symbol, &tbl, &args_map)?;
+            let tbl = Table::try_from(val)?;
+            Ok(tbl)
+        } else {
+            Err(format!("No module named {}", module).into())
+        }
+    } else {
+        Err(format!("No function at current call context").into())
+    }
+}
+
+fn collect_call_args(
+    call_params : &CallParams,
+    tbl : &Table
+) -> Result<serde_json::Map<String, serde_json::Value>, std::boxed::Box<std::error::Error>>  {
+    let mut args_map = serde_json::Map::new();
+    for i in 0..call_params.args.len() {
+        match &call_params.args[i].val {
+            ArgVal::Column(_, _, _) | ArgVal::Table(_, _) => {
+                if let Some(col) = tbl.get_column(i) {
+                    if let Some(vals) = col.as_json_values() {
+                        args_map.insert(call_params.args[i].arg.name.to_string(), vals);
+                    } else {
+                        Err("Error converting column to JSON")?;
+                    }
+                } else {
+                    Err(format!("Missing column at index {i}"))?;
+                }
+            },
+
+            ArgVal::Float(real) => {
+                args_map.insert(call_params.args[i].arg.name.to_string(), Value::from(*real));
+            },
+            ArgVal::Bool(b) => {
+                args_map.insert(call_params.args[i].arg.name.to_string(), Value::from(*b));
+            },
+            ArgVal::Integer(int) => {
+                args_map.insert(call_params.args[i].arg.name.to_string(), Value::from(*int));
+            },
+            _ => {
+
+            }
+        }
+    }
+    Ok(args_map)
 }
 
 

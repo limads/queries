@@ -73,7 +73,12 @@ impl DesignBox {
         let width = self.grid_thickness_scale.value();
         let font = font_literal(&self.font_btn);
         let b = json_build_obj(remote);
-        format!("{b}('bgcolor', {bgcolor}, 'fgcolor', {fgcolor}, 'width', {width}, 'font', '{font}')")
+        let fontcolor = if libadwaita::StyleManager::default().is_dark() {
+            "#444444ff"
+        } else {
+            "#f9f9f9ff"
+        };
+        format!("{b}('bgcolor', {bgcolor}, 'fgcolor', {fgcolor}, 'width', {width}, 'font', '{font}', 'fontcolor', '{fontcolor}')")
     }
 
     pub fn build() -> DesignBox {
@@ -90,8 +95,14 @@ impl DesignBox {
         design_list.set_halign(Align::Center);
         bx.append(&design_list);
 
+        let (bgcolor, fgcolor) = if libadwaita::StyleManager::default().is_dark() {
+            (RGBA::parse("#1e1e1eff").unwrap(), RGBA::parse("#454545ff").unwrap())
+        } else {
+            (RGBA::parse("#fafafaff").unwrap(), RGBA::parse("#d3d7cfff").unwrap())
+        };
+
         let bg_color_row = ListBoxRow::new();
-        let bg_color_btn = ColorButton::with_rgba(&RGBA::WHITE);
+        let bg_color_btn = ColorButton::with_rgba(&bgcolor);
         bg_color_row.set_selectable(false);
         bg_color_row.set_activatable(false);
         let bg_color_bx = NamedBox::new("Background", Some("Plot area background color"), bg_color_btn);
@@ -99,7 +110,7 @@ impl DesignBox {
         design_list.append(&bg_color_row);
 
         let grid_color_row = ListBoxRow::new();
-        let grid_color_btn = ColorButton::with_rgba(&RGBA::parse("#D3D7CF").unwrap());
+        let grid_color_btn = ColorButton::with_rgba(&fgcolor);
         grid_color_row.set_selectable(false);
         grid_color_row.set_activatable(false);
         let grid_color_bx = NamedBox::new("Grid", Some("Plot grid color"), grid_color_btn);
@@ -288,6 +299,9 @@ fn nested_column_sql(nested : &BTreeMap<ColSource, Vec<String>>) -> BTreeMap<Str
     exprs
 }
 
+/* Nests a series of columns into a map that
+has the column table/view as keys and the sequence
+of column names as values. Columns are also de-duplicated at this stage. */
 pub fn nested_columns(
     entries : &[DataEntry]
 ) -> BTreeMap<ColSource, Vec<String>> {
@@ -298,6 +312,12 @@ pub fn nested_columns(
             nested.entry(v.src).or_insert(Vec::default()).push(v.col);
         }
     }
+
+    for v in nested.values_mut() {
+        v.sort();
+        v.dedup();
+    }
+
     nested
 }
 
@@ -312,9 +332,15 @@ impl DataEntry {
                 if let Some(s1) = txt_iter.next() {
                     if let Some(s2) = txt_iter.next() {
                         if let Some(s3) = txt_iter.next() {
-                            out.push(MappingCol { src : ColSource { schema : Some(s1.to_string()), tbl : s2.to_string() }, col : s3.to_string() });
+                            out.push(MappingCol {
+                                src : ColSource { schema : Some(s1.to_string()), tbl : s2.to_string() },
+                                col : s3.to_string()
+                            });
                         } else {
-                            out.push(MappingCol { src : ColSource { schema : None, tbl : s1.to_string() }, col : s2.to_string() });
+                            out.push(MappingCol {
+                                src : ColSource { schema : None, tbl : s1.to_string() },
+                                col : s2.to_string()
+                            });
                         }
                     } else {
                         return Vec::new();
@@ -367,35 +393,35 @@ impl ScaleBox {
 
     pub fn sql(&self, is_remote : bool) -> String {
         let label = self.label_entry.text();
-        let (mut min, mut max) = (self.entry_min.text().to_string(), self.entry_max.text().to_string());
-        if min.is_empty() {
-            min = String::from("0.0");
-        }
-        if max.is_empty() {
-            max = String::from("1.0");
-        }
+        let (min, max) = (self.entry_min.text().to_string(), self.entry_max.text().to_string());
         let b = json_build_obj(is_remote);
-        let mut s = format!("{b}('label', '{label}', 'from', {min}, 'to', {max}");
+        let mut s = format!("{b}('label', '{label}'");
+        if !min.is_empty() {
+            s += &format!(", 'from', {min}");
+        }
+        if !max.is_empty() {
+            s += &format!(", 'to', {max}");
+        }
         if self.log_switch.is_active() {
             let log = bool_literal(&self.log_switch);
-            s += &format!(", 'log' : {log}");
+            s += &format!(", 'log', {log}");
         }
         if self.invert_switch.is_active() {
             let invert = bool_literal(&self.invert_switch);
-            s += &format!(", 'invert' : {invert}");
+            s += &format!(", 'invert', {invert}");
         }
         let offset = self.offset_scale.value() as i32;
         if offset != papyri::model::DEFAULT_OFFSET {
-            s += &format!(", 'offset' : {offset}");
+            s += &format!(", 'offset', {offset}");
         }
         let density = self.density_scale.value() as i32;
         if density != papyri::model::DEFAULT_INTERVALS {
-            s += &format!(", 'intervals' : {density}");
+            s += &format!(", 'intervals', {density}");
         }
 
         let prec = self.digits_spin.value() as i32;
         if prec != papyri::model::DEFAULT_PRECISION {
-            s += &format!(", 'precision' : {prec}");
+            s += &format!(", 'precision', {prec}");
         }
 
         s += ")";
@@ -1122,7 +1148,7 @@ impl LayoutBox {
         let split_row = ListBoxRow::new();
         split_row.set_selectable(false);
         split_row.set_activatable(false);
-        let split_bx = NamedBox::new("Layout", Some("Spatial distribution of plots through the area"), layout_toggle_bx);
+        let split_bx = NamedBox::new("Layout", Some("Spatial distribution of subplots"), layout_toggle_bx);
 
         split_row.set_child(Some(&split_bx.bx));
         layout_list.append(&split_row);
@@ -1146,7 +1172,7 @@ impl LayoutBox {
         let split_row = ListBoxRow::new();
         split_row.set_selectable(false);
         split_row.set_activatable(false);
-        let split_bx = NamedBox::new("Distribution", Some("Relative distribution over horizontal and vertical areas"), split_bx_inner);
+        let split_bx = NamedBox::new("Distribution", Some("Relative distribution over horizontal and vertical dimensions"), split_bx_inner);
 
         split_row.set_child(Some(&split_bx.bx));
         layout_list.append(&split_row);
@@ -1242,7 +1268,6 @@ impl GraphWindow {
         let overlay = libadwaita::ToastOverlay::new();
         overlay.set_child(Some(&scroll));
         win.set_child(Some(&overlay));
-        // win.set_child(Some(&scroll));
 
         let layout = LayoutBox::build();
         layout.layout_list.set_width_request(800);
@@ -1266,7 +1291,7 @@ impl GraphWindow {
         btn_plot.style_context().add_class("suggested-action");
 
         let cols_model = Rc::new(RefCell::new(None));
-        let pr = PlotList::build("Plot", &cols_model);
+        let pr = PlotList::build("Central plot", &cols_model);
 
         let middle_bx = Box::new(Orientation::Vertical, 18);
         middle_bx.append(&pr.bx);
@@ -1389,7 +1414,7 @@ impl React<ActiveConnection> for GraphWindow {
             let cols_model = self.cols_model.clone();
             move |(_, info)| {
                 if let Some(info) = info {
-                    update_completion_with_schema(objs.clone(), cols_model.clone(), Some(info.schema));
+                    update_completion_with_columns(objs.clone(), cols_model.clone(), Some(info.schema));
                     update_plot_rows_with_model(pl_rows.clone(), cols_model.clone());
                 }
             }
@@ -1399,7 +1424,7 @@ impl React<ActiveConnection> for GraphWindow {
             let pl_rows = self.plot_rows.clone();
             let cols_model = self.cols_model.clone();
             move |schema| {
-                update_completion_with_schema(objs.clone(), cols_model.clone(), schema);
+                update_completion_with_columns(objs.clone(), cols_model.clone(), schema);
                 update_plot_rows_with_model(pl_rows.clone(), cols_model.clone());
             }
         });
@@ -1423,6 +1448,21 @@ fn update_plot_rows_with_model(pl_rows : Rc<RefCell<Vec<PlotList>>>, cols_model 
     }
 }
 
+fn include_table<'a>(
+    data : &mut Vec<String>,
+    icons : &mut Vec<&'a Pixbuf>,
+    schema_name : &str,
+    tbl_name : &str,
+    icon : &'a Pixbuf
+) {
+    if &schema_name[..] == crate::server::PG_PUB || schema_name.is_empty() {
+        data.push(format!("{}", tbl_name));
+    } else {
+        data.push(format!("{}.{}", schema_name, tbl_name));
+    }
+    icons.push(icon);
+}
+
 fn include_col<'a>(
     data : &mut Vec<String>,
     icons : &mut Vec<&'a Pixbuf>,
@@ -1439,7 +1479,62 @@ fn include_col<'a>(
     icons.push(&type_icons[&col.ty]);
 }
 
-pub fn update_completion_with_schema(
+pub fn update_completion_with_tables(
+    objs : Rc<RefCell<Vec<DBObject>>>,
+    cols_model : Rc<RefCell<Option<ListStore>>>,
+    schema : Option<Vec<DBObject>>
+) {
+    let mut objs = objs.borrow_mut();
+    let mut cols_model = cols_model.borrow_mut();
+    objs.clear();
+
+    let is_dark = libadwaita::StyleManager::default().is_dark();
+    let mut pixbufs = filecase::load_icons_as_pixbufs_from_resource(
+        "/io/github/limads/queries",
+        &["table-symbolic", "view-symbolic"]
+    ).unwrap();
+    let pxb_tbl = pixbufs.remove("table-symbolic").unwrap();
+    let pxb_view = pixbufs.remove("view-symbolic").unwrap();
+
+    if let Some(schema) = schema {
+        let col_types: [glib::Type; 2] = [Pixbuf::static_type(), glib::Type::STRING];
+        let model = ListStore::new(&col_types);
+        let mut data = Vec::new();
+        let mut icons = Vec::new();
+        for new_obj in &schema {
+            match &new_obj {
+                DBObject::Schema { name : schema_name, children, .. } => {
+                    for child in children.iter() {
+                        match child {
+                            DBObject::Table { name, cols, .. } => {
+                                include_table(&mut data, &mut icons, &schema_name, &name, &pxb_tbl);
+                            },
+                            DBObject::Schema { name : schema_name, children : inner_children, .. } => {
+                                if schema_name.starts_with("Views (") && schema_name.ends_with(")") {
+                                    for child in inner_children.iter() {
+                                        match child {
+                                            DBObject::View { name : view_name, cols, .. } => {
+                                                include_table(&mut data, &mut icons, &schema_name, &view_name, &pxb_view);
+                                            },
+                                            _ => { }
+                                        }
+                                    }
+                                }
+                            },
+                            _ =>  { }
+                        }
+                    }
+                },
+                _ => { }
+            }
+        }
+        update_model(&mut *objs, &mut *cols_model, schema, &data, &icons, model);
+    } else {
+        *cols_model = None;
+    }
+}
+
+pub fn update_completion_with_columns(
     objs : Rc<RefCell<Vec<DBObject>>>,
     cols_model : Rc<RefCell<Option<ListStore>>>,
     schema : Option<Vec<DBObject>>
@@ -1487,20 +1582,28 @@ pub fn update_completion_with_schema(
                 _ => { }
             }
         }
-
-        for (d, i) in data.iter().zip(icons.iter()) {
-            model.set(&model.append(), &[
-                (0, i),
-                (1, d),
-            ]);
-        }
-
-        // Any mappings added later will use this information.
-        *objs = schema;
-        *cols_model = Some(model);
+        update_model(&mut *objs, &mut *cols_model, schema, &data, &icons, model);
     } else {
         *cols_model = None;
     }
+}
+
+fn update_model(
+    objs : &mut Vec<DBObject>,
+    cols_model : &mut Option<ListStore>,
+    schema : Vec<DBObject>,
+    data : &[String],
+    icons : &[&Pixbuf],
+    new_model : ListStore
+) {
+    for (d, i) in data.iter().zip(icons.iter()) {
+        new_model.set(&new_model.append(), &[
+            (0, i),
+            (1, d),
+        ]);
+    }
+    *objs = schema;
+    *cols_model = Some(new_model);
 }
 
 pub fn add_completion(e : &Entry, model : &ListStore) -> EntryCompletion {

@@ -554,7 +554,8 @@ impl Connection for PostgresConnection {
     
         let cols = tbl.names();
         
-        let sql = tbl.sql_table_insertion(&dst, &cols)?;
+        let sql = tbl.sql_table_insertion(&dst, &cols, false)?
+            .ok_or(String::from("Empty table"))?;
         
         let stmt = AnyStatement::from_sql(&sql)
             .ok_or(String::from("Invalid insertion SQL"))?;

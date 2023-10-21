@@ -1,3 +1,8 @@
+/*Copyright (c) 2023 Diego da Silva Lima. All rights reserved.
+
+This work is licensed under the terms of the GPL v3.0 License.
+For a copy, see http://www.gnu.org/licenses.*/
+
 use serde::{Serialize, Deserialize};
 use std::ffi::{CStr, CString};
 use gdk_pixbuf::{Pixbuf,PixbufLoader};
@@ -91,24 +96,41 @@ impl ExplainPanel {
         plot.parent.set_valign(Align::Center);
         plot.parent.set_hexpand(false);
         scroll.set_child(Some(&dia));
-        // bx.append(&scroll);
-        // bx.append(&plot.parent);
         paned.set_start_child(Some(&scroll));
         paned.set_end_child(Some(&plot.parent));
 
-        // bx.append(&bx_upper);
-        // bx.append(&dia);
-        // add_node_to_tree_store(&store, None, &expl.plan);
-        // tree_view.expand_all();
         let mut s = String::new();
         add_node_to_diagram(&mut s, &expl.plan, 0, 0, None);
+        let font_color = if libadwaita::StyleManager::default().is_dark() {
+            "#f9f9f9".to_string()
+        } else {
+            "#363636".to_string()
+        };
+        let fill_color = if libadwaita::StyleManager::default().is_dark() {
+            "#404040".to_string()
+        } else {
+            "#ffffff".to_string()
+        };
+        let bg_color = if libadwaita::StyleManager::default().is_dark() {
+            "#242424".to_string()
+        } else {
+            "#fafafa".to_string()
+        };
         let diagram = format!(r##"
             digraph {{
                 dpi=96;
                 rank="LR";
-                bgcolor="#fafafa";
-                node [fontname = "Liberation Mono", style="filled", color="#bbbbbb", fillcolor="#ffffff",fontcolor="#363636", fontsize=12.0, margin=0.025 ];
-                edge [fontname = "Liberation Mono", color="#bbbbbb",fontcolor="#363636", fontsize=12.0];
+                bgcolor="{bg_color}";
+                node [
+                    fontname = "Ubuntu Mono",
+                    style="filled",
+                    color="#bbbbbb",
+                    fillcolor="{fill_color}",
+                    fontcolor="{font_color}",
+                    fontsize=12.0,
+                    margin=0.025
+                ];
+                edge [color="#bbbbbb"];
                 {s}
             }}
         "##);
@@ -308,10 +330,13 @@ pub fn plan_plot(plan : &Plan) -> Panel {
 	    .iter()
 	    .map(|c| c.1 + upper_lim*0.05 )
 	    .collect();
-	let labels = papyri::model::Label::builder()
+	let mut labels = papyri::model::Label::builder()
 	    .font("Liberation Sans 12".to_owned())
 	    .map(label_xs, label_ys, names)
 	    .build();
+	if libadwaita::StyleManager::default().is_dark() {
+	    labels.color = String::from("#f9f9f9ff");
+	}
 	let total = Bar::builder().width(0.5).color("#92b9d8").map(total_cost).center(false).spacing(spacing).build();
 	let startup = Bar::builder().width(0.5).color("#3d6480").map(startup_cost).center(false).spacing(spacing).build();
     let mappings = [
@@ -321,6 +346,7 @@ pub fn plan_plot(plan : &Plan) -> Panel {
     ];
     let sx = papyri::model::Scale::builder()
         .from(-1.0)
+        .intervals(0)
         .guide(false)
         .to(spacing*((n+1) as f64))
         .label("Plan node")
@@ -330,11 +356,17 @@ pub fn plan_plot(plan : &Plan) -> Panel {
         .to(upper_lim)
         .label("Cost")
         .build();
+    let mut design = if libadwaita::StyleManager::default().is_dark() {
+        papyri::model::Design::default_dark()
+    } else {
+        papyri::model::Design::default()
+    };
+    design.font = "Liberation Sans 12".to_string();
     let pl = Plot::builder()
         .x(sx)
         .y(sy)
         .mappings(mappings)
         .build();
-    Panel::builder().design(Design::builder().font("Liberation Sans 12").build()).plots([pl]).build()
+    Panel::builder().design(design).plots([pl]).build()
 }
 

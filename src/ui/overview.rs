@@ -464,7 +464,7 @@ impl ConnectionList {
         list.set_vexpand(true);
         list.set_selection_mode(SelectionMode::Single);
         let scroll = ScrolledWindow::new();
-        scroll.set_width_request(600);
+        scroll.set_width_request(480);
         scroll.set_valign(Align::Fill);
         scroll.set_vexpand(true);
 

@@ -36,7 +36,8 @@ pub struct ModelDesign {
     pub background : String,
     pub node_fill : String,
     pub font_name : String,
-    pub font_size : String
+    pub font_size : String,
+    pub font_color : String
 }
 
 pub fn color_literal_rgb_lower_opaque(color_btn : &ColorButton) -> String {
@@ -60,15 +61,25 @@ fn read_design(color_btn : &ColorButton, font_btn : &FontButton, transparent : b
     let background = if transparent {
         "#00000000".to_string()
     } else {
-        "#fafafa".to_string()
+        if libadwaita::StyleManager::default().is_dark() {
+            "#242424".to_string()
+        } else {
+            "#fafafa".to_string()
+        }
     };
     let node_fill = color_literal_rgb_lower(&color_btn);
     let font = papyri::render::text::FontData::new_from_string(&super::plots::font_literal(&font_btn));
+    let font_color = if libadwaita::StyleManager::default().is_dark() {
+        "#f9f9f9".to_string()
+    } else {
+        "#363636".to_string()
+    };
     ModelDesign {
         background,
         node_fill,
         font_name : font.font_family.clone(),
-        font_size : format!("{}", font.font_size as f32)
+        font_size : format!("{}", font.font_size as f32),
+        font_color
     }
 }
 
@@ -84,7 +95,11 @@ impl ModelWindow {
         dialog.set_height_request(800);
         super::configure_dialog(&dialog, false);
         dialog.set_title(Some("Database model"));
+        let bx_img = Box::new(Orientation::Horizontal, 0);
+        bx_img.set_vexpand(true);
+        bx_img.set_hexpand(true);
         let img = Picture::new();
+        bx_img.append(&img);
         img.set_can_shrink(false);
         //img.set_halign(Align::Fill);
         //img.set_valign(Align::Fill);
@@ -93,8 +108,7 @@ impl ModelWindow {
         img.set_vexpand(true);
         img.set_hexpand(true);
 
-        // TODO this might slow down startup..
-        render_to_image(&img, NO_DIAGRAM);
+        img.set_visible(false);
 
         let bx_outer = Box::new(Orientation::Horizontal, 0);
         let scroll_left = ScrolledWindow::new();
@@ -118,7 +132,12 @@ impl ModelWindow {
         row_cols.set_selectable(false);
 
         let must_draw = Rc::new(RefCell::new(HashSet::new()));
-        let btn_color = LabeledColorBtn::build("Background color", &RGBA::WHITE);
+        let default_color = if libadwaita::StyleManager::default().is_dark() {
+            RGBA::new(0.250980392,0.250980392,0.250980392,1.)
+        } else {
+            RGBA::WHITE
+        };
+        let btn_color = LabeledColorBtn::build("Background color", &default_color);
         let btn_font = LabeledFontBtn::build("Font");
 
         /* Unless a monospaced font is used, the column name/types will
@@ -153,7 +172,8 @@ impl ModelWindow {
             r.set_selectable(false);
         }
 
-        scroll_right.set_child(Some(&img));
+        // scroll_right.set_child(Some(&img));
+        scroll_right.set_child(Some(&bx_img));
         bx_outer.append(&scroll_left);
 
         let bx_btns = Box::new(Orientation::Horizontal, 16);
@@ -167,6 +187,8 @@ impl ModelWindow {
         btn_export.set_sensitive(false);
         bx_btns.append(&btn_export);
         bx_btns.append(&btn_update);
+        bx_btns.set_halign(Align::Center);
+        bx_btns.set_valign(Align::End);
         btn_update.style_context().add_class("pill");
         btn_export.style_context().add_class("pill");
         btn_update.style_context().add_class("suggested-action");
@@ -194,9 +216,11 @@ impl ModelWindow {
                     let design = read_design(&btn_color, &btn_font, false);
                     let dia = model.diagram(&design);
                     render_to_image(&img, &dia);
+                    img.set_visible(true);
                     btn_export.set_sensitive(true);
                 } else {
                     render_to_image(&img, NO_DIAGRAM);
+                    img.set_visible(false);
                 }
             }
         });
@@ -336,6 +360,7 @@ impl React<ActiveConnection> for ModelWindow {
             clear_tables_at_list(&list);
             *model.borrow_mut() = None;
             render_to_image(&img, NO_DIAGRAM);
+            img.set_visible(false);
             btn_export.set_sensitive(false);
             btn_update.set_sensitive(false);
         });
@@ -360,6 +385,7 @@ pub fn render_to_image(img : &Picture, graph : &str) {
             println!("{}",e);
         }
     }
+
 }
 
 // cargo test --lib -- simple_rendering --nocapture

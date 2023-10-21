@@ -68,6 +68,10 @@ mod table;
 
 pub use table::*;
 
+mod create;
+
+pub use create::*;
+
 mod plotarea;
 
 pub use plotarea::*;
@@ -91,14 +95,21 @@ pub type SharedSignal = Rc<RefCell<Option<glib::SignalHandlerId>>>;
 // QueriesContent means everything outside the titlebar and sidebar.
 #[derive(Debug, Clone)]
 pub struct QueriesContent {
-    pub stack : libadwaita::ViewStack,
+
     pub switcher : libadwaita::ViewSwitcher,
     pub overlay : libadwaita::ToastOverlay,
     pub results : QueriesResults,
     pub editor : QueriesEditor,
-    pub results_page : libadwaita::ViewStackPage,
-    pub editor_page : libadwaita::ViewStackPage,
-    pub curr_toast : Rc<RefCell<Option<libadwaita::Toast>>>
+    pub results_page : Rc<RefCell<libadwaita::ViewStackPage>>,
+    pub editor_page : Rc<RefCell<libadwaita::ViewStackPage>>,
+    pub curr_toast : Rc<RefCell<Option<libadwaita::Toast>>>,
+
+    /* Parent widget for stacked mode. */
+    pub stack : libadwaita::ViewStack,
+
+    /* Parent widget for split mode */
+    pub inner_paned : Paned
+
 }
 
 #[derive(Debug, Clone)]
@@ -128,7 +139,9 @@ impl React<Environment> for QueriesContent {
         let content_stack = self.stack.clone();
         let results_stack = self.results.stack.clone();
         env.connect_table_update(move |_tables| {
-            content_stack.set_visible_child_name("results");
+            if content_stack.child_by_name("results").is_some() {
+                content_stack.set_visible_child_name("results");
+            }
             results_stack.set_visible_child_name("tables");
         });
         env.connect_export_error({
@@ -171,13 +184,13 @@ impl React<QueriesWorkspace> for QueriesContent {
         ws.tab_view.connect_close_page(move |tab_view, _page| {
             if tab_view.n_pages() == 1 {
                 stack.set_visible_child_name("overview");
-                results_page.set_icon_name(Some("db-symbolic"));
+                results_page.borrow().set_icon_name(Some("db-symbolic"));
             }
             false
         });
         let results_page = self.results_page.clone();
         ws.tab_view.connect_page_attached(move |_tab_view, _page, _pos| {
-            results_page.set_icon_name(Some("table-symbolic"));
+            results_page.borrow().set_icon_name(Some("table-symbolic"));
         });
     }
 
@@ -226,6 +239,36 @@ impl React<OpenedScripts> for QueriesContent {
 
 impl QueriesContent {
 
+    pub fn switch_to_split(&self) {
+        if self.inner_paned.start_child().is_some() {
+            return;
+        }
+        self.stack.remove(&self.editor.stack);
+        self.stack.remove(&self.results.stack);
+        self.inner_paned.set_position(360);
+        self.inner_paned.set_start_child(Some(&self.editor.stack));
+        self.inner_paned.set_end_child(Some(&self.results.stack));
+        self.overlay.set_child(Some(&self.inner_paned));
+        self.switcher.set_visible(false);
+    }
+
+    pub fn switch_to_stacked(&self) {
+        if self.inner_paned.start_child().is_none() {
+            return;
+        }
+        self.inner_paned.set_start_child(None::<&Stack>);
+        self.inner_paned.set_end_child(None::<&Stack>);
+        let editor_page = self.stack.add_named(&self.editor.stack, Some("editor"));
+        let results_page = self.stack.add_named(&self.results.stack, Some("results"));
+        editor_page.set_icon_name(Some("accessories-text-editor-symbolic"));
+        results_page.set_icon_name(Some("db-symbolic"));
+        *self.editor_page.borrow_mut() = editor_page;
+        *self.results_page.borrow_mut() = results_page;
+        self.stack.set_visible_child_name("results");
+        self.overlay.set_child(Some(&self.stack));
+        self.switcher.set_visible(true);
+    }
+
     fn build(state : &SharedUserState) -> Self {
         let editor = QueriesEditor::build(state);
         let results = QueriesResults::build();
@@ -248,25 +291,29 @@ impl QueriesContent {
             .can_focus(false)
             .policy(libadwaita::ViewSwitcherPolicy::Wide)
             .build();
-
         let overlay = libadwaita::ToastOverlay::new();
         overlay.set_opacity(1.0);
         overlay.set_visible(true);
-
+        overlay.set_child(Some(&stack));
         // Use those for split view
-        // let inner_paned = Paned::new(Orientation::Vertical);
-        // inner_paned.set_position(520);
-        // inner_paned.set_start_child(Some(&editor.stack));
-        // inner_paned.set_end_child(Some(&results.stack));
-
-        // Split view
-        // overlay.set_child(Some(&inner_paned));
 
         // Stacked view
-        overlay.set_child(Some(&stack));
+        //
+        let inner_paned = Paned::new(Orientation::Vertical);
+        inner_paned.set_shrink_start_child(false);
 
         let curr_toast = Rc::new(RefCell::new(None));
-        Self { stack, results, editor, switcher, overlay, results_page, editor_page, curr_toast }
+        Self {
+            stack,
+            results,
+            editor,
+            switcher,
+            overlay,
+            results_page : Rc::new(RefCell::new(results_page)),
+            editor_page : Rc::new(RefCell::new(editor_page)),
+            curr_toast,
+            inner_paned
+        }
     }
 
 }
@@ -288,7 +335,7 @@ impl React<ActiveConnection> for QueriesContent {
                 overlay.add_toast(toast.clone());
                 connect_toast_dismissed(&toast, &curr_toast);
                 *last_toast = Some(toast);
-                results_page.set_icon_name(Some("db-symbolic"));
+                results_page.borrow().set_icon_name(Some("db-symbolic"));
                 if let Some(curr_name) = stack.visible_child_name() {
                     if &curr_name[..] != "overview" {
                         stack.set_visible_child_name("overview");   
@@ -310,7 +357,7 @@ impl React<ActiveConnection> for QueriesContent {
                 overlay.add_toast(toast.clone());
                 connect_toast_dismissed(&toast, &curr_toast);
                 *last_toast = Some(toast);
-                results_page.set_icon_name(Some("db-symbolic"));
+                results_page.borrow().set_icon_name(Some("db-symbolic"));
                 if let Some(curr_name) = stack.visible_child_name() {
                     if &curr_name[..] != "overview" {
                         stack.set_visible_child_name("overview");   
@@ -351,7 +398,7 @@ impl React<ActiveConnection> for QueriesContent {
                             }
                         }).next().is_some();
                     if has_any_tbl {
-                        results_page.set_icon_name(Some("table-symbolic"));
+                        results_page.borrow().set_icon_name(Some("table-symbolic"));
                     }
                 }
             }
@@ -366,7 +413,9 @@ impl React<FileList> for QueriesContent {
         let switcher = self.switcher.clone();
         list.list.connect_row_selected(move |_, opt_row| {
             if opt_row.is_some() {
-                switcher.stack().unwrap().set_visible_child_name("editor");
+                if switcher.stack().unwrap().child_by_name("editor").is_some() {
+                    switcher.stack().unwrap().set_visible_child_name("editor");
+                }
             }
         });
 
@@ -381,7 +430,7 @@ impl React<ExecButton> for QueriesContent {
         let results_page = self.results_page.clone();
         exec_btn.clear_action.connect_activate(move |_action, _param| {
             stack.set_visible_child_name("overview");
-            results_page.set_icon_name(Some("db-symbolic"));
+            results_page.borrow().set_icon_name(Some("db-symbolic"));
         });
     }
 
@@ -404,18 +453,24 @@ pub struct QueriesWindow {
 
 impl QueriesWindow {
 
-    pub fn build(app : &Application, state : &SharedUserState, modules : &apply::Modules) -> Self {
+    pub fn build(
+        app : &Application,
+        state : &SharedUserState,
+        modules : &apply::Modules,
+        params : &Rc<RefCell<apply::CallParams>>
+    ) -> Self {
 
         let window = ApplicationWindow::builder()
             .application(app)
             .title("Queries")
             .default_width(1440)
-            .default_height(1080)
+            .default_height(960)
             .build();
 
         let sidebar = QueriesSidebar::build();
         let titlebar = QueriesTitlebar::build();
         let content = QueriesContent::build(state);
+
         content.results.overview.db_new_dialog.dialog.set_transient_for(Some(&window));
         content.results.overview.db_open_dialog.dialog.set_transient_for(Some(&window));
 
@@ -425,12 +480,14 @@ impl QueriesWindow {
         content.editor.open_dialog.0.dialog.set_transient_for(Some(&window));
         content.editor.export_dialog.dialog.set_transient_for(Some(&window));
         sidebar.schema_tree.form.dialog.set_transient_for(Some(&window));
+        sidebar.schema_tree.create_dialog.dialog.set_transient_for(Some(&window));
         sidebar.schema_tree.report_dialog.dialog.set_transient_for(Some(&window));
         sidebar.schema_tree.report_export_dialog.dialog.set_transient_for(Some(&window));
         sidebar.schema_tree.import_dialog.dialog.set_transient_for(Some(&window));
         sidebar.schema_tree.react(&content.results.overview.conn_bx);
         find_dialog.dialog.set_transient_for(Some(&window));
 
+        // titlebar.header.set_title(Some("Queries"));
         titlebar.header.set_title_widget(Some(&content.switcher));
 
         let paned = Paned::new(Orientation::Horizontal);
@@ -473,6 +530,7 @@ impl QueriesWindow {
         window.add_action(&sidebar.schema_tree.query_action);
         window.add_action(&sidebar.schema_tree.insert_action);
         window.add_action(&sidebar.schema_tree.import_action);
+        window.add_action(&sidebar.schema_tree.create_action);
         window.add_action(&sidebar.schema_tree.call_action);
         window.add_action(&sidebar.schema_tree.report_action);
 
@@ -508,6 +566,17 @@ impl QueriesWindow {
                 security_bx.update(&state.borrow().conns[..]);
             }
         });
+        settings.editor_bx.split_switch.connect_state_set({
+            let content = content.clone();
+            move |switch,_| {
+                if switch.is_active() {
+                    content.switch_to_split();
+                } else {
+                    content.switch_to_stacked();
+                }
+                glib::signal::Propagation::Proceed
+            }
+        });
 
         for info in &state.borrow().conns {
             if info.engine == Engine::SQLite {
@@ -526,7 +595,7 @@ impl QueriesWindow {
         builder_win.react(&titlebar.main_menu);
 
         // TODO move to impl React<MainMenu> for ApplyWindow
-        let apply = apply::ApplyWindow::build(modules.clone());
+        let apply = apply::ApplyWindow::build(modules.clone(), params.clone());
         titlebar.main_menu.action_apply.connect_activate({
             let dialog = apply.dialog.clone();
             move |_,_| {

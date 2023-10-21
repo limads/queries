@@ -9,6 +9,8 @@ use filecase::MultiArchiverImpl;
 use stateful::PersistentState;
 use queries::client::*;
 use queries::ui::*;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 fn main() {
 
@@ -28,7 +30,7 @@ fn main() {
     let style_manager = libadwaita::StyleManager::default();
     style_manager.set_color_scheme(libadwaita::ColorScheme::Default);
 
-    // style_manager.set_color_scheme(libadwaita::ColorScheme::ForceDark);
+    style_manager.set_color_scheme(libadwaita::ColorScheme::ForceDark);
 
     let user_state = if let Some(mut path) = filecase::get_datadir(queries::APP_ID) {
         path.push(queries::SETTINGS_FILE);
@@ -38,7 +40,8 @@ fn main() {
         SharedUserState::default()
     };
     let modules = queries::load_modules();
-    let client = QueriesClient::new(&user_state, modules.clone());
+    let call_params = Rc::new(RefCell::new(queries::ui::apply::CallParams::default()));
+    let client = QueriesClient::new(&user_state, modules.clone(), call_params.clone());
 
     // Take shared ownership of the client state, because they will be needed to
     // persist the client state before the application closes (which is done outside
@@ -66,7 +69,7 @@ fn main() {
             } else {
                 eprintln!("Unable to get default GDK display");
             }
-            let queries_win = QueriesWindow::build(app, &user_state, &modules);
+            let queries_win = QueriesWindow::build(app, &user_state, &modules, &call_params);
             queries::setup(&queries_win, &user_state, &client);
             queries_win.window.show();
         }

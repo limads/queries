@@ -1185,7 +1185,7 @@ impl React<ActiveConnection> for QueryBuilderWindow {
             let entry_join = self.entry_join.clone();
             move |(_, info)| {
                 if let Some(info) = info {
-                    super::update_completion_with_schema(objs.clone(), cols_model.clone(), Some(info.schema));
+                    super::update_completion_with_columns(objs.clone(), cols_model.clone(), Some(info.schema));
                     if let Some(model) = &*cols_model.borrow() {
                         super::add_completion(&entry_col, model);
                         super::add_completion(&entry_join, model);
@@ -1202,7 +1202,7 @@ impl React<ActiveConnection> for QueryBuilderWindow {
             let entry_col = self.entry_col.clone();
             let entry_join = self.entry_join.clone();
             move |schema| {
-                super::update_completion_with_schema(objs.clone(), cols_model.clone(), schema);
+                super::update_completion_with_columns(objs.clone(), cols_model.clone(), schema);
                 if let Some(model) = &*cols_model.borrow() {
                     super::add_completion(&entry_col, model);
                     super::add_completion(&entry_join, model);
@@ -1286,37 +1286,39 @@ pub struct Filter {
 impl Filter {
 
     pub fn sql(&self) -> Result<String, std::boxed::Box<std::error::Error>> {
-        let trimmed_arg = self.arg.trim();
-        let is_bool_or_num = trimmed_arg.trim() == "true" ||
-            trimmed_arg == "false" ||
-            trimmed_arg.parse::<f64>().is_ok() ||
-            trimmed_arg.parse::<i64>().is_ok();
-        let arg = if is_bool_or_num {
-            trimmed_arg.to_owned()
-        } else {
-            if !trimmed_arg.starts_with("'") && !trimmed_arg.ends_with("'") {
-                format!("'{}'", self.arg)
-            } else {
-                trimmed_arg.to_owned()
-            }
-        };
-        let mut tkn = Tokenizer::new(&sqlparser::dialect::PostgreSqlDialect{}, &arg);
-
-        let tkns = tkn.tokenize()?;
-        println!("{:?}", tkns);
-
-        if tkns.len() != 1 {
-            return Err("Invalid filter argument (expected SQL literal)".into());
-        }
-        match tkns[0] {
-            Token::Number(_, _) | Token::Char(_) | Token::SingleQuotedString(_) |
-            Token::Word(Word { keyword : Keyword::TRUE, ..} | Word { keyword : Keyword::FALSE, ..} ) => {
-                Ok(arg)
-            },
-            _ => Err(String::from("Invalid filter argument (expected SQL literal)").into())
-        }
+        literal_from_text(&self.arg)
     }
 
+}
+
+pub fn literal_from_text(s : &str) -> Result<String, std::boxed::Box<std::error::Error>> {
+    let trimmed_arg = s.trim();
+    let is_bool_or_num = trimmed_arg.trim() == "true" ||
+        trimmed_arg == "false" ||
+        trimmed_arg.trim() == "TRUE" ||
+        trimmed_arg == "FALSE" ||
+        trimmed_arg.parse::<f64>().is_ok() ||
+        trimmed_arg.parse::<i64>().is_ok();
+    let arg = if is_bool_or_num {
+        trimmed_arg.to_owned()
+    } else {
+        if trimmed_arg.contains("'") {
+            Err(String::from("Invalid character (')"))?;
+        }
+        format!("'{}'", s)
+    };
+    let mut tkn = Tokenizer::new(&sqlparser::dialect::PostgreSqlDialect{}, &arg);
+    let tkns = tkn.tokenize()?;
+    if tkns.len() != 1 {
+        return Err("Invalid filter argument (expected SQL literal)".into());
+    }
+    match tkns[0] {
+        Token::Number(_, _) | Token::Char(_) | Token::SingleQuotedString(_) |
+        Token::Word(Word { keyword : Keyword::TRUE, ..} | Word { keyword : Keyword::FALSE, ..} ) => {
+            Ok(arg)
+        },
+        _ => Err(String::from("Invalid filter argument (expected SQL literal)").into())
+    }
 }
 
 fn random_ident(g : &mut Gen) -> String {

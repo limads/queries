@@ -62,7 +62,8 @@ pub struct EditorSettings {
     pub font_family : String,
     pub font_size : i32,
     pub show_line_numbers : bool,
-    pub highlight_current_line : bool
+    pub highlight_current_line : bool,
+    pub split_view : bool
 }
 
 impl Default for EditorSettings {
@@ -79,7 +80,8 @@ impl Default for EditorSettings {
             font_family : String::from("Source Code Pro"),
             font_size : 16,
             show_line_numbers : true,
-            highlight_current_line : false
+            highlight_current_line : false,
+            split_view : false
         }
     }
 
@@ -103,7 +105,10 @@ pub struct ExecutionSettings {
     // Whether to execute destructive dml statements
     pub accept_dml : bool,
     
-    pub enable_async : bool
+    pub enable_async : bool,
+
+    pub unroll_json : bool
+
 }
 
 impl Default for ExecutionSettings {
@@ -115,7 +120,8 @@ impl Default for ExecutionSettings {
             statement_timeout : 5,
             accept_ddl : false,
             accept_dml : false,
-            enable_async : false
+            enable_async : false,
+            unroll_json : true
         }
     }
 
@@ -346,6 +352,13 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
                 glib::signal::Propagation::Proceed
             }
         });
+        win.settings.exec_bx.json_switch.connect_state_set({
+            let state = self.clone();
+            move|switch, _| {
+                state.borrow_mut().execution.unroll_json = switch.is_active();
+                glib::signal::Propagation::Proceed
+            }
+        });
 
         // Editor
         win.settings.editor_bx.scheme_combo.connect_changed({
@@ -354,6 +367,13 @@ impl React<crate::ui::QueriesWindow> for SharedUserState {
                 if let Some(txt) = combo.active_text() {
                     state.borrow_mut().editor.scheme = txt.to_string();
                 }
+            }
+        });
+        win.settings.editor_bx.split_switch.connect_state_set({
+            let state = self.clone();
+            move |switch, _| {
+                state.borrow_mut().editor.split_view = switch.is_active();
+                glib::signal::Propagation::Proceed
             }
         });
         win.settings.editor_bx.font_btn.connect_font_set({
@@ -487,6 +507,11 @@ impl PersistentState<QueriesWindow> for SharedUserState {
             queries_win.titlebar.sidebar_toggle.set_active(true);
         }
         
+        queries_win.settings.editor_bx.split_switch.set_state(state.editor.split_view);
+        if state.editor.split_view {
+            queries_win.content.switch_to_split();
+        }
+
         queries_win.settings.conn_bx.timeout_scale.adjustment().set_value(state.conn.timeout as f64);
         queries_win.settings.conn_bx.app_name_entry.set_text(&state.conn.app_name);
         queries_win.settings.conn_bx.save_switch.set_active(state.conn.save_conns);
@@ -497,6 +522,7 @@ impl PersistentState<QueriesWindow> for SharedUserState {
         queries_win.settings.exec_bx.dml_switch.set_active(state.execution.accept_dml);
         queries_win.settings.exec_bx.ddl_switch.set_active(state.execution.accept_ddl);
         queries_win.settings.exec_bx.async_switch.set_active(state.execution.enable_async);
+        queries_win.settings.exec_bx.json_switch.set_active(state.execution.unroll_json);
 
         let font = format!("{} {}", state.editor.font_family, state.editor.font_size);
         queries_win.settings.editor_bx.scheme_combo.set_active_id(Some(&state.editor.scheme));
